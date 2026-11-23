@@ -314,7 +314,7 @@ const H = 3600000;
   console.log('the pages');
   const page = src('src/app/order/[tenantId]/page.tsx'); const card = src('src/components/drive-thru/ComingUp.tsx'); const settings = src('src/components/menu/OrderAheadCard.tsx');
   const cron = src('src/app/api/cron/retail-payments/route.ts'); const counter = src('src/app/(app)/counter/page.tsx');
-  check('the guest’s page: Today or Another day, its day and time, how many people, Booked and Cancel and refund', /'Another day'/.test(page) && /How many people\?/.test(page) && />Booked</.test(page) && /Cancel and refund \$\{usd\(t\.total\)\}/.test(page) && /action: 'cancel'/.test(page));
+  check('the guest’s page: Today or Another day, its day and time, how many people, Booked and Cancel and refund', /tr\('Another day'\)/.test(page) && /tr\('How many people\?'\)/.test(page) && /\{tr\('Booked'\)\}</.test(page) && /tr\('Cancel and refund \{price\}', \{ price: usd\(t\.total\) \}\)/.test(page) && /action: 'cancel'/.test(page));
   check('the counter’s Coming up, with Send it now and Cancel and refund (a manager’s PIN)', /Coming up/.test(card) && /laterCancel/.test(card) && /laterSend/.test(card) && /askPin/.test(card) && /<ComingUp /.test(counter));
   check('the Menu page’s settings', /Orders for another day/.test(settings) && /Notice you need/.test(settings) && /Smallest order/.test(settings));
   check('the payments cron sends each on its day', /releaseDue\(db, t\.id, tenant\)/.test(cron));

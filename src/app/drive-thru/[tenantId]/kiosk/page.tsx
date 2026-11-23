@@ -109,7 +109,7 @@ function TextMe({ tenantId, kioskKey, orderId, onDone, onClose, lang }: { tenant
           {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'clear', '0', 'back'].map((k) => (
             <button key={k} type="button" onClick={() => press(k)} disabled={busy || ((k === 'back' || k === 'clear') && !digits) || (/\d/.test(k) && digits.length >= 10)}
               aria-label={k === 'back' ? t('Delete the last digit') : k === 'clear' ? t('Clear the number') : undefined}
-              className={`${btn} min-h-[64px] ${/\d/.test(k) ? 'text-[26px]' : 'text-[16px]'}`} style={{ background: SOFT, color: INK }}>{k === 'back' ? t('Back') : k === 'clear' ? t('Clear') : k}</button>))}
+              className={`${btn} min-h-[64px] ${/\d/.test(k) ? 'text-[26px]' : 'text-[16px]'}`} style={{ background: SOFT, color: INK }}>{k === 'back' ? t('Delete') : k === 'clear' ? t('Clear') : k}</button>))}
         </div>
         {err && <p role="alert" className="text-[15px]" style={{ color: AMBER }}>{err}</p>}
         <button type="button" data-start disabled={digits.length !== 10 || busy} onClick={save} className={`${btnOn} min-h-[60px] w-full rounded-full text-[17px]`} style={{ background: A, color: '#fff', ...ringOn(A) }}>{busy ? t('Saving…') : t('Text me')}</button>
@@ -153,7 +153,7 @@ function ReceiptMe({ tenantId, kioskKey, orderId, onDone, onClose, lang }: { ten
             {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'clear', '0', 'back'].map((k) => (
               <button key={k} type="button" onClick={() => press(k)} disabled={busy || ((k === 'back' || k === 'clear') && !digits) || (/\d/.test(k) && digits.length >= 10)}
                 aria-label={k === 'back' ? t('Delete the last digit') : k === 'clear' ? t('Clear the number') : undefined}
-                className={`${btn} min-h-[64px] ${/\d/.test(k) ? 'text-[26px]' : 'text-[16px]'}`} style={{ background: SOFT, color: INK }}>{k === 'back' ? t('Back') : k === 'clear' ? t('Clear') : k}</button>))}
+                className={`${btn} min-h-[64px] ${/\d/.test(k) ? 'text-[26px]' : 'text-[16px]'}`} style={{ background: SOFT, color: INK }}>{k === 'back' ? t('Delete') : k === 'clear' ? t('Clear') : k}</button>))}
           </div>
         </> : <label className="block text-[15px] font-semibold" style={{ color: MUTED }}>{t('Your email')}
           <input type="email" inputMode="email" autoComplete="off" autoCapitalize="none" spellCheck={false} value={email} onChange={(e) => { setErr(''); setEmail(e.target.value.slice(0, 120)); }} onKeyDown={(e) => { if (e.key === 'Enter') void send(); }}
@@ -387,7 +387,7 @@ export default function KioskScreen() {
     let p = placed;
     if (!p) {
       if (!orderKey.current) orderKey.current = rid();
-      const { status, d } = await call({ action: 'place', tenantId, key, orderKey: orderKey.current, name: name.trim(), ...(menu?.askToGo ? { toGo: toGo === true } : {}),
+      const { status, d } = await call({ action: 'place', tenantId, key, orderKey: orderKey.current, name: name.trim(), ...(lang === 'es' ? { lang } : {}), ...(menu?.askToGo ? { toGo: toGo === true } : {}),
         lines: cart.map((l) => ({ itemId: l.itemId, quantity: l.quantity, choices: l.picks, ...(l.offer ? { offer: l.offer } : {}), ...(l.note ? { note: l.note } : {}) })), ...(hasAllergy(allergy) ? { allergy: allergyBody(allergy) } : {}) });
       if (status === 401) { setBusy(false); lost(d); return; }
       if (!d.ok) { setBusy(false); setErr(sayIn(lang, d.error, d.code === 'sold_out' ? 'Something in your order just ran out. Change your order and try again.' : 'That didn’t go through. Try again.')); if (d.code === 'sold_out' || d.code === 'gone' || d.code === 'line') void loadMenu(); if (d.code === 'closed') orderKey.current = ''; return; }

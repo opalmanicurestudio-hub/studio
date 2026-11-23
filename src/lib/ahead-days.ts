@@ -105,9 +105,12 @@ export const isLater = (o: any) => !!o?.ahead?.forDay;
  *  (or started). */
 export const ownTime = (o: any): string => String((o?.ahead?.forDay && o.ahead.at) || o?.paidAt || o?.createdAt || '');
 
-/** "Saturday, Nov 29" (long) or "Sat 29" (short), for a day in the business's calendar. */
-export function dayWords(date: string, short = false): string {
+/** "Saturday, Nov 29" (long) or "Sat 29" (short), for a day in the business's calendar. In Spanish, for a guest who
+ *  picked it (lib/guest-lang): "sábado 29 de noviembre" or "sáb 29". */
+export function dayWords(date: string, short = false, lang: 'en' | 'es' = 'en'): string {
   const d = new Date(`${date}T12:00:00Z`); if (!Number.isFinite(d.getTime())) return date;
-  if (short) return `${d.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' })} ${d.getUTCDate()}`;
+  const part = (o: Intl.DateTimeFormatOptions) => d.toLocaleDateString(lang === 'es' ? 'es-US' : 'en-US', { ...o, timeZone: 'UTC' }).replace(/\.$/, '');
+  if (lang === 'es') return short ? `${part({ weekday: 'short' })} ${d.getUTCDate()}` : `${part({ weekday: 'long' })} ${d.getUTCDate()} de ${part({ month: 'long' })}`;
+  if (short) return `${part({ weekday: 'short' })} ${d.getUTCDate()}`;
   return d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', timeZone: 'UTC' });
 }

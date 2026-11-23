@@ -10,7 +10,7 @@
 // shelf (voidOrder). Nothing is ever made for an order that isn't paid.
 //   tenants/{t}/counterOrders/{id}.kiosk = { screen, state: 'awaiting_pay' | 'paid' | 'let_go' }
 //   kitchenScreens/{hash}.readerId, .kioskOrder   (its reader, picked by a manager; the order it's being paid for now)
-import { spanishOf } from '@/lib/guest-lang';
+import { cleanGuestLang, spanishOf } from '@/lib/guest-lang';
 import { hereFor, zonedHere } from '@/lib/here-server';
 import { dayKey } from '@/lib/business-locations';
 import { cleanLineNote, cleanOrderAllergy } from '@/lib/order-allergy';
@@ -87,7 +87,7 @@ export async function kioskMenu(db: any, tenantId: string, tenant: any, screen: 
 /** The order the guest tapped Pay on: priced from the menu, numbered ("K14") and sent to the kitchen as unpaid (its stock
  *  held). The same key and the same order again (a second tap, a lost answer) is the same order; one this kiosk left
  *  waiting to be paid (the guest before walked away) is let go first, so a kiosk only ever holds one. */
-export async function kioskPlace(db: any, tenantId: string, tenant: any, screen: Screen, b: { key?: unknown; lines?: unknown; name?: unknown; toGo?: unknown; allergy?: unknown }, o: { stripe?: any; now?: number } = {}): Promise<any> {
+export async function kioskPlace(db: any, tenantId: string, tenant: any, screen: Screen, b: { key?: unknown; lines?: unknown; name?: unknown; toGo?: unknown; allergy?: unknown; lang?: unknown }, o: { stripe?: any; now?: number } = {}): Promise<any> {
   if (!accountOf(tenant) || !(o.stripe || readerStripe())) return fail('Paying by card isn’t set up here yet. Please order at the counter.', 409, 'no_payments');
   if (!screen.readerId) return fail('This kiosk’s card reader isn’t picked yet. Please order at the counter.', 409, 'no_reader');
   const key = String(b.key || ''); if (!KEY.test(key)) return fail('Something went wrong. Try again.', 400);
@@ -150,7 +150,7 @@ export async function kioskPlace(db: any, tenantId: string, tenant: any, screen:
     const c: any = (await tx.get(counterRef)).data() || {};
     const n = Math.floor(num(c.kiosk)) + 1; const number = orderNumber('kiosk', n);
     tx.set(counterRef, { kiosk: n, day }, { merge: true });
-    tx.set(orderRef, { id: orderId, number, channel: 'kiosk', status: 'building', lines, ...money, guestName: name, toGo, createdAt: at.toISOString(), createdBy: screen.name, day, ...(here ? { locationId: here } : {}),
+    tx.set(orderRef, { id: orderId, number, channel: 'kiosk', status: 'building', lines, ...money, guestName: name, ...(cleanGuestLang(b?.lang) === 'es' ? { guestLang: 'es' } : {}), toGo, createdAt: at.toISOString(), createdBy: screen.name, day, ...(here ? { locationId: here } : {}),
       ...(allergy ? { allergy: { ...allergy, by: 'The guest', at: at.toISOString() } } : {}),
       kiosk: { screen: screen.ref.id, state: 'awaiting_pay' } });
     return { number };

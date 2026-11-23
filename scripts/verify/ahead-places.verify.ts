@@ -233,7 +233,7 @@ const closedWeek = Object.fromEntries(DAYS.map((d) => [d, { enabled: false, star
 
   console.log('the pages');
   const page = src('src/app/order/[tenantId]/page.tsx'); const card = src('src/components/menu/PlacesCard.tsx');
-  check('the guest’s page: Where are you ordering from, Find the nearest, the one picked with Change, sent with each call', /Where are you ordering from\?/.test(page) && /Find the nearest/.test(page) && />Change</.test(page) && /\.\.\.menuPlace\(\)/.test(page) && /cf\.ahead\.place\./.test(page) && /deliveryFrom: dcheck\.from\.id/.test(page));
+  check('the guest’s page: Where are you ordering from, Find the nearest, the one picked with Change, sent with each call', /tr\('Where are you ordering from\?'\)/.test(page) && /tr\('Find the nearest'\)/.test(page) && /\{tr\('Change'\)\}</.test(page) && /\.\.\.menuPlace\(\)/.test(page) && /cf\.ahead\.place\./.test(page) && /deliveryFrom: dcheck\.from\.id/.test(page));
   check('the Menu page: each location’s ordering, delivery, hours, link and code', /Your locations/.test(card) && /Takes orders ahead/.test(card) && /Delivers from here/.test(card) && /Same as the business/.test(card) && /Save its code/.test(card) && /<PlacesCard/.test(src('src/components/menu/OrderAheadCard.tsx')));
   check('house style', ![card, src('src/lib/ahead-places.ts')].some((x) => / · |\buppercase\b|font-black|call us|contact us/i.test(x)));
 

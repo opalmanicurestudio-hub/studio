@@ -11,6 +11,10 @@
 //   Orders for another day (lib/ahead-days; design board "Orders for another day"): Today or Another day, its date and
 //   time (only days and times the business is open, from its notice on), how many people; paid now, and on the order's
 //   page booked for its day, with Cancel and refund until the notice runs out.
+//   In Spanish too (lib/guest-lang; design board "The boards and the assistant in Spanish", A): English or Español at the
+//   top of every step, starting in the phone's own language (or ?lang=es) and kept on the phone once picked. The page's
+//   words, the business's own Spanish for its items and sections, what the server says, and the card form; the text when
+//   it's ready goes in Spanish too. The menu questions box reads English only, so a page in Spanish leaves it out.
 import * as React from 'react';
 import { useParams } from 'next/navigation';
 import { loadStripe } from '@stripe/stripe-js';
@@ -22,11 +26,12 @@ import { ChoicePicker } from '@/components/menu/ChoicePicker';
 import { AllergyChips, NoteField, NO_ALLERGY, allergyBody, hasAllergy, type AllergyValue } from '@/components/menu/OrderAllergy';
 import { conflictWords, containsLine, dishConflict, sameNote } from '@/lib/order-allergy';
 import type { AllergenKey } from '@/lib/allergens';
-import { defaultPicks, priceChoices, type Picks } from '@/lib/menu-choices';
+import { choiceGroups, defaultPicks, priceChoices, type Picks } from '@/lib/menu-choices';
 import { offersFor, sizedUp, type OfferKind, type SizeUp } from '@/lib/menu-upgrades';
 import { CURBSIDE_GEOFENCE_M, distanceMetres, roughEtaMinutes } from '@/lib/retail-orders';
 import { dayWords } from '@/lib/ahead-days';
 import { milesApart } from '@/lib/ahead-places';
+import { GUEST_LANGS, allergenIn, atTime, capFirst, gt, guestLangKey, hasGuestSpanish, inLang, sayIn, theHour, untilTime, type GuestLang } from '@/lib/guest-lang';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', GREEN_TINT = '#ecf6f0', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
 const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
@@ -35,6 +40,31 @@ const usd = (n: number) => `$${(Math.round(n * 100) / 100).toFixed(2)}`;
 type Way = 'drive-thru' | 'inside' | 'curbside' | 'delivery';
 const WAY_WORDS: Record<Way, string> = { 'drive-thru': 'at the drive-thru', inside: 'inside', curbside: 'at the curb: we bring it to your car', delivery: 'delivered to you' };
 const WAY_BUTTON: Record<Way, string> = { 'drive-thru': 'Drive-thru', inside: 'Inside', curbside: 'Curbside', delivery: 'Delivery' };
+/** The page's language (lib/guest-lang): what each part reads to say its words. */
+const Lang = React.createContext<GuestLang>('en');
+type Say = (en: string, v?: Record<string, string | number>) => string;
+const useSay = (): [GuestLang, Say] => { const lang = React.useContext(Lang); return [lang, (en, v) => gt(lang, en, v)]; };
+/** A message said in one language is taken down when the guest switches (they see it again, in the other, if they try
+ *  again), so nothing on the page stays in the language they just left. */
+const useClearOnSwitch = (lang: GuestLang, ...clear: (() => void)[]) => { const was = React.useRef(lang);
+  React.useEffect(() => { if (was.current !== lang) { was.current = lang; clear.forEach((f) => f()); } }, [lang]); }; // eslint-disable-line react-hooks/exhaustive-deps
+/** What the server said, in the page's language (lib/guest-lang sayIn). Words it makes up around an item's name ("Iced
+ *  latte just sold out") have no Spanish of their own, so in Spanish what their code means is said instead. */
+const BY_CODE: Record<string, string> = { sold_out: 'Something in your order just ran out. Change your order and try again.', line: 'Check your choices.',
+  too_far: 'That’s farther than we deliver. Pick it up instead.', at: 'Pick the day and time again.', gone: 'Something in your order isn’t on the menu any more. Take it off and try again.' };
+const said = (lang: GuestLang, d: any, fallback: string) => (lang === 'es' && d?.code && BY_CODE[d.code] && !hasGuestSpanish(String(d.error || '')) ? gt('es', BY_CODE[d.code]) : sayIn(lang, d?.error, fallback));
+/** English or Español, at the top of every step. */
+function LangSwitch({ lang, onPick }: { lang: GuestLang; onPick: (l: GuestLang) => void }) {
+  return (
+    <div role="group" aria-label={gt(lang, 'Language')} className="inline-flex overflow-hidden rounded-full bg-[#fff]" style={{ border: `1px solid ${LINE}` }}>
+      {GUEST_LANGS.map((x) => <button key={x.id} type="button" lang={x.id} aria-pressed={lang === x.id} onClick={() => onPick(x.id)} className={`min-h-[44px] rounded-full px-4 text-[14px] font-semibold ${RING}`} style={lang === x.id ? { background: INK, color: '#fff' } : { color: INK }}>{x.name}</button>)}
+    </div>);
+}
+/** Points earned with an order, in the page's language. */
+const earnedLine = (lang: GuestLang, n: number, unit?: string) => { const punch = unit === 'punches';
+  return gt(lang, n === 1 ? (punch ? 'You earned 1 punch with this order.' : 'You earned 1 point with this order.') : punch ? 'You earned {n} punches with this order.' : 'You earned {n} points with this order.', { n }); };
+/** The allergies told to the kitchen, as kept, in Spanish ("Leche, Cacahuate (maní), grave"). */
+const allergyIn = (lang: GuestLang, a: { keys: string[]; other: string; severe: boolean }) => `${[...a.keys.map((k) => allergenIn(lang, k, k)), ...(a.other ? [a.other] : [])].join(', ')}${a.severe ? `, ${gt(lang, 'severe')}` : ''}`;
 // Delivered by the business's own drivers (lib/food-delivery): the address, checked for the fee and the drive.
 type Addr = { line1: string; line2: string; city: string; state: string; postalCode: string };
 const NO_ADDR: Addr = { line1: '', line2: '', city: '', state: '', postalCode: '' };
@@ -50,10 +80,11 @@ const to5 = (ms: number) => new Date(Math.ceil(ms / 300000) * 300000).toISOStrin
 /** When it should get there from a pickup time (the time it's ready to leave): plus the drive, to the next 5 minutes. */
 const arriveFor = (iso: string, driveMin: number) => to5(Date.parse(iso) + driveMin * 60000);
 /** The menu's first line: how guests get it. */
-const headWords = (ws: Way[]) => { const pick = ws.filter((w) => w !== 'delivery'); const del = ws.includes('delivery');
-  return pick.length ? `Order ahead, pay now, and pick it up ${wayList(pick)}${del ? ', or have it delivered' : ''}.` : 'Order ahead, pay now, and have it delivered.'; };
-const wayList = (ws: Way[]) => (ws.length > 1 ? `${ws.slice(0, -1).map((w) => WAY_WORDS[w].split(':')[0]).join(', ')} or ${WAY_WORDS[ws[ws.length - 1]].split(':')[0]}` : WAY_WORDS[ws[0]] || 'inside');
-type Item = { id: string; name: string; section: string; words: string | null; price: number; from: boolean; startPrice: number; imageUrl: string | null; choices: any[]; soldOut: boolean; calories?: number | null;
+const headWords = (ws: Way[], tr: Say) => { const pick = ws.filter((w) => w !== 'delivery'); const del = ws.includes('delivery');
+  return pick.length ? tr(del ? 'Order ahead, pay now, and pick it up {ways}, or have it delivered.' : 'Order ahead, pay now, and pick it up {ways}.', { ways: wayList(pick, tr) }) : tr('Order ahead, pay now, and have it delivered.'); };
+const wayList = (ws: Way[], tr: Say) => { const short = (w: Way) => tr(WAY_WORDS[w]).split(':')[0];
+  return ws.length > 1 ? tr('{a} or {b}', { a: ws.slice(0, -1).map(short).join(', '), b: short(ws[ws.length - 1]) }) : tr(WAY_WORDS[ws[0]] || 'inside'); };
+type Item = { id: string; name: string; nameEs?: string | null; wordsEs?: string | null; section: string; words: string | null; price: number; from: boolean; startPrice: number; imageUrl: string | null; choices: any[]; soldOut: boolean; calories?: number | null;
   upgrades?: { size: boolean; items: string[] };
   /** What it contains of the major allergens, when the business has said (null: nobody has). */
   allergens?: AllergenKey[] | null };
@@ -66,14 +97,15 @@ type Menu = { on: boolean; business: string; ways: Way[]; times: string[]; full?
   /** Orders for another day (lib/ahead-days): the days and their times, how it can be had, the smallest order (cents) and the notice. */
   later?: Later | null;
   /** With more than one location (lib/ahead-places): pick one first (`pick`), the one it's from, and the others. */
-  pick?: boolean; place?: { id: string; name: string; address: string | null } | null; places?: PlaceRow[]; klair?: { name: string } | null; sections: { name: string; items: Item[] }[]; timeZone?: string; points?: { unit: string; askJoin: boolean } | null };
+  pick?: boolean; place?: { id: string; name: string; address: string | null } | null; places?: PlaceRow[]; klair?: { name: string } | null; sections: { name: string; nameEs?: string | null; items: Item[] }[]; timeZone?: string; points?: { unit: string; askJoin: boolean } | null };
 type CartLine = { key: string; itemId: string; name: string; picks: Picks; choicesText: string; quantity: number; each: number; imageUrl: string | null; offer?: OfferKind;
   /** A note for the kitchen about this dish (lib/order-allergy). */
   note?: string };
 /** Right after something's added: its line and how many were just added, what was offered with it (kept as it was first
  *  shown), and what's been taken ('size', or 'item:' and its id). */
 type After = { key: string; itemId: string; qty: number; size: SizeUp | null; items: Item[]; took: string[] };
-type Track = { business: string; number: string; name: string | null; state: string; paid: boolean; code: string | null; way: Way; at: string | null; later?: TrackLater | null; place?: { name: string; address: string | null } | null; kitchen: 'later' | 'making' | 'ready' | 'handed' | null; here: boolean; failed: string | null; curb?: { where: string | null; out: boolean; by: string | null; onWay?: boolean; eta?: number | null; found?: boolean } | null; geo?: { lat: number; lng: number } | null; earned?: number; unit?: string; lines: { name: string; quantity: number; choicesText: string | null; price: number; itemId?: string; picks?: Picks; note?: string | null }[]; total: number; allergy?: string | null;
+type Track = { business: string; number: string; name: string | null; state: string; paid: boolean; code: string | null; way: Way; at: string | null; later?: TrackLater | null; place?: { name: string; address: string | null } | null; kitchen: 'later' | 'making' | 'ready' | 'handed' | null; here: boolean; failed: string | null; curb?: { where: string | null; out: boolean; by: string | null; onWay?: boolean; eta?: number | null; found?: boolean } | null; geo?: { lat: number; lng: number } | null; earned?: number; unit?: string; lines: { name: string; nameEs?: string | null; quantity: number; choicesText: string | null; price: number; itemId?: string; picks?: Picks; note?: string | null }[]; total: number; allergy?: string | null;
+  allergyOf?: { keys: string[]; other: string; severe: boolean } | null;
   /** The text when it's ready (lib/ready-text): asked for or sent, and whether it can still be asked. */
   text?: { last4: string; sent: boolean; failed: boolean } | null; texts?: boolean;
   /** Delivered: where to, about when, and how it's going (who's bringing it, once it's out). */
@@ -109,15 +141,16 @@ function rememberPast(t: string, entry: Past, fav?: boolean): Past[] {
   const next = same ? list.map((p) => (p === same ? { ...p, o: entry.o, at: same.o === entry.o ? p.at : entry.at, lines: entry.lines, fav: fav ?? p.fav } : p)) : [{ ...entry, fav: !!fav }, ...list];
   return keepPast(t, next);
 }
-const pastWords = (p: { lines: Past['lines'] }) => p.lines.map((l) => `${l.quantity > 1 ? `${l.quantity} ` : ''}${l.name}${l.choicesText ? ` (${l.choicesText})` : ''}`).join(', ');
+const pastWords = (p: { lines: Past['lines'] }, nm: (l: Past['lines'][number]) => string = (l) => l.name) => p.lines.map((l) => `${l.quantity > 1 ? `${l.quantity} ` : ''}${nm(l)}${l.choicesText ? ` (${l.choicesText})` : ''}`).join(', ');
 /** When it was ordered, in words: today, yesterday, a weekday this week, or the date. */
-function whenWords(iso: string, tz?: string): string {
+function whenWords(iso: string, tz: string | undefined, lang: GuestLang): string {
   const day = (d: Date) => { try { return d.toLocaleDateString('en-CA', tz ? { timeZone: tz } : {}); } catch { return d.toLocaleDateString('en-CA'); } };
   const then = new Date(iso); const now = new Date(); if (!Number.isFinite(then.getTime())) return '';
-  if (day(then) === day(now)) return 'Today';
-  if (day(then) === day(new Date(now.getTime() - 86400000))) return 'Yesterday';
+  if (day(then) === day(now)) return gt(lang, 'Today');
+  if (day(then) === day(new Date(now.getTime() - 86400000))) return gt(lang, 'Yesterday');
   const opts: Intl.DateTimeFormatOptions = now.getTime() - then.getTime() < 6 * 86400000 ? { weekday: 'long' } : { month: 'short', day: 'numeric' };
-  try { return then.toLocaleDateString('en-US', tz ? { ...opts, timeZone: tz } : opts); } catch { return then.toLocaleDateString('en-US', opts); }
+  const loc = lang === 'es' ? 'es-US' : 'en-US';
+  try { return capFirst(then.toLocaleDateString(loc, tz ? { ...opts, timeZone: tz } : opts)); } catch { return capFirst(then.toLocaleDateString(loc, opts)); }
 }
 /** A past order's lines, from an order's own page (what was picked comes with each line). */
 const pastLines = (lines: Track['lines']): Past['lines'] => lines.filter((l) => l.itemId).map((l) => ({ itemId: String(l.itemId), picks: l.picks || {}, quantity: l.quantity, name: l.name, choicesText: l.choicesText }));
@@ -135,7 +168,7 @@ const stripeFor = (pk: string, acct?: string) => { const k = `${pk}|${acct || ''
 const pickWords = (item: Item, picks: Picks) => { const p = priceChoices(item, picks); return p.ok ? p.text : ''; };
 
 function Sheet({ title, onClose, children, foot }: { title: string; onClose: () => void; children: React.ReactNode; foot?: React.ReactNode }) {
-  const box = React.useRef<HTMLDivElement>(null); const close = React.useRef(onClose); close.current = onClose;
+  const box = React.useRef<HTMLDivElement>(null); const close = React.useRef(onClose); close.current = onClose; const [, tr] = useSay();
   React.useEffect(() => {
     // (A sheet can say where the focus starts: the first thing marked data-start, else its first button.)
     const opener = document.activeElement as HTMLElement | null; (box.current?.querySelector<HTMLElement>('[data-start]:not([disabled])') || box.current?.querySelector<HTMLElement>('button, input'))?.focus();
@@ -148,7 +181,7 @@ function Sheet({ title, onClose, children, foot }: { title: string; onClose: () 
       <div ref={box} role="dialog" aria-modal="true" aria-label={title} className="flex max-h-[92dvh] w-full flex-col rounded-t-3xl bg-[#fff] sm:max-w-lg sm:rounded-3xl">
         <div className="flex items-center justify-between gap-3 px-5 pt-5">
           <h2 className="min-w-0 truncate text-[20px] font-semibold tracking-tight" style={{ color: INK }}>{title}</h2>
-          <button type="button" onClick={onClose} aria-label="Close" className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${RING}`} style={{ border: `1px solid ${LINE}`, color: INK }}><X className="h-5 w-5" /></button>
+          <button type="button" onClick={onClose} aria-label={tr('Close')} className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${RING}`} style={{ border: `1px solid ${LINE}`, color: INK }}><X className="h-5 w-5" /></button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</div>
         {foot && <div className="border-t px-5 py-4" style={{ borderColor: LINE }}>{foot}</div>}
@@ -159,24 +192,28 @@ function Sheet({ title, onClose, children, foot }: { title: string; onClose: () 
 
 function ItemSheet({ item, onAdd, onClose, max = 20 }: { item: Item; onAdd: (picks: Picks, qty: number, note: string) => void; onClose: () => void; max?: number }) {
   const [picks, setPicks] = React.useState<Picks>(() => defaultPicks(item)); const [qty, setQty] = React.useState(1); const [note, setNote] = React.useState('');
-  const has = containsLine(item);
+  const [lang, tr] = useSay(); const has = containsLine(item, lang);
+  const name = inLang(lang, item.name, item.nameEs); const words = inLang(lang, item.words || '', item.wordsEs) || null;
   const priced = priceChoices(item, picks); const each = Math.max(0, item.price + (priced.ok ? priced.extra : 0));
+  // (In Spanish, what to do: the server's words are English, and the choice's own name is as the business wrote it.)
+  const missing = !priced.ok ? choiceGroups(item).find((g) => g.required && !(picks[g.id] || []).length) : undefined;
+  const why = priced.ok ? '' : lang === 'en' ? priced.error : tr(missing ? 'Choose an option.' : 'Check your choices.');
   return (
-    <Sheet title={item.name} onClose={onClose} foot={
+    <Sheet title={name} onClose={onClose} foot={
       <div className="flex items-center gap-3">
-        <div className="flex shrink-0 items-center rounded-full" style={{ border: `1px solid ${LINE}` }} role="group" aria-label="How many">
-          <button type="button" aria-label="One fewer" disabled={qty <= 1} onClick={() => setQty((n) => Math.max(1, n - 1))} className={`inline-flex h-12 w-12 items-center justify-center rounded-full disabled:opacity-30 ${RING}`}><Minus className="h-4 w-4" /></button>
+        <div className="flex shrink-0 items-center rounded-full" style={{ border: `1px solid ${LINE}` }} role="group" aria-label={tr('How many')}>
+          <button type="button" aria-label={tr('One fewer')} disabled={qty <= 1} onClick={() => setQty((n) => Math.max(1, n - 1))} className={`inline-flex h-12 w-12 items-center justify-center rounded-full disabled:opacity-30 ${RING}`}><Minus className="h-4 w-4" /></button>
           <span className="w-7 text-center text-[17px] font-semibold tabular-nums" aria-live="polite">{qty}</span>
-          <button type="button" aria-label="One more" disabled={qty >= max} onClick={() => setQty((n) => Math.min(max, n + 1))} className={`inline-flex h-12 w-12 items-center justify-center rounded-full disabled:opacity-30 ${RING}`}><Plus className="h-4 w-4" /></button>
+          <button type="button" aria-label={tr('One more')} disabled={qty >= max} onClick={() => setQty((n) => Math.min(max, n + 1))} className={`inline-flex h-12 w-12 items-center justify-center rounded-full disabled:opacity-30 ${RING}`}><Plus className="h-4 w-4" /></button>
         </div>
-        <button type="button" disabled={!priced.ok} onClick={() => onAdd(picks, qty, note.trim())} className={`${btn} min-h-[52px] flex-1 text-[16px]`} style={{ background: INK, color: '#fff' }}>Add{qty > 1 ? ` ${qty}` : ''}, {usd(each * qty)}</button>
+        <button type="button" disabled={!priced.ok} onClick={() => onAdd(picks, qty, note.trim())} className={`${btn} min-h-[52px] flex-1 text-[16px]`} style={{ background: INK, color: '#fff' }}>{qty > 1 ? tr('Add {n}, {price}', { n: qty, price: usd(each * qty) }) : tr('Add, {price}', { price: usd(each * qty) })}</button>
       </div>}>
       {item.imageUrl && <img src={item.imageUrl} alt="" className="mb-4 aspect-[4/3] w-full rounded-2xl object-cover" style={{ background: SOFT }} />}
-      {(item.words || item.calories != null) && <p className="mb-4 text-[15px] leading-relaxed" style={{ color: MUTED }}>{item.words}{item.words && item.calories != null ? ' ' : ''}{item.calories != null && <span className="whitespace-nowrap">({item.calories} cal)</span>}</p>}
-      <p className="mb-4 text-[14px]" style={{ color: MUTED }}>{has ? `${has}.${item.choices.length ? ' Choices can change this.' : ''}` : 'Allergens aren’t listed for this one.'}</p>
-      <ChoicePicker item={item} picks={picks} onChange={setPicks} />
-      <div className="mt-4"><NoteField value={note} onChange={setNote} id={`note-${item.id}`} /></div>
-      {!priced.ok && <p role="status" className="mt-3 text-[14px]" style={{ color: AMBER }}>{priced.error}</p>}
+      {(words || item.calories != null) && <p className="mb-4 text-[15px] leading-relaxed" style={{ color: MUTED }}>{words}{words && item.calories != null ? ' ' : ''}{item.calories != null && <span className="whitespace-nowrap">{tr('({n} cal)', { n: item.calories })}</span>}</p>}
+      <p className="mb-4 text-[14px]" style={{ color: MUTED }}>{has ? `${has}.${item.choices.length ? ` ${tr('Choices can change this.')}` : ''}` : tr('Allergens aren’t listed for this one.')}</p>
+      <ChoicePicker item={item} picks={picks} onChange={setPicks} lang={lang} />
+      <div className="mt-4"><NoteField value={note} onChange={setNote} id={`note-${item.id}`} lang={lang} /></div>
+      {!priced.ok && <p role="status" className="mt-3 text-[14px]" style={{ color: AMBER }}>{why}</p>}
     </Sheet>
   );
 }
@@ -185,36 +222,37 @@ function ItemSheet({ item, onAdd, onClose, max = 20 }: { item: Item; onAdd: (pic
  *  asked once. The size up changes the line just added; something to go with it is a line of its own (one with choices
  *  of its own opens its sheet, to pick them). Nothing taken: No thanks. */
 function AfterSheet({ after, item, line, onSize, onItem, onClose }: { after: After; item: Item; line: CartLine | undefined; onSize: () => void; onItem: (x: Item) => void; onClose: () => void }) {
-  const done = React.useRef<HTMLButtonElement>(null); const [said, setSaid] = React.useState('');
+  const done = React.useRef<HTMLButtonElement>(null); const [spoke, setSpoke] = React.useState('');
+  const [lang, tr] = useSay(); const nm = (x: { name: string; nameEs?: string | null }) => inLang(lang, x.name, x.nameEs);
   const took = (k: string) => after.took.includes(k);
   // Only what was just added: one more latte added to two already in the order is the one asked about.
   // Taken: said out loud, and the focus goes to Done (the button tapped is gone).
-  const tap = (f: () => void, words: string) => { f(); setSaid(words); requestAnimationFrame(() => done.current?.focus()); };
+  const tap = (f: () => void, words: string) => { f(); setSpoke(words); requestAnimationFrame(() => done.current?.focus()); };
   const q = Math.max(1, Math.min(after.qty, line?.quantity || 1));
   const bigger = after.size && line && !took('size') ? priceChoices(item, sizedUp(line.picks, after.size)) : null;
   const added = (word: string) => <span className="inline-flex min-h-[44px] shrink-0 items-center gap-1.5 rounded-xl px-3 text-[15px] font-semibold" style={{ background: GREEN_TINT, color: GREEN }}><Check className="h-4 w-4" aria-hidden />{word}</span>;
   return (
-    <Sheet title="Added to your order" onClose={onClose} foot={
-      <button ref={done} type="button" onClick={onClose} className={`${btn} min-h-[52px] w-full text-[16px]`} style={{ background: INK, color: '#fff' }}>{after.took.length ? 'Done' : 'No thanks'}</button>}>
+    <Sheet title={tr('Added to your order')} onClose={onClose} foot={
+      <button ref={done} type="button" onClick={onClose} className={`${btn} min-h-[52px] w-full text-[16px]`} style={{ background: INK, color: '#fff' }}>{after.took.length ? tr('Done') : tr('No thanks')}</button>}>
       {line && <p className="flex items-start gap-2.5 text-[15px]">
         <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full" style={{ background: GREEN_TINT, color: GREEN }}><Check className="h-4 w-4" aria-hidden /></span>
-        <span className="min-w-0" style={{ color: MUTED }}>{q > 1 ? `${q} ` : ''}{line.name}{line.choicesText ? `, ${line.choicesText}` : ''}. <span className="tabular-nums">{usd(line.each * q)}</span></span></p>}
-      <p className="mt-5 text-[16px] font-semibold">Anything with it?</p>
+        <span className="min-w-0" style={{ color: MUTED }}>{q > 1 ? `${q} ` : ''}{nm(item)}{line.choicesText ? `, ${line.choicesText}` : ''}. <span className="tabular-nums">{usd(line.each * q)}</span></span></p>}
+      <p className="mt-5 text-[16px] font-semibold">{tr('Anything with it?')}</p>
       <ul className="mt-3 space-y-2">
         {after.size && (
           <li className="flex items-center gap-3 rounded-2xl p-3.5" style={{ border: `1px solid ${LINE}` }}>
-            <span className="min-w-0 flex-1"><span className="block text-[16px] font-semibold">Size up to {after.size.to}</span>
-              {bigger?.ok && <span className="block text-[14px]" style={{ color: MUTED }}>{line!.name}, {bigger.text}. <span className="tabular-nums">{usd(Math.max(0, item.price + bigger.extra) * q)}</span>{q > 1 ? ' for all' : ''}</span>}</span>
-            {took('size') ? added('Changed') : <button type="button" disabled={!bigger?.ok} onClick={() => tap(onSize, `Changed to ${after.size!.to}.`)} data-start aria-label={`Size up to ${after.size.to}, +${usd(after.size.adds * q)}`} className={`${btn} min-h-[44px] shrink-0 text-[15px] tabular-nums`} style={{ background: INK, color: '#fff' }}>+{usd(after.size.adds * q)}</button>}
+            <span className="min-w-0 flex-1"><span className="block text-[16px] font-semibold">{tr('Size up to {size}', { size: after.size.to })}</span>
+              {bigger?.ok && <span className="block text-[14px]" style={{ color: MUTED }}>{nm(item)}, {bigger.text}. <span className="tabular-nums">{q > 1 ? tr('{price} for all', { price: usd(Math.max(0, item.price + bigger.extra) * q) }) : usd(Math.max(0, item.price + bigger.extra) * q)}</span></span>}</span>
+            {took('size') ? added(tr('Changed')) : <button type="button" disabled={!bigger?.ok} onClick={() => tap(onSize, tr('Changed to {size}.', { size: after.size!.to }))} data-start aria-label={tr('Size up to {size}, {price} more', { size: after.size.to, price: usd(after.size.adds * q) })} className={`${btn} min-h-[44px] shrink-0 text-[15px] tabular-nums`} style={{ background: INK, color: '#fff' }}>+{usd(after.size.adds * q)}</button>}
           </li>)}
         {after.items.map((x) => (
           <li key={x.id} className="flex items-center gap-3 rounded-2xl p-3.5" style={{ border: `1px solid ${LINE}` }}>
             {x.imageUrl && <img src={x.imageUrl} alt="" className="h-12 w-12 shrink-0 rounded-xl object-cover" style={{ background: SOFT }} />}
-            <span className="min-w-0 flex-1"><span className="block text-[16px] font-semibold">{x.name}</span><span className="block text-[14px] tabular-nums" style={{ color: MUTED }}>{x.from ? `From ${usd(x.startPrice)}` : usd(x.price)}</span></span>
-            {took(`item:${x.id}`) ? added('Added') : <button type="button" onClick={() => (x.choices.length ? onItem(x) : tap(() => onItem(x), `${x.name} added.`))} data-start className={`${btn} min-h-[44px] shrink-0 text-[15px]`} aria-label={`Add ${x.name}`} style={{ background: INK, color: '#fff' }}>Add</button>}
+            <span className="min-w-0 flex-1"><span className="block text-[16px] font-semibold">{nm(x)}</span><span className="block text-[14px] tabular-nums" style={{ color: MUTED }}>{x.from ? tr('From {price}', { price: usd(x.startPrice) }) : usd(x.price)}</span></span>
+            {took(`item:${x.id}`) ? added(tr('Added')) : <button type="button" onClick={() => (x.choices.length ? onItem(x) : tap(() => onItem(x), tr('{name} added.', { name: nm(x) })))} data-start className={`${btn} min-h-[44px] shrink-0 text-[15px]`} aria-label={tr('Add {name}', { name: nm(x) })} style={{ background: INK, color: '#fff' }}>{tr('Add')}</button>}
           </li>))}
       </ul>
-      <p className="sr-only" aria-live="polite">{said}</p>
+      <p className="sr-only" aria-live="polite">{spoke}</p>
     </Sheet>
   );
 }
@@ -222,26 +260,28 @@ function AfterSheet({ after, item, line, onSize, onItem, onClose }: { after: Aft
 function PayForm({ total, link, onPaid, onBusy }: { total: number; link: { tenantId: string; o: string; s: string }; onPaid: () => void; onBusy: (b: boolean) => void }) {
   const stripe = useStripe(); const elements = useElements();
   const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState(''); const [held, setHeld] = React.useState('');
-  // (While it's paying, the page can't go back and change the order.)
+  const [lang, tr] = useSay(); useClearOnSwitch(lang, () => setErr(''));
+  // (What holds the button is kept in English and said in the page's language. While it's paying, the page can't go
+  // back and change the order.)
   React.useEffect(() => { onBusy(busy); }, [busy]); // eslint-disable-line react-hooks/exhaustive-deps
   const pay = async () => {
     if (!stripe || !elements) return; setBusy(true); setErr('');
     const res = await stripe.confirmPayment({ elements, redirect: 'if_required' });
-    if (res.error) { setBusy(false); setErr(res.error.message || 'The payment didn’t go through.'); return; }
+    if (res.error) { setBusy(false); setErr(res.error.message || tr('The payment didn’t go through.')); return; }
     for (let i = 0; i < 6; i++) {
       const { status, d } = await call({ action: 'done', ...link });
       if (d.ok && d.paid) { onPaid(); return; }
-      if (status !== 202) { setErr(d.error || 'We couldn’t confirm the payment. Try again in a moment.'); if (d.notKept) setHeld('Refund on its way'); setBusy(false); return; }
+      if (status !== 202) { setErr(sayIn(lang, d.error, d.notKept ? 'Your payment is going back to your card. It can take a few days to show.' : 'We couldn’t confirm the payment. Try again in a moment.')); if (d.notKept) setHeld('Refund on its way'); setBusy(false); return; }
       await new Promise((r) => setTimeout(r, 1500));
     }
-    setErr('Your payment is still going through. This page updates once it’s done.'); setHeld('Going through…'); setBusy(false);
+    setErr(tr('Your payment is still going through. This page updates once it’s done.')); setHeld('Going through…'); setBusy(false);
     onPaid();
   };
   return (
     <div className="space-y-4">
       <PaymentElement options={{ layout: 'tabs' }} />
       {err && <p role="alert" className="rounded-2xl px-4 py-3 text-[15px] font-medium" style={{ background: AMBER_TINT, color: AMBER }}>{err}</p>}
-      <button type="button" onClick={pay} disabled={busy || !!held || !stripe} className={`${btn} min-h-[56px] w-full text-[17px]`} style={{ background: INK, color: '#fff' }}>{busy ? 'Paying…' : held || `Pay ${usd(total)}`}</button>
+      <button type="button" onClick={pay} disabled={busy || !!held || !stripe} className={`${btn} min-h-[56px] w-full text-[17px]`} style={{ background: INK, color: '#fff' }}>{busy ? tr('Paying…') : held ? tr(held) : tr('Pay {price}', { price: usd(total) })}</button>
     </div>
   );
 }
@@ -252,11 +292,12 @@ function PayForm({ total, link, onPaid, onBusy }: { total: number; link: { tenan
  *  CURBSIDE_GEOFENCE_M; a web page can't follow a phone in a pocket, so I'm here always stays). Then: they know you're
  *  outside, and who's bringing it out. */
 function CurbsideSteps({ t, tenantId, o, s, reload }: { t: Track; tenantId: string; o: string; s: string; reload: () => Promise<void> }) {
-  const c = t.curb || { where: null, out: false, by: null };
+  const c = t.curb || { where: null, out: false, by: null }; const [lang, tr] = useSay();
   const [form, setForm] = React.useState<'here' | 'way' | null>(null); const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState('');
   const [where, setWhere] = React.useState(''); const [note, setNote] = React.useState(''); const [whereErr, setWhereErr] = React.useState('');
   const [watching, setWatching] = React.useState(false); const [found, setFound] = React.useState(false);
   const whereBox = React.useRef<HTMLInputElement | null>(null); const status = React.useRef<HTMLParagraphElement | null>(null);
+  useClearOnSwitch(lang, () => setErr(''), () => setWhereErr(''));
   const missing = (msg: string) => { setWhereErr(msg); requestAnimationFrame(() => whereBox.current?.focus()); };
   // Found by location, but the car isn't said yet: asked for, so the runner knows what to look for.
   const needWhere = t.here && !c.where && !c.out;
@@ -268,12 +309,12 @@ function CurbsideSteps({ t, tenantId, o, s, reload }: { t: Track; tenantId: stri
     navigator.geolocation.getCurrentPosition((p) => done(roughEtaMinutes(distanceMetres({ lat: p.coords.latitude, lng: p.coords.longitude }, t.geo!))), () => done(null), { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 });
   });
   const send = async (action: 'here' | 'onway') => {
-    if (action === 'here' && !where.trim()) { missing('Say where you are: your car, its color, or the spot.'); return; }
+    if (action === 'here' && !where.trim()) { missing(tr('Say where you are: your car, its color, or the spot.')); return; }
     setBusy(true); setErr(''); setWhereErr('');
     const eta = action === 'onway' ? await howFar() : null;
     const { d } = await call({ action, tenantId, o, s, where: where.trim(), ...(action === 'here' ? { note: note.trim() } : { eta }) });
     setBusy(false);
-    if (d.ok) { setForm(null); await reload(); requestAnimationFrame(() => status.current?.focus()); } else if (d.code === 'where') missing(d.error); else setErr(d.error || 'That didn’t go through. Try again.');
+    if (d.ok) { setForm(null); await reload(); requestAnimationFrame(() => status.current?.focus()); } else if (d.code === 'where') missing(sayIn(lang, d.error, 'Say where you are: your car, its color, or the spot.')); else setErr(sayIn(lang, d.error, 'That didn’t go through. Try again.'));
   };
   // On their way with this page open: checked in once their phone is in the lot (stops the moment it does). Rough
   // location until they're within a kilometre (easier on the battery), then precise. A check-in that didn't go through
@@ -295,28 +336,28 @@ function CurbsideSteps({ t, tenantId, o, s, reload }: { t: Track; tenantId: stri
   }, [watch, close, lat, lng, tenantId, o, s]); // eslint-disable-line react-hooks/exhaustive-deps
   const btnDark = `${btn} min-h-[56px] w-full text-[17px]`;
   if (c.out) return (
-    <div role="status"><p className="mx-auto w-max rounded-full px-4 py-1.5 text-[15px] font-semibold" style={{ background: GREEN_TINT, color: GREEN }}>On its way out to you</p>
-      <p className="mt-2 text-[15px]" style={{ color: MUTED }}>{c.by ? `${c.by} is` : 'Someone’s'} bringing it to your car.</p></div>);
+    <div role="status"><p className="mx-auto w-max rounded-full px-4 py-1.5 text-[15px] font-semibold" style={{ background: GREEN_TINT, color: GREEN }}>{tr('On its way out to you')}</p>
+      <p className="mt-2 text-[15px]" style={{ color: MUTED }}>{c.by ? tr('{name} is bringing it to your car.', { name: c.by }) : tr('Someone’s bringing it to your car.')}</p></div>);
   if (open) return (
     <div className="space-y-3 text-left">
-      {needWhere && !form && <p role="status" className="text-center text-[15px] font-medium" style={{ color: GREEN }}>{found || c.found ? 'We can see you’re here.' : 'They know you’re here.'} Where did you park?</p>}
-      <label className="block"><span className="text-[15px] font-semibold">{open === 'way' ? 'What are you driving?' : needWhere ? 'Your car, or the spot' : 'Where are you?'}</span>
+      {needWhere && !form && <p role="status" className="text-center text-[15px] font-medium" style={{ color: GREEN }}>{found || c.found ? tr('We can see you’re here.') : tr('They know you’re here.')} {tr('Where did you park?')}</p>}
+      <label className="block"><span className="text-[15px] font-semibold">{open === 'way' ? tr('What are you driving?') : needWhere ? tr('Your car, or the spot') : tr('Where are you?')}</span>
         <input ref={whereBox} value={where} onChange={(e) => setWhere(e.target.value.slice(0, 80))} autoFocus aria-describedby="where-help" aria-invalid={!!whereErr} className={`mt-1.5 h-12 w-full rounded-xl bg-[#fff] px-3 text-[16px] ${RING}`} style={{ border: `1px solid ${whereErr ? AMBER : LINE}` }} />
-        <span id="where-help" role={whereErr ? 'alert' : undefined} className="mt-1 block text-[13.5px]" style={{ color: whereErr ? AMBER : MUTED }}>{whereErr || (open === 'way' ? `Optional: its color and make.${t.geo ? ' We’ll ask your phone where you are to say how far away you are. While this page is open, it also checks you in when you pull in.' : ''}` : 'Your car, its color, or the spot number')}</span></label>
-      {open === 'here' && <label className="block"><span className="text-[15px] font-semibold">Anything we should know?</span>
-        <input value={note} onChange={(e) => setNote(e.target.value.slice(0, 160))} placeholder="Optional, like “please knock”" className={`mt-1.5 h-12 w-full rounded-xl bg-[#fff] px-3 text-[16px] ${RING}`} style={{ border: `1px solid ${LINE}` }} /></label>}
-      <button type="button" onClick={() => send(open === 'way' ? 'onway' : 'here')} disabled={busy} className={btnDark} style={{ background: INK, color: '#fff' }}>{busy ? 'Telling them…' : open === 'way' ? 'Tell them I’m on my way' : 'Tell them I’m here'}</button>
-      {form && <button type="button" onClick={() => { setForm(null); setWhereErr(''); }} className={`min-h-[44px] w-full text-[15px] font-medium underline underline-offset-4 ${RING}`} style={{ color: MUTED }}>Not now</button>}
+        <span id="where-help" role={whereErr ? 'alert' : undefined} className="mt-1 block text-[13.5px]" style={{ color: whereErr ? AMBER : MUTED }}>{whereErr || (open === 'way' ? `${tr('Optional: its color and make.')}${t.geo ? ` ${tr('We’ll ask your phone where you are to say how far away you are. While this page is open, it also checks you in when you pull in.')}` : ''}` : tr('Your car, its color, or the spot number'))}</span></label>
+      {open === 'here' && <label className="block"><span className="text-[15px] font-semibold">{tr('Anything we should know?')}</span>
+        <input value={note} onChange={(e) => setNote(e.target.value.slice(0, 160))} placeholder={tr('Optional, like “please knock”')} className={`mt-1.5 h-12 w-full rounded-xl bg-[#fff] px-3 text-[16px] ${RING}`} style={{ border: `1px solid ${LINE}` }} /></label>}
+      <button type="button" onClick={() => send(open === 'way' ? 'onway' : 'here')} disabled={busy} className={btnDark} style={{ background: INK, color: '#fff' }}>{busy ? tr('Telling them…') : open === 'way' ? tr('Tell them I’m on my way') : tr('Tell them I’m here')}</button>
+      {form && <button type="button" onClick={() => { setForm(null); setWhereErr(''); }} className={`min-h-[44px] w-full text-[15px] font-medium underline underline-offset-4 ${RING}`} style={{ color: MUTED }}>{tr('Not now')}</button>}
       {err && <p role="alert" className="text-[14px]" style={{ color: AMBER }}>{err}</p>}
     </div>);
   if (t.here) return (
-    <div><p ref={status} tabIndex={-1} className="text-[15px] font-medium outline-none" style={{ color: GREEN }}>{c.found ? 'Checked in by your location. ' : ''}They know you’re outside{c.where ? `: ${c.where}` : ''}. We’ll bring it out.</p>
-      <button type="button" onClick={() => { setWhere(c.where || ''); setForm('here'); }} className={`mt-1 min-h-[44px] text-[15px] font-medium underline underline-offset-4 ${RING}`} style={{ color: MUTED }}>Moved? Say where you are now</button></div>);
+    <div><p ref={status} tabIndex={-1} className="text-[15px] font-medium outline-none" style={{ color: GREEN }}>{c.found ? `${tr('Checked in by your location.')} ` : ''}{c.where ? tr('They know you’re outside: {where}. We’ll bring it out.', { where: c.where }) : tr('They know you’re outside. We’ll bring it out.')}</p>
+      <button type="button" onClick={() => { setWhere(c.where || ''); setForm('here'); }} className={`mt-1 min-h-[44px] text-[15px] font-medium underline underline-offset-4 ${RING}`} style={{ color: MUTED }}>{tr('Moved? Say where you are now')}</button></div>);
   return (
     <div className="space-y-2">
-      {c.onWay && <p ref={status} tabIndex={-1} className="text-[15px] font-medium outline-none" style={{ color: GREEN }}>They know you’re on your way{c.eta ? `, about ${c.eta} minutes out` : ''}.{watching ? ' Keep this page open, and we’ll check you in when you pull in.' : ''}</p>}
-      <button type="button" onClick={() => { setWhere(c.where || ''); setForm('here'); }} className={btnDark} style={{ background: INK, color: '#fff' }}>I’m here</button>
-      {!c.onWay && <button type="button" onClick={() => { setWhere(''); setForm('way'); }} className={`${btn} min-h-[52px] w-full bg-[#fff] text-[16px]`} style={{ border: `1px solid ${LINE}`, color: INK }}>I’m on my way</button>}
+      {c.onWay && <p ref={status} tabIndex={-1} className="text-[15px] font-medium outline-none" style={{ color: GREEN }}>{c.eta ? tr('They know you’re on your way, about {n} minutes out.', { n: c.eta }) : tr('They know you’re on your way.')}{watching ? ` ${tr('Keep this page open, and we’ll check you in when you pull in.')}` : ''}</p>}
+      <button type="button" onClick={() => { setWhere(c.where || ''); setForm('here'); }} className={btnDark} style={{ background: INK, color: '#fff' }}>{tr('I’m here')}</button>
+      {!c.onWay && <button type="button" onClick={() => { setWhere(''); setForm('way'); }} className={`${btn} min-h-[52px] w-full bg-[#fff] text-[16px]`} style={{ border: `1px solid ${LINE}`, color: INK }}>{tr('I’m on my way')}</button>}
       {err && <p role="alert" className="text-[14px]" style={{ color: AMBER }}>{err}</p>}
     </div>);
 }
@@ -324,43 +365,46 @@ function CurbsideSteps({ t, tenantId, o, s, reload }: { t: Track; tenantId: stri
 /** The text when it's ready, on the order's page (lib/ready-text): what was asked for, or asking for it now (while it's
  *  still being made), or taking it back. */
 function ReadyTextLine({ t, tenantId, o, s, reload, onWay = false }: { t: Track; tenantId: string; o: string; s: string; reload: () => Promise<void>; onWay?: boolean }) {
-  const when = onWay ? 'it’s on its way' : 'it’s ready';
+  const [lang, tr] = useSay();
   const [asking, setAsking] = React.useState(false); const [phone, setPhone] = React.useState(''); const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState('');
+  useClearOnSwitch(lang, () => setErr(''));
   React.useEffect(() => { setPhone(read('cf.ahead.phone') || ''); }, []);
   const digits = phone.replace(/\D/g, '').slice(-10);
   const send = async (p: string | null) => {
     setBusy(true); setErr('');
     const { d } = await call({ action: 'textMe', tenantId, o, s, phone: p });
     setBusy(false);
-    if (d.ok) { if (p) write('cf.ahead.phone', p); setAsking(false); await reload(); } else setErr(d.error || 'That didn’t go through. Try again.');
+    if (d.ok) { if (p) write('cf.ahead.phone', p); setAsking(false); await reload(); } else setErr(sayIn(lang, d.error, 'That didn’t go through. Try again.'));
   };
   const quietBtn = { background: '#fff', border: `1px solid ${LINE}`, color: INK };
   if (t.text) {
-    if (t.text.sent) return t.text.failed ? null : <p className="text-[15px]" style={{ color: MUTED }}>We texted ···{t.text.last4} that {when}.</p>;
+    if (t.text.sent) return t.text.failed ? null : <p className="text-[15px]" style={{ color: MUTED }}>{onWay ? tr('We texted ···{n} that it’s on its way.', { n: t.text.last4 }) : tr('We texted ···{n} that it’s ready.', { n: t.text.last4 })}</p>;
     return (
       <div className="space-y-1">
-        <p className="text-[15px]">We’ll text you at ···{t.text.last4} when {when}.</p>
-        <button type="button" onClick={() => send(null)} disabled={busy} className={`min-h-[44px] rounded-xl px-2 text-[14.5px] font-medium underline underline-offset-4 disabled:opacity-50 ${RING}`} style={{ color: MUTED }}>Don’t text me</button>
+        <p className="text-[15px]">{onWay ? tr('We’ll text you at ···{n} when it’s on its way.', { n: t.text.last4 }) : tr('We’ll text you at ···{n} when it’s ready.', { n: t.text.last4 })}</p>
+        <button type="button" onClick={() => send(null)} disabled={busy} className={`min-h-[44px] rounded-xl px-2 text-[14.5px] font-medium underline underline-offset-4 disabled:opacity-50 ${RING}`} style={{ color: MUTED }}>{tr('Don’t text me')}</button>
         {err && <p role="alert" className="text-[14px]" style={{ color: AMBER }}>{err}</p>}
       </div>);
   }
   if (!t.texts || (!onWay && (t.kitchen === 'ready' || t.kitchen === 'handed'))) return null;
-  if (!asking) return <button type="button" onClick={() => setAsking(true)} className={`${btn} min-h-[48px] w-full text-[15.5px]`} style={quietBtn}>Text me when {when}</button>;
+  if (!asking) return <button type="button" onClick={() => setAsking(true)} className={`${btn} min-h-[48px] w-full text-[15.5px]`} style={quietBtn}>{onWay ? tr('Text me when it’s on its way') : tr('Text me when it’s ready')}</button>;
   return (
     <div className="space-y-2 text-left">
-      <label className="block"><span className="text-[15px] font-semibold">Your mobile number</span>
-        <input value={phone} onChange={(e) => setPhone(e.target.value.replace(/[^\d()\-+ .]/g, '').slice(0, 18))} onKeyDown={(e) => { if (e.key === 'Enter' && digits.length === 10) void send(digits); }} inputMode="tel" autoComplete="tel" className={`mt-2 h-12 w-full rounded-xl px-4 text-[16px] ${RING}`} style={{ border: `1px solid ${LINE}` }} placeholder="Phone number" /></label>
+      <label className="block"><span className="text-[15px] font-semibold">{tr('Your mobile number')}</span>
+        <input value={phone} onChange={(e) => setPhone(e.target.value.replace(/[^\d()\-+ .]/g, '').slice(0, 18))} onKeyDown={(e) => { if (e.key === 'Enter' && digits.length === 10) void send(digits); }} inputMode="tel" autoComplete="tel" className={`mt-2 h-12 w-full rounded-xl px-4 text-[16px] ${RING}`} style={{ border: `1px solid ${LINE}` }} placeholder={tr('Phone number')} /></label>
       <div className="flex gap-2">
-        <button type="button" onClick={() => send(digits)} disabled={busy || digits.length !== 10} className={`${btn} min-h-[48px] flex-1 text-[15.5px]`} style={{ background: INK, color: '#fff' }}>{busy ? 'One moment…' : 'Text me'}</button>
-        <button type="button" onClick={() => { setAsking(false); setErr(''); }} className={`${btn} min-h-[48px] text-[15.5px]`} style={quietBtn}>Cancel</button>
+        <button type="button" onClick={() => send(digits)} disabled={busy || digits.length !== 10} className={`${btn} min-h-[48px] flex-1 text-[15.5px]`} style={{ background: INK, color: '#fff' }}>{busy ? tr('One moment…') : tr('Text me')}</button>
+        <button type="button" onClick={() => { setAsking(false); setErr(''); }} className={`${btn} min-h-[48px] text-[15.5px]`} style={quietBtn}>{tr('Cancel')}</button>
       </div>
-      <p className="text-[13px]" style={{ color: MUTED }}>One text, just for this order.</p>
+      <p className="text-[13px]" style={{ color: MUTED }}>{tr('One text, just for this order.')}</p>
       {err && <p role="alert" className="text-[14px]" style={{ color: AMBER }}>{err}</p>}
     </div>);
 }
 
 function TrackView({ tenantId, o, s, onNew }: { tenantId: string; o: string; s: string; onNew: () => void }) {
   const [t, setT] = React.useState<Track | null>(null); const [err, setErr] = React.useState(''); const [busy, setBusy] = React.useState(false);
+  const [lang, tr] = useSay();
+  // (What went wrong is kept as the server said it, and said in the page's language when it shows.)
   const load = React.useCallback(async () => { const { d } = await call({ action: 'track', tenantId, o, s }); if (d.ok) { setT(d); setErr(''); } else if (!t) setErr(d.error || 'This order isn’t here.'); }, [tenantId, o, s]); // eslint-disable-line react-hooks/exhaustive-deps
   React.useEffect(() => { void load(); const i = setInterval(load, 15000); return () => clearInterval(i); }, [load]);
   const here = async () => { setBusy(true); const { d } = await call({ action: 'here', tenantId, o, s }); setBusy(false); if (d.ok) void load(); else setErr(d.error || 'That didn’t go through. Try again.'); };
@@ -375,61 +419,61 @@ function TrackView({ tenantId, o, s, onNew }: { tenantId: string; o: string; s: 
   const toggleFav = () => { const list = rememberPast(tenantId, { o, at: new Date().toISOString(), lines: paidLines }, !fav); setFav(!!list.find((p) => p.o === o)?.fav); };
   // Order this again: the same items, checked against today's menu once it's open (Order again, on the menu).
   const again = () => { write(`cf.ahead.again.${tenantId}`, JSON.stringify(paidLines)); onNew(); };
-  if (err && !t) return <div className="rounded-3xl bg-[#fff] p-6" style={{ border: `1px solid ${LINE}` }}><p className="text-[18px] font-semibold">Your order</p><p className="mt-2 text-[15px]" style={{ color: MUTED }}>{err}</p></div>;
-  if (!t) return <div className="flex justify-center py-16"><div className="h-8 w-8 animate-spin rounded-full border-[3px]" style={{ borderColor: LINE, borderTopColor: INK }} role="status" aria-label="Loading your order" /></div>;
+  if (err && !t) return <div className="rounded-3xl bg-[#fff] p-6" style={{ border: `1px solid ${LINE}` }}><p className="text-[18px] font-semibold">{tr('Your order')}</p><p className="mt-2 text-[15px]" style={{ color: MUTED }}>{sayIn(lang, err, 'This order isn’t here.')}</p></div>;
+  if (!t) return <div className="flex justify-center py-16"><div className="h-8 w-8 animate-spin rounded-full border-[3px]" style={{ borderColor: LINE, borderTopColor: INK }} role="status" aria-label={tr('Loading your order')} /></div>;
   if (t.later?.canceled) return (
     <div className="space-y-3 rounded-3xl bg-[#fff] p-6" style={{ border: `1px solid ${LINE}` }} role="status">
-      <p className="text-[22px] font-semibold tracking-tight">Canceled</p>
-      <p className="text-[15px] leading-relaxed" style={{ color: MUTED }}>{t.later.canceledBy === 'guest' ? 'You canceled' : `${t.business || 'The business'} canceled`} order {t.number} for {dayWords(t.later.day)}. {usd(t.later.back)} is on its way back to your card. It can take a few days to show.</p>
-      <button type="button" onClick={onNew} className={`${btn} min-h-[52px] w-full text-[16px]`} style={{ background: INK, color: '#fff' }}>Start a new order</button>
+      <p className="text-[22px] font-semibold tracking-tight">{tr('Canceled')}</p>
+      <p className="text-[15px] leading-relaxed" style={{ color: MUTED }}>{t.later.canceledBy === 'guest' ? tr('You canceled order {n} for {day}.', { n: t.number, day: dayWords(t.later.day, false, lang) }) : tr('{business} canceled order {n} for {day}.', { business: t.business || tr('The business'), n: t.number, day: dayWords(t.later.day, false, lang) })} {tr('{price} is on its way back to your card. It can take a few days to show.', { price: usd(t.later.back) })}</p>
+      <button type="button" onClick={onNew} className={`${btn} min-h-[52px] w-full text-[16px]`} style={{ background: INK, color: '#fff' }}>{tr('Start a new order')}</button>
     </div>);
   if (t.state === 'canceled') return (
     <div className="space-y-3 rounded-3xl bg-[#fff] p-6" style={{ border: `1px solid ${LINE}` }} role="status">
-      <p className="text-[22px] font-semibold tracking-tight">This order couldn’t be made</p>
-      <p className="text-[15px] leading-relaxed" style={{ color: MUTED }}>{t.failed || 'Something in it ran out.'} Your payment is going back to your card. It can take a few days to show.</p>
-      <button type="button" onClick={onNew} className={`${btn} min-h-[52px] w-full text-[16px]`} style={{ background: INK, color: '#fff' }}>Start a new order</button>
+      <p className="text-[22px] font-semibold tracking-tight">{tr('This order couldn’t be made')}</p>
+      <p className="text-[15px] leading-relaxed" style={{ color: MUTED }}>{sayIn(lang, t.failed, 'Something in it ran out.')} {tr('Your payment is going back to your card. It can take a few days to show.')}</p>
+      <button type="button" onClick={onNew} className={`${btn} min-h-[52px] w-full text-[16px]`} style={{ background: INK, color: '#fff' }}>{tr('Start a new order')}</button>
     </div>);
   if (!t.paid) return (
     <div className="space-y-3 rounded-3xl bg-[#fff] p-6" style={{ border: `1px solid ${LINE}` }} role="status">
-      <p className="text-[20px] font-semibold">Waiting for your payment</p>
-      <p className="text-[15px]" style={{ color: MUTED }}>This page updates once it’s gone through.</p>
+      <p className="text-[20px] font-semibold">{tr('Waiting for your payment')}</p>
+      <p className="text-[15px]" style={{ color: MUTED }}>{tr('This page updates once it’s gone through.')}</p>
     </div>);
   // For another day, waiting for its day: booked, and canceled for a full refund until the notice runs out.
   if (t.later?.waiting) return (
     <div className="space-y-4">
       <Booked t={t} L={t.later} tenantId={tenantId} o={o} s={s} reload={load} />
       <OrderLines t={t} />
-      <button type="button" onClick={onNew} className={`min-h-[44px] w-full rounded-xl text-[15px] font-medium underline underline-offset-4 ${RING}`} style={{ color: MUTED }}>Start another order</button>
+      <button type="button" onClick={onNew} className={`min-h-[44px] w-full rounded-xl text-[15px] font-medium underline underline-offset-4 ${RING}`} style={{ color: MUTED }}>{tr('Start another order')}</button>
     </div>);
   if (t.delivery) return (
     <div className="space-y-4">
       <DeliveryStatus t={t} D={t.delivery} tenantId={tenantId} o={o} s={s} reload={load} />
       <OrderLines t={t} />
       {paidLines.length > 0 && <AgainRow again={again} fav={fav} toggleFav={toggleFav} />}
-      <button type="button" onClick={onNew} className={`min-h-[44px] w-full rounded-xl text-[15px] font-medium underline underline-offset-4 ${RING}`} style={{ color: MUTED }}>Start another order</button>
+      <button type="button" onClick={onNew} className={`min-h-[44px] w-full rounded-xl text-[15px] font-medium underline underline-offset-4 ${RING}`} style={{ color: MUTED }}>{tr('Start another order')}</button>
     </div>);
-  const step = t.kitchen === 'handed' ? 'Picked up. Enjoy!' : t.kitchen === 'ready' ? 'Ready' : t.kitchen === 'later' ? (t.at ? `We’ll start it in time for ${clock(t.at)}` : 'Waiting to start') : 'Being made';
-  const say = t.way === 'drive-thru' ? `At the speaker, say: “I ordered ahead, code ${t.code}.”` : t.way === 'curbside' ? 'Tap I’m on my way when you set off, and I’m here when you park. We’ll bring it to your car.' : `Say your code at the counter: ${t.code}.`;
+  const step = t.kitchen === 'handed' ? tr('Picked up. Enjoy!') : t.kitchen === 'ready' ? tr('Ready') : t.kitchen === 'later' ? (t.at ? tr('We’ll start it in time for {time}', { time: theHour(lang, clock(t.at)) }) : tr('Waiting to start')) : tr('Being made');
+  const say = t.way === 'drive-thru' ? tr('At the speaker, say: “I ordered ahead, code {code}.”', { code: t.code || '' }) : t.way === 'curbside' ? tr('Tap I’m on my way when you set off, and I’m here when you park. We’ll bring it to your car.') : tr('Say your code at the counter: {code}.', { code: t.code || '' });
   return (
     <div className="space-y-4">
       <section className="space-y-4 rounded-3xl bg-[#fff] p-6 text-center" style={{ border: `1px solid ${LINE}` }} aria-live="polite">
         <p className="mx-auto w-max rounded-full px-4 py-1.5 text-[15px] font-semibold" style={t.kitchen === 'ready' ? { background: GREEN_TINT, color: GREEN } : { background: SOFT, color: INK }}>{step}</p>
         <div>
-          <p className="text-[15px]" style={{ color: MUTED }}>Your pickup code</p>
+          <p className="text-[15px]" style={{ color: MUTED }}>{tr('Your pickup code')}</p>
           <p className="text-[64px] font-semibold leading-none tracking-[0.12em] tabular-nums">{t.code}</p>
         </div>
-        <p className="text-[16px] leading-relaxed" style={{ color: MUTED }}>Order <b className="font-semibold" style={{ color: INK }}>{t.number}</b>{t.name ? ` for ${t.name}` : ''} · {t.way === 'drive-thru' ? 'drive-thru' : t.way === 'curbside' ? 'curbside' : 'pick up inside'}{t.at ? ` at ${clock(t.at)}` : ''}</p>
-        {t.place && <p className="text-[15px]" style={{ color: MUTED }}>At <b className="font-semibold" style={{ color: INK }}>{t.place.name}</b>{t.place.address ? `, ${t.place.address}` : ''}</p>}
+        <p className="text-[16px] leading-relaxed" style={{ color: MUTED }}>{tr('Order')} <b className="font-semibold" style={{ color: INK }}>{t.number}</b>{t.name ? ` ${tr('for {name}', { name: t.name })}` : ''} · {t.way === 'drive-thru' ? tr('drive-thru') : t.way === 'curbside' ? tr('curbside') : tr('pick up inside')}{t.at ? ` ${atTime(lang, clock(t.at))}` : ''}</p>
+        {t.place && <p className="text-[15px]" style={{ color: MUTED }}>{tr('At')} <b className="font-semibold" style={{ color: INK }}>{t.place.name}</b>{t.place.address ? `, ${t.place.address}` : ''}</p>}
         {!(t.way === 'curbside' && (t.here || t.curb?.onWay || t.kitchen === 'handed')) && <p className="rounded-2xl px-4 py-3 text-[15px] font-medium" style={{ background: SOFT }}>{say}</p>}
-        {!!t.earned && <p className="text-[15px] font-medium" style={{ color: GREEN }}>You earned {t.earned} {t.unit || 'points'} with this order.</p>}
+        {!!t.earned && <p className="text-[15px] font-medium" style={{ color: GREEN }}>{earnedLine(lang, t.earned, t.unit)}</p>}
         {t.kitchen !== 'handed' && <ReadyTextLine t={t} tenantId={tenantId} o={o} s={s} reload={load} />}
         {t.kitchen !== 'handed' && (t.way === 'curbside' ? <CurbsideSteps t={t} tenantId={tenantId} o={o} s={s} reload={load} />
-          : !t.here ? <button type="button" onClick={here} disabled={busy} className={`${btn} min-h-[56px] w-full text-[17px]`} style={{ background: INK, color: '#fff' }}>{busy ? 'Telling them…' : t.way === 'drive-thru' ? 'I’m in the drive-thru line' : 'I’m here'}</button>
-          : <p className="text-[15px] font-medium" style={{ color: GREEN }}>{t.way === 'drive-thru' ? 'They know you’re on your way.' : 'They know you’re here.'}</p>)}
+          : !t.here ? <button type="button" onClick={here} disabled={busy} className={`${btn} min-h-[56px] w-full text-[17px]`} style={{ background: INK, color: '#fff' }}>{busy ? tr('Telling them…') : t.way === 'drive-thru' ? tr('I’m in the drive-thru line') : tr('I’m here')}</button>
+          : <p className="text-[15px] font-medium" style={{ color: GREEN }}>{t.way === 'drive-thru' ? tr('They know you’re on your way.') : tr('They know you’re here.')}</p>)}
       </section>
       <OrderLines t={t} />
       {paidLines.length > 0 && <AgainRow again={again} fav={fav} toggleFav={toggleFav} />}
-      <button type="button" onClick={onNew} className={`min-h-[44px] w-full rounded-xl text-[15px] font-medium underline underline-offset-4 ${RING}`} style={{ color: MUTED }}>Start another order</button>
+      <button type="button" onClick={onNew} className={`min-h-[44px] w-full rounded-xl text-[15px] font-medium underline underline-offset-4 ${RING}`} style={{ color: MUTED }}>{tr('Start another order')}</button>
     </div>
   );
 }
@@ -438,55 +482,58 @@ function TrackView({ tenantId, o, s, onNew }: { tenantId: string; o: string; s: 
  *  until the notice runs out (asked once more before it goes). */
 function Booked({ t, L, tenantId, o, s, reload }: { t: Track; L: TrackLater; tenantId: string; o: string; s: string; reload: () => Promise<void> }) {
   const [asking, setAsking] = React.useState(false); const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState('');
+  const [lang, tr] = useSay(); useClearOnSwitch(lang, () => setErr(''));
   const cancel = async () => {
     setBusy(true); setErr('');
     const { d } = await call({ action: 'cancel', tenantId, o, s });
     setBusy(false);
-    if (d.ok) { setAsking(false); await reload(); } else { setErr(d.error || 'That didn’t go through. Try again.'); await reload(); }
+    if (d.ok) { setAsking(false); await reload(); } else { setErr(sayIn(lang, d.error, 'That didn’t go through. Try again.')); await reload(); }
   };
   const can = L.canCancel || L.stuck;
-  const how = t.way === 'delivery' ? `delivered to ${t.delivery?.to || 'you'}` : t.way === 'curbside' ? 'brought to your car' : 'picked up inside';
+  const how = t.way === 'delivery' ? (t.delivery?.to ? tr('delivered to {to}', { to: t.delivery.to }) : tr('delivered to you')) : t.way === 'curbside' ? tr('brought to your car') : tr('picked up inside');
   const arrive = t.way === 'delivery' && t.delivery?.arriveAt ? to5(Date.parse(t.delivery.arriveAt)) : t.at;
   return (
     <section className="space-y-4 rounded-3xl bg-[#fff] p-6" style={{ border: `1px solid ${LINE}` }} aria-live="polite">
-      <p className="w-max rounded-full px-3 py-1 text-[14px] font-semibold" style={{ background: GREEN_TINT, color: GREEN }}>Booked</p>
-      <p className="text-[24px] font-semibold leading-tight tracking-tight">{dayWords(L.day)}{arrive ? ` at ${clock(arrive)}` : ''}</p>
-      <p className="text-[15.5px] leading-relaxed" style={{ color: MUTED }}>Order <b className="font-semibold" style={{ color: INK }}>{t.number}</b>{t.name ? ` for ${t.name}` : ''}, {how}{L.people ? `, for ${L.people} people` : ''}. It’s made on the day, in time for you.</p>
-      {t.place && t.way !== 'delivery' && <p className="text-[15px]" style={{ color: MUTED }}>At <b className="font-semibold" style={{ color: INK }}>{t.place.name}</b>{t.place.address ? `, ${t.place.address}` : ''}</p>}
-      {t.code && t.way !== 'delivery' && <div><p className="text-[14px]" style={{ color: MUTED }}>Your pickup code</p><p className="text-[44px] font-semibold leading-none tracking-[0.12em] tabular-nums">{t.code}</p></div>}
-      {can && !asking && <button type="button" onClick={() => setAsking(true)} className={`${btn} min-h-[52px] w-full text-[16px]`} style={{ background: '#fff', border: `1px solid ${LINE}`, color: INK }}>{L.stuck ? 'Finish the refund' : `Cancel and refund ${usd(t.total)}`}</button>}
+      <p className="w-max rounded-full px-3 py-1 text-[14px] font-semibold" style={{ background: GREEN_TINT, color: GREEN }}>{tr('Booked')}</p>
+      <p className="text-[24px] font-semibold leading-tight tracking-tight">{capFirst(dayWords(L.day, false, lang))}{arrive ? ` ${atTime(lang, clock(arrive))}` : ''}</p>
+      <p className="text-[15.5px] leading-relaxed" style={{ color: MUTED }}>{tr('Order')} <b className="font-semibold" style={{ color: INK }}>{t.number}</b>{t.name ? ` ${tr('for {name}', { name: t.name })}` : ''}, {how}{L.people ? `, ${tr('for {n} people', { n: L.people })}` : ''}. {tr('It’s made on the day, in time for you.')}</p>
+      {t.place && t.way !== 'delivery' && <p className="text-[15px]" style={{ color: MUTED }}>{tr('At')} <b className="font-semibold" style={{ color: INK }}>{t.place.name}</b>{t.place.address ? `, ${t.place.address}` : ''}</p>}
+      {t.code && t.way !== 'delivery' && <div><p className="text-[14px]" style={{ color: MUTED }}>{tr('Your pickup code')}</p><p className="text-[44px] font-semibold leading-none tracking-[0.12em] tabular-nums">{t.code}</p></div>}
+      {can && !asking && <button type="button" onClick={() => setAsking(true)} className={`${btn} min-h-[52px] w-full text-[16px]`} style={{ background: '#fff', border: `1px solid ${LINE}`, color: INK }}>{L.stuck ? tr('Finish the refund') : tr('Cancel and refund {price}', { price: usd(t.total) })}</button>}
       {can && asking && (
         <div className="space-y-2 rounded-2xl p-4" style={{ background: SOFT }}>
-          <p className="text-[15px]">Cancel your order and get {usd(t.total)} back on your card?</p>
+          <p className="text-[15px]">{tr('Cancel your order and get {price} back on your card?', { price: usd(t.total) })}</p>
           <div className="grid grid-cols-2 gap-2">
-            <button type="button" onClick={cancel} disabled={busy} className={`${btn} min-h-[48px] text-[15px]`} style={{ background: INK, color: '#fff' }}>{busy ? 'One moment…' : 'Yes, cancel it'}</button>
-            <button type="button" onClick={() => setAsking(false)} disabled={busy} className={`${btn} min-h-[48px] text-[15px]`} style={{ background: '#fff', border: `1px solid ${LINE}`, color: INK }}>Keep it</button>
+            <button type="button" onClick={cancel} disabled={busy} className={`${btn} min-h-[48px] text-[15px]`} style={{ background: INK, color: '#fff' }}>{busy ? tr('One moment…') : tr('Yes, cancel it')}</button>
+            <button type="button" onClick={() => setAsking(false)} disabled={busy} className={`${btn} min-h-[48px] text-[15px]`} style={{ background: '#fff', border: `1px solid ${LINE}`, color: INK }}>{tr('Keep it')}</button>
           </div>
         </div>)}
-      {L.canCancel && L.cancelBy && <p className="text-[14px]" style={{ color: MUTED }}>You can cancel for a full refund until {shortWhen(Date.parse(L.cancelBy))}.</p>}
-      {!can && <p className="text-[14px]" style={{ color: MUTED }}>The time to cancel for a refund has passed.</p>}
-      {L.stuck && <p role="status" className="text-[14px] font-medium" style={{ color: AMBER }}>Not all of your refund went through. Tap Finish the refund to try again.</p>}
+      {L.canCancel && L.cancelBy && <p className="text-[14px]" style={{ color: MUTED }}>{tr('You can cancel for a full refund until {when}.', { when: shortWhen(Date.parse(L.cancelBy), undefined, lang) })}</p>}
+      {!can && <p className="text-[14px]" style={{ color: MUTED }}>{tr('The time to cancel for a refund has passed.')}</p>}
+      {L.stuck && <p role="status" className="text-[14px] font-medium" style={{ color: AMBER }}>{tr('Not all of your refund went through. Tap Finish the refund to try again.')}</p>}
       {err && <p role="alert" className="rounded-2xl px-4 py-3 text-[15px] font-medium" style={{ background: AMBER_TINT, color: AMBER }}>{err}</p>}
     </section>);
 }
 
 /** What was ordered and paid (with the delivery fee on its own line, when it's delivered). */
 function OrderLines({ t }: { t: Track }) {
+  const [lang, tr] = useSay();
   return (
-    <section aria-label="Your order" className="rounded-3xl bg-[#fff] p-5" style={{ border: `1px solid ${LINE}` }}>
-      <ul className="space-y-2">{t.lines.map((l, i) => <li key={i} className="flex justify-between gap-3 text-[15px]"><span className="min-w-0"><span className="tabular-nums" style={{ color: GREEN }}>{l.quantity}</span> {l.name}{l.choicesText ? <span style={{ color: MUTED }}>, {l.choicesText}</span> : null}{l.note ? <span className="block text-[13.5px]" style={{ color: MUTED }}>Note: {l.note}</span> : null}</span><span className="shrink-0 tabular-nums">{usd(l.price)}</span></li>)}</ul>
-      {t.allergy && <p className="mt-2 text-[14px] font-medium" style={{ color: AMBER }}>Allergy told to the kitchen: {t.allergy}</p>}
-      {!!t.deliveryFee && <p className="mt-2 flex justify-between gap-3 text-[15px]" style={{ color: MUTED }}><span>Delivery</span><span className="tabular-nums">{usd(t.deliveryFee)}</span></p>}
-      {!!t.tip && <p className="mt-1 flex justify-between gap-3 text-[15px]" style={{ color: MUTED }}><span>Driver tip</span><span className="tabular-nums">{usd(t.tip)}</span></p>}
-      <p className="mt-3 flex justify-between border-t pt-3 text-[16px] font-semibold" style={{ borderColor: LINE }}><span>Paid</span><span className="tabular-nums">{usd(t.total)}</span></p>
+    <section aria-label={tr('Your order')} className="rounded-3xl bg-[#fff] p-5" style={{ border: `1px solid ${LINE}` }}>
+      <ul className="space-y-2">{t.lines.map((l, i) => <li key={i} className="flex justify-between gap-3 text-[15px]"><span className="min-w-0"><span className="tabular-nums" style={{ color: GREEN }}>{l.quantity}</span> {inLang(lang, l.name, l.nameEs)}{l.choicesText ? <span style={{ color: MUTED }}>, {l.choicesText}</span> : null}{l.note ? <span className="block text-[13.5px]" style={{ color: MUTED }}>{tr('Note: {note}', { note: l.note })}</span> : null}</span><span className="shrink-0 tabular-nums">{usd(l.price)}</span></li>)}</ul>
+      {t.allergy && <p className="mt-2 text-[14px] font-medium" style={{ color: AMBER }}>{tr('Allergy told to the kitchen: {list}', { list: lang === 'es' && t.allergyOf ? allergyIn(lang, t.allergyOf) : t.allergy })}</p>}
+      {!!t.deliveryFee && <p className="mt-2 flex justify-between gap-3 text-[15px]" style={{ color: MUTED }}><span>{tr('Delivery fee')}</span><span className="tabular-nums">{usd(t.deliveryFee)}</span></p>}
+      {!!t.tip && <p className="mt-1 flex justify-between gap-3 text-[15px]" style={{ color: MUTED }}><span>{tr('Driver tip')}</span><span className="tabular-nums">{usd(t.tip)}</span></p>}
+      <p className="mt-3 flex justify-between border-t pt-3 text-[16px] font-semibold" style={{ borderColor: LINE }}><span>{tr('Paid')}</span><span className="tabular-nums">{usd(t.total)}</span></p>
     </section>);
 }
 
 function AgainRow({ again, fav, toggleFav }: { again: () => void; fav: boolean; toggleFav: () => void }) {
+  const [, tr] = useSay();
   return (
     <div className="flex gap-2">
-      <button type="button" onClick={again} className={`${btn} min-h-[52px] flex-1 text-[16px]`} style={{ background: '#fff', border: `1px solid ${LINE}`, color: INK }}>Order this again</button>
-      <button type="button" aria-pressed={fav} onClick={toggleFav} className={`${btn} min-h-[52px] text-[16px]`} style={fav ? { background: INK, color: '#fff' } : { background: '#fff', border: `1px solid ${LINE}`, color: INK }}><Star className="h-5 w-5" fill={fav ? 'currentColor' : 'none'} aria-hidden />Favorite</button>
+      <button type="button" onClick={again} className={`${btn} min-h-[52px] flex-1 text-[16px]`} style={{ background: '#fff', border: `1px solid ${LINE}`, color: INK }}>{tr('Order this again')}</button>
+      <button type="button" aria-pressed={fav} onClick={toggleFav} className={`${btn} min-h-[52px] text-[16px]`} style={fav ? { background: INK, color: '#fff' } : { background: '#fff', border: `1px solid ${LINE}`, color: INK }}><Star className="h-5 w-5" fill={fav ? 'currentColor' : 'none'} aria-hidden />{tr('Favorite')}</button>
     </div>);
 }
 
@@ -494,78 +541,80 @@ function AgainRow({ again, fav, toggleFav }: { again: () => void; fav: boolean; 
  *  up gives back the tip, and the fee unless the business's rule keeps it; a refund, the food and its tax too. */
 function FailedChoice({ f, tenantId, o, s, reload }: { f: NonNullable<NonNullable<Track['delivery']>['failed']>; tenantId: string; o: string; s: string; reload: () => Promise<void> }) {
   const [asking, setAsking] = React.useState(false); const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState('');
+  const [lang, tr] = useSay(); useClearOnSwitch(lang, () => setErr(''));
   const fee = f.keepFee ? 0 : f.fee;
   const refund = f.food + f.tax + f.tip + fee;
-  const pickWords = f.tip > 0 && fee > 0 ? `your ${usd(f.tip)} tip and the ${usd(fee)} delivery fee come back` : f.tip > 0 ? `your ${usd(f.tip)} tip comes back` : fee > 0 ? `the ${usd(fee)} delivery fee comes back` : '';
+  const pickLine = f.tip > 0 && fee > 0 ? tr('If you pick it up, your {tip} tip and the {fee} delivery fee come back to your card.', { tip: usd(f.tip), fee: usd(fee) })
+    : f.tip > 0 ? tr('If you pick it up, your {tip} tip comes back to your card.', { tip: usd(f.tip) }) : fee > 0 ? tr('If you pick it up, the {fee} delivery fee comes back to your card.', { fee: usd(fee) }) : '';
   const choose = async (choice: 'pickup' | 'refund') => {
     setBusy(true); setErr('');
     const { d } = await call({ action: 'deliveryChoice', tenantId, o, s, choice });
     setBusy(false);
-    if (d.ok) { setAsking(false); await reload(); } else setErr(d.error || 'That didn’t go through. Try again.');
+    if (d.ok) { setAsking(false); await reload(); } else setErr(sayIn(lang, d.error, 'That didn’t go through. Try again.'));
   };
   const quietBtn = { background: '#fff', border: `1px solid ${LINE}`, color: INK };
   return (
     <div className="space-y-3">
-      <p className="text-[15.5px] leading-relaxed" style={{ color: MUTED }}>{f.why}. What would you like?</p>
+      <p className="text-[15.5px] leading-relaxed" style={{ color: MUTED }}>{sayIn(lang, f.why, 'Couldn’t deliver')}. {tr('What would you like?')}</p>
       {!asking ? <>
-        <button type="button" disabled={busy} onClick={() => choose('pickup')} className={`${btn} min-h-[52px] w-full text-[16px]`} style={{ background: INK, color: '#fff' }}>I’ll pick it up</button>
-        {pickWords && <p className="text-[14px]" style={{ color: MUTED }}>If you pick it up, {pickWords} to your card.</p>}
-        <button type="button" disabled={busy} onClick={() => setAsking(true)} className={`${btn} min-h-[52px] w-full text-[16px]`} style={quietBtn}>Refund me {usd(refund)}</button>
+        <button type="button" disabled={busy} onClick={() => choose('pickup')} className={`${btn} min-h-[52px] w-full text-[16px]`} style={{ background: INK, color: '#fff' }}>{tr('I’ll pick it up')}</button>
+        {pickLine && <p className="text-[14px]" style={{ color: MUTED }}>{pickLine}</p>}
+        <button type="button" disabled={busy} onClick={() => setAsking(true)} className={`${btn} min-h-[52px] w-full text-[16px]`} style={quietBtn}>{tr('Refund me {price}', { price: usd(refund) })}</button>
       </> : <>
-        <p className="text-[17px] font-semibold">Refund {usd(refund)} to your card?</p>
+        <p className="text-[17px] font-semibold">{tr('Refund {price} to your card?', { price: usd(refund) })}</p>
         <div className="flex gap-2">
-          <button type="button" disabled={busy} onClick={() => choose('refund')} className={`${btn} min-h-[52px] flex-1 text-[16px]`} style={{ background: INK, color: '#fff' }}>Yes, refund it</button>
-          <button type="button" disabled={busy} onClick={() => setAsking(false)} className={`${btn} min-h-[52px] text-[16px]`} style={quietBtn}>Back</button>
+          <button type="button" disabled={busy} onClick={() => choose('refund')} className={`${btn} min-h-[52px] flex-1 text-[16px]`} style={{ background: INK, color: '#fff' }}>{tr('Yes, refund it')}</button>
+          <button type="button" disabled={busy} onClick={() => setAsking(false)} className={`${btn} min-h-[52px] text-[16px]`} style={quietBtn}>{tr('Back')}</button>
         </div>
       </>}
-      {f.keepFee && f.fee > 0 && f.keepWhen && <p className="text-[14px]" style={{ color: MUTED }}>The {usd(f.fee)} delivery fee isn’t refunded when {f.keepWhen}.</p>}
-      {f.stuck && <p className="text-[14px] font-medium" style={{ color: AMBER }}>Your refund started but didn’t finish. Tap Refund me to finish it.</p>}
+      {f.keepFee && f.fee > 0 && f.keepWhen && <p className="text-[14px]" style={{ color: MUTED }}>{lang === 'es' && !hasGuestSpanish(f.keepWhen) ? tr('The {fee} delivery fee isn’t refunded in this case.', { fee: usd(f.fee) }) : tr('The {fee} delivery fee isn’t refunded when {when}.', { fee: usd(f.fee), when: tr(f.keepWhen) })}</p>}
+      {f.stuck && <p className="text-[14px] font-medium" style={{ color: AMBER }}>{tr('Your refund started but didn’t finish. Tap Refund me to finish it.')}</p>}
       {err && <p role="alert" className="text-[14px]" style={{ color: AMBER }}>{err}</p>}
     </div>);
 }
 
 /** A delivery's page after paying: about when it gets there, and each step (made, out with a driver, delivered). */
 function DeliveryStatus({ t, D, tenantId, o, s, reload }: { t: Track; D: NonNullable<Track['delivery']>; tenantId: string; o: string; s: string; reload: () => Promise<void> }) {
-  const st = D.step || 'making'; const gone = st === 'out' || st === 'delivered';
+  const st = D.step || 'making'; const gone = st === 'out' || st === 'delivered'; const [lang, tr] = useSay();
   // (Settled after it couldn't be delivered: picked up instead, or refunded.)
   const settled = st === 'pickup' || st === 'picked_up' || st === 'refunded';
-  const chip = st === 'delivered' ? 'Delivered. Enjoy!' : st === 'out' ? 'On its way' : st === 'failed' ? 'Couldn’t be delivered' : st === 'pickup' ? 'Picking it up' : st === 'picked_up' ? 'Picked up' : st === 'refunded' ? 'Refunded'
-    : st === 'ready' ? 'Ready, going out soon' : t.kitchen === 'later' ? 'Waiting to start' : 'Being made';
+  const chip = st === 'delivered' ? tr('Delivered. Enjoy!') : st === 'out' ? tr('On its way') : st === 'failed' ? tr('Couldn’t be delivered') : st === 'pickup' ? tr('Picking it up') : st === 'picked_up' ? tr('Picked up') : st === 'refunded' ? tr('Refunded')
+    : st === 'ready' ? tr('Ready, going out soon') : t.kitchen === 'later' ? tr('Waiting to start') : tr('Being made');
   // (Out with a driver: the time it should get there now, which moves with the driver's route.)
   const when = st === 'out' && D.eta ? D.eta : D.arriveAt;
-  const big = st === 'delivered' ? (D.deliveredAt ? `Delivered at ${clock(D.deliveredAt)}` : 'Delivered') : st === 'failed' ? 'We couldn’t get it to you' : st === 'pickup' ? 'Come pick it up'
-    : st === 'picked_up' ? 'Picked up. Enjoy!' : st === 'refunded' ? (D.back ? `${usd(D.back)} is on its way back to your card` : 'Refunded') : when ? `There around ${clock(when)}` : 'On its way soon';
+  const big = st === 'delivered' ? (D.deliveredAt ? tr('Delivered {at}', { at: atTime(lang, clock(D.deliveredAt)) }) : tr('Delivered')) : st === 'failed' ? tr('We couldn’t get it to you') : st === 'pickup' ? tr('Come pick it up')
+    : st === 'picked_up' ? tr('Picked up. Enjoy!') : st === 'refunded' ? (D.back ? tr('{price} is on its way back to your card', { price: usd(D.back) }) : tr('Refunded')) : when ? tr('There around {time}', { time: theHour(lang, clock(when)) }) : tr('On its way soon');
   const steps = [
-    { on: true, text: t.kitchen === 'later' && !gone ? 'Paid. The kitchen starts it in time.' : 'Paid, being made' },
-    { on: gone, text: gone && D.outAt ? `Left${D.driver ? ` with ${D.driver}` : ''} at ${clock(D.outAt)}` : 'Out with a driver' },
-    { on: st === 'delivered', text: 'Delivered' },
+    { on: true, text: t.kitchen === 'later' && !gone ? tr('Paid. The kitchen starts it in time.') : tr('Paid, being made') },
+    { on: gone, text: gone && D.outAt ? (D.driver ? tr('Left with {driver} {at}', { driver: D.driver, at: atTime(lang, clock(D.outAt)) }) : tr('Left {at}', { at: atTime(lang, clock(D.outAt)) })) : tr('Out with a driver') },
+    { on: st === 'delivered', text: tr('Delivered') },
   ];
   return (
     <section className="space-y-4 rounded-3xl bg-[#fff] p-6" style={{ border: `1px solid ${LINE}` }} aria-live="polite">
       <p className="w-max rounded-full px-4 py-1.5 text-[15px] font-semibold" style={gone || settled ? { background: GREEN_TINT, color: GREEN } : st === 'failed' ? { background: AMBER_TINT, color: AMBER } : { background: SOFT, color: INK }}>{chip}</p>
       <div>
         <p className="text-[26px] font-semibold leading-tight tracking-tight">{big}</p>
-        {st === 'out' && D.late && D.arriveAt && <p className="mt-1.5 text-[15.5px] font-medium" style={{ color: AMBER }}>Running a little late. It was due at {clock(D.arriveAt)}.</p>}
-        {st === 'refunded' ? <p className="mt-1.5 text-[15.5px] leading-relaxed" style={{ color: MUTED }}>Order <b className="font-semibold" style={{ color: INK }}>{t.number}</b>. It can take a few days to show.</p>
-          : st === 'pickup' || st === 'picked_up' ? <p className="mt-1.5 text-[15.5px] leading-relaxed" style={{ color: MUTED }}>Order <b className="font-semibold" style={{ color: INK }}>{t.number}</b>{t.name ? ` for ${t.name}` : ''}{st === 'pickup' && t.code ? <>. Your pickup code is <b className="font-semibold" style={{ color: INK }}>{t.code}</b>: say it at the counter.</> : '.'}</p>
-          : <p className="mt-1.5 text-[15.5px] leading-relaxed" style={{ color: MUTED }}>Order <b className="font-semibold" style={{ color: INK }}>{t.number}</b>{t.name ? ` for ${t.name}` : ''}, to {D.to}</p>}
+        {st === 'out' && D.late && D.arriveAt && <p className="mt-1.5 text-[15.5px] font-medium" style={{ color: AMBER }}>{tr('Running a little late. It was due {at}.', { at: atTime(lang, clock(D.arriveAt)) })}</p>}
+        {st === 'refunded' ? <p className="mt-1.5 text-[15.5px] leading-relaxed" style={{ color: MUTED }}>{tr('Order')} <b className="font-semibold" style={{ color: INK }}>{t.number}</b>. {tr('It can take a few days to show.')}</p>
+          : st === 'pickup' || st === 'picked_up' ? <p className="mt-1.5 text-[15.5px] leading-relaxed" style={{ color: MUTED }}>{tr('Order')} <b className="font-semibold" style={{ color: INK }}>{t.number}</b>{t.name ? ` ${tr('for {name}', { name: t.name })}` : ''}{st === 'pickup' && t.code ? <>. {tr('Your pickup code is')} <b className="font-semibold" style={{ color: INK }}>{t.code}</b>{tr(': say it at the counter.')}</> : '.'}</p>
+          : <p className="mt-1.5 text-[15.5px] leading-relaxed" style={{ color: MUTED }}>{tr('Order')} <b className="font-semibold" style={{ color: INK }}>{t.number}</b>{t.name ? ` ${tr('for {name}', { name: t.name })}` : ''}, {tr('to {to}', { to: D.to })}</p>}
       </div>
       {st === 'failed' && D.failed && <FailedChoice f={D.failed} tenantId={tenantId} o={o} s={s} reload={reload} />}
-      {(st === 'pickup' || st === 'picked_up') && !!D.back && <p className="text-[15px]" style={{ color: MUTED }}>{usd(D.back)} is on its way back to your card. It can take a few days to show.</p>}
-      {(st === 'pickup' || st === 'picked_up' || st === 'refunded') && D.owed && <p className="text-[15px]" style={{ color: MUTED }}>The rest is still going back to your card. The team is on it.</p>}
-      {st !== 'failed' && !settled && <ol className="space-y-3" aria-label="How it’s going">
+      {(st === 'pickup' || st === 'picked_up') && !!D.back && <p className="text-[15px]" style={{ color: MUTED }}>{tr('{price} is on its way back to your card. It can take a few days to show.', { price: usd(D.back) })}</p>}
+      {(st === 'pickup' || st === 'picked_up' || st === 'refunded') && D.owed && <p className="text-[15px]" style={{ color: MUTED }}>{tr('The rest is still going back to your card. The team is on it.')}</p>}
+      {st !== 'failed' && !settled && <ol className="space-y-3" aria-label={tr('How it’s going')}>
         {steps.map((x, i) => (
           <li key={i} className="flex items-center gap-3 text-[15.5px]">
             <span aria-hidden className="h-3 w-3 shrink-0 rounded-full" style={{ background: x.on ? GREEN : '#dcdde0' }} />
-            <span style={{ color: x.on ? INK : MUTED }}>{x.text}{x.on ? <span className="sr-only"> (done)</span> : null}</span>
+            <span style={{ color: x.on ? INK : MUTED }}>{x.text}{x.on ? <span className="sr-only"> {tr('(done)')}</span> : null}</span>
           </li>))}
       </ol>}
-      {st === 'out' && D.outside && <p role="status" className="rounded-2xl px-4 py-3 text-[15px] font-medium" style={{ background: GREEN_TINT, color: GREEN }}>Your driver is outside.</p>}
+      {st === 'out' && D.outside && <p role="status" className="rounded-2xl px-4 py-3 text-[15px] font-medium" style={{ background: GREEN_TINT, color: GREEN }}>{tr('Your driver is outside.')}</p>}
       {st === 'delivered' && (D.left || D.photo) && <div className="space-y-2">
-        {D.left && <p className="text-[15px]" style={{ color: MUTED }}>Left at the door</p>}
-        {D.photo && <img src={D.photo} alt={D.left ? 'Where your order was left' : 'Your order, delivered'} className="max-h-[320px] w-full rounded-2xl object-cover" />}
+        {D.left && <p className="text-[15px]" style={{ color: MUTED }}>{tr('Left at the door')}</p>}
+        {D.photo && <img src={D.photo} alt={D.left ? tr('Where your order was left') : tr('Your order, delivered')} className="max-h-[320px] w-full rounded-2xl object-cover" />}
       </div>}
-      {!!t.earned && <p className="text-[15px] font-medium" style={{ color: GREEN }}>You earned {t.earned} {t.unit || 'points'} with this order.</p>}
+      {!!t.earned && <p className="text-[15px] font-medium" style={{ color: GREEN }}>{earnedLine(lang, t.earned, t.unit)}</p>}
       {(st === 'making' || st === 'ready' || (st === 'out' && !!t.text?.sent)) && <ReadyTextLine t={t} tenantId={tenantId} o={o} s={s} reload={reload} onWay />}
     </section>);
 }
@@ -574,136 +623,145 @@ function DeliveryStatus({ t, D, tenantId, o, s, reload }: { t: Track; D: NonNull
 const firstOpen = (m: Menu) => m.times.find((t) => !(m.full || []).includes(t)) || '';
 // The time to start on: as soon as it's ready, unless that isn't offered (before opening) or is full.
 const startAt = (m: Menu) => (m.asapFull || m.asap === false ? firstOpen(m) : '');
-/** When it opens next, in words: "at 7:00 AM", "tomorrow at 7:00 AM", "on Friday at 7:00 AM". */
-function opensWords(iso: string, tz?: string): string {
+/** When it opens next, in words: "at 7:00 AM", "tomorrow at 7:00 AM", "on Friday at 7:00 AM" ("el viernes a las 7:00 AM"). */
+function opensWords(iso: string, tz: string | undefined, lang: GuestLang): string {
   const day = (d: Date) => { try { return d.toLocaleDateString('en-CA', tz ? { timeZone: tz } : {}); } catch { return d.toLocaleDateString('en-CA'); } };
   const t = new Date(iso); const today = day(new Date());
   // (The next calendar day, counted on the date itself: right on the days the clocks change.)
   const [y, mo, d] = today.split('-').map(Number); const tomorrow = Number.isFinite(y) ? new Date(Date.UTC(y, mo - 1, d + 1)).toISOString().slice(0, 10) : day(new Date(Date.now() + 86400000));
-  const at = `at ${clock(iso, tz)}`;
+  const at = atTime(lang, clock(iso, tz)); const loc = lang === 'es' ? 'es-US' : 'en-US';
   if (day(t) === today) return at;
-  if (day(t) === tomorrow) return `tomorrow ${at}`;
-  let wd = ''; try { wd = t.toLocaleDateString('en-US', { weekday: 'long', ...(tz ? { timeZone: tz } : {}) }); } catch { wd = t.toLocaleDateString('en-US', { weekday: 'long' }); }
-  return `on ${wd} ${at}`;
+  if (day(t) === tomorrow) return gt(lang, 'tomorrow {at}', { at });
+  let wd = ''; try { wd = t.toLocaleDateString(loc, { weekday: 'long', ...(tz ? { timeZone: tz } : {}) }); } catch { wd = t.toLocaleDateString(loc, { weekday: 'long' }); }
+  return gt(lang, 'on {day} {at}', { day: wd, at });
 }
 
 /** A tip for the driver (lib/food-delivery): a percent of the food or an amount; nothing picked is no tip. All of it is
  *  the driver's. */
 function TipPick({ food, tip, setTip }: { food: number; tip: Tip; setTip: (t: Tip) => void }) {
   const [typed, setTyped] = React.useState(() => (tip && 'cents' in tip ? (tip.cents / 100).toFixed(2) : ''));
-  const [other, setOther] = React.useState(!!tip && 'cents' in tip);
+  const [other, setOther] = React.useState(!!tip && 'cents' in tip); const [, tr] = useSay();
   const on = (t: Tip) => setTip(t);
   const opt = (key: string, label: string, sub: string | null, chosen: boolean, pick: () => void) => (
     <button key={key} type="button" aria-pressed={chosen} onClick={pick} className={`flex min-h-[52px] flex-col items-center justify-center rounded-xl text-[14.5px] font-semibold leading-tight ${RING}`}
       style={chosen ? { background: INK, color: '#fff' } : { background: '#fff', border: `1px solid ${LINE}`, color: INK }}>{label}{sub && <span className="text-[12.5px] font-medium" style={{ color: chosen ? '#d9dadc' : MUTED }}>{sub}</span>}</button>);
   const setAmount = (v: string) => { const clean = v.replace(/[^\d.]/g, '').slice(0, 6); setTyped(clean); const c = Math.round(Number(clean) * 100); on(Number.isFinite(c) && c > 0 ? { cents: Math.min(10000, c) } : null); };
   return (
-    <fieldset className="mt-3"><legend className="text-[15px] font-semibold">Tip for your driver</legend>
+    <fieldset className="mt-3"><legend className="text-[15px] font-semibold">{tr('Tip for your driver')}</legend>
       <div className="mt-2 grid grid-cols-5 gap-1.5">
-        {opt('none', 'None', null, !tip && !other, () => { setOther(false); on(null); })}
+        {opt('none', tr('None'), null, !tip && !other, () => { setOther(false); on(null); })}
         {TIP_PCTS.map((p) => opt(`p${p}`, `${p}%`, usd(tipCents({ pct: p }, food) / 100), !other && !!tip && 'pct' in tip && tip.pct === p, () => { setOther(false); on({ pct: p }); }))}
-        {opt('other', 'Other', null, other, () => { setOther(true); setAmount(typed); })}
+        {opt('other', tr('Other'), null, other, () => { setOther(true); setAmount(typed); })}
       </div>
-      {other && <label className="mt-2 block"><span className="text-[14px] font-medium">Tip amount</span>
+      {other && <label className="mt-2 block"><span className="text-[14px] font-medium">{tr('Tip amount')}</span>
         <input value={typed} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" placeholder="0.00" autoFocus className={`mt-1.5 h-12 w-full rounded-xl px-4 text-[16px] ${RING}`} style={{ border: `1px solid ${LINE}` }} /></label>}
-      <p className="mt-1.5 text-[13px]" style={{ color: MUTED }}>All of it goes to your driver.</p>
+      <p className="mt-1.5 text-[13px]" style={{ color: MUTED }}>{tr('All of it goes to your driver.')}</p>
     </fieldset>);
 }
 
 /** Delivered (lib/food-delivery): where to, a note for the driver, and checking the address (the fee and the drive). */
 function DeliveryFields({ addr, setAddr, note, setNote, check, checking, checkErr, onCheck }: { addr: Addr; setAddr: (a: Addr) => void; note: string; setNote: (n: string) => void;
   check: DCheck | null; checking: boolean; checkErr: string; onCheck: () => void }) {
+  const [, tr] = useSay();
   const field = (k: keyof Addr, label: string, auto: string, max: number, extra: Record<string, any> = {}, fix = (v: string) => v) => (
     <label className="block min-w-0"><span className="text-[14px] font-medium">{label}</span>
       <input value={addr[k]} onChange={(e) => setAddr({ ...addr, [k]: fix(e.target.value).slice(0, max) })} autoComplete={auto} maxLength={max} className={`mt-1.5 h-12 w-full rounded-xl px-4 text-[16px] ${RING}`} style={{ border: `1px solid ${LINE}` }} {...extra} /></label>);
   return (
     <div className="mt-3 space-y-3">
-      {field('line1', 'Street address', 'address-line1', 120)}
-      <div className="grid grid-cols-[1fr_1.4fr] gap-2">{field('line2', 'Apt or suite', 'address-line2', 60, { placeholder: 'Optional' })}{field('city', 'Town or city', 'address-level2', 60)}</div>
-      <div className="grid grid-cols-2 gap-2">{field('state', 'State', 'address-level1', 2, {}, (v) => v.toUpperCase().replace(/[^A-Z]/g, ''))}{field('postalCode', 'ZIP code', 'postal-code', 10, { inputMode: 'numeric' }, (v) => v.replace(/[^\d-]/g, ''))}</div>
-      <label className="block"><span className="text-[14px] font-medium">Notes for the driver <span className="font-normal" style={{ color: MUTED }}>(optional)</span></span>
-        <input value={note} onChange={(e) => setNote(e.target.value.slice(0, 200))} maxLength={200} className={`mt-1.5 h-12 w-full rounded-xl px-4 text-[16px] ${RING}`} style={{ border: `1px solid ${LINE}` }} placeholder="Side door, gate code" /></label>
+      {field('line1', tr('Street address'), 'address-line1', 120)}
+      <div className="grid grid-cols-[1fr_1.4fr] gap-2">{field('line2', tr('Apt or suite'), 'address-line2', 60, { placeholder: tr('Optional') })}{field('city', tr('Town or city'), 'address-level2', 60)}</div>
+      <div className="grid grid-cols-2 gap-2">{field('state', tr('State'), 'address-level1', 2, {}, (v) => v.toUpperCase().replace(/[^A-Z]/g, ''))}{field('postalCode', tr('ZIP code'), 'postal-code', 10, { inputMode: 'numeric' }, (v) => v.replace(/[^\d-]/g, ''))}</div>
+      <label className="block"><span className="text-[14px] font-medium">{tr('Notes for the driver')} <span className="font-normal" style={{ color: MUTED }}>{tr('(optional)')}</span></span>
+        <input value={note} onChange={(e) => setNote(e.target.value.slice(0, 200))} maxLength={200} className={`mt-1.5 h-12 w-full rounded-xl px-4 text-[16px] ${RING}`} style={{ border: `1px solid ${LINE}` }} placeholder={tr('Side door, gate code')} /></label>
       {check
-        ? <p role="status" className="rounded-2xl px-4 py-3 text-[15px]" style={{ background: GREEN_TINT, color: GREEN }}><b className="font-semibold">We deliver there.</b> {check.from ? `From ${check.from.name}, about a ${check.driveMin}-minute drive. ` : ''}{check.free || !check.feeCents ? 'Delivery is free for this order' : `Delivery ${usd(check.feeCents / 100)}`}{check.from ? '.' : `, about a ${check.driveMin}-minute drive.`}</p>
-        : <button type="button" onClick={onCheck} disabled={checking} className={`${btn} min-h-[48px] w-full text-[15.5px]`} style={{ background: '#fff', border: `1px solid ${INK}`, color: INK }}>{checking ? 'Checking…' : 'Check the address'}</button>}
+        ? <p role="status" className="rounded-2xl px-4 py-3 text-[15px]" style={{ background: GREEN_TINT, color: GREEN }}><b className="font-semibold">{tr('We deliver there.')}</b> {[check.from ? tr('From {name}, about a {n}-minute drive.', { name: check.from.name, n: check.driveMin }) : '',
+            check.free || !check.feeCents ? tr('Delivery is free for this order.') : tr('Delivery {price}.', { price: usd(check.feeCents / 100) }), check.from ? '' : tr('About a {n}-minute drive.', { n: check.driveMin })].filter(Boolean).join(' ')}</p>
+        : <button type="button" onClick={onCheck} disabled={checking} className={`${btn} min-h-[48px] w-full text-[15.5px]`} style={{ background: '#fff', border: `1px solid ${INK}`, color: INK }}>{checking ? tr('Checking…') : tr('Check the address')}</button>}
       {checkErr && <p role="alert" className="rounded-2xl px-4 py-3 text-[15px] font-medium" style={{ background: AMBER_TINT, color: AMBER }}>{checkErr}</p>}
     </div>);
 }
 
 /** A pickup time to choose; a full one says so and can't be chosen. */
 function TimeButton({ label, full, fullWord, on, onPick, wide }: { label: string; full: boolean; fullWord: string; on: boolean; onPick: () => void; wide?: boolean }) {
+  const [, tr] = useSay();
   return (
     <button type="button" aria-pressed={on} disabled={full} onClick={onPick}
       className={`flex min-h-[48px] items-center justify-between gap-2 rounded-xl px-3.5 text-left text-[15px] ${wide ? 'col-span-2' : ''} ${RING}`}
       style={full ? { background: SOFT, color: '#8b8e93', border: `1px solid ${LINE}` } : on ? { background: '#fff', color: INK, border: `1px solid ${INK}`, boxShadow: `inset 0 0 0 1px ${INK}`, fontWeight: 600 } : { background: '#fff', color: INK, border: `1px solid ${LINE}` }}>
-      <span>{label}</span>{full ? <span className="text-[13px] font-semibold">{fullWord}</span> : on ? <span className="text-[13px] font-semibold" style={{ color: GREEN }}>Chosen</span> : null}
+      <span>{label}</span>{full ? <span className="text-[13px] font-semibold">{fullWord}</span> : on ? <span className="text-[13px] font-semibold" style={{ color: GREEN }}>{tr('Chosen')}</span> : null}
     </button>
   );
 }
 
-/** "Fri 12:00 PM": until when an order for another day can be canceled. */
-const shortWhen = (ms: number, tz?: string) => { try { return new Date(ms).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit', ...(tz ? { timeZone: tz } : {}) }); } catch { return ''; } };
+/** "Fri 12:00 PM" ("el viernes a las 12:00 PM"): until when an order for another day can be canceled. */
+const shortWhen = (ms: number, tz?: string, lang: GuestLang = 'en') => {
+  try {
+    if (lang === 'es') return `el ${new Date(ms).toLocaleDateString('es-US', { weekday: 'long', ...(tz ? { timeZone: tz } : {}) })} ${atTime('es', clock(new Date(ms).toISOString(), tz))}`;
+    return new Date(ms).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit', ...(tz ? { timeZone: tz } : {}) });
+  } catch { return ''; }
+};
 
 /** For another day: its date, then its time (for a delivery, when it gets there), and how many people. */
 function LaterPick({ later, day, setDay, at, setAt, people, setPeople, tz, driveMin, subtotal }: { later: Later; day: string; setDay: (d: string) => void; at: string; setAt: (t: string) => void;
   people: string; setPeople: (p: string) => void; tz?: string; driveMin: number | null; subtotal: number }) {
-  const [moreDays, setMoreDays] = React.useState(false); const [moreTimes, setMoreTimes] = React.useState(false);
+  const [moreDays, setMoreDays] = React.useState(false); const [moreTimes, setMoreTimes] = React.useState(false); const [lang, tr] = useSay();
   const d = later.days.find((x) => x.date === day);
-  if (!later.days.length) return <p className="mt-2 text-[14px]" style={{ color: MUTED }}>There are no days to order for right now.</p>;
+  if (!later.days.length) return <p className="mt-2 text-[14px]" style={{ color: MUTED }}>{tr('There are no days to order for right now.')}</p>;
   const days = moreDays || later.days.findIndex((x) => x.date === day) >= 8 ? later.days : later.days.slice(0, 8);
   const times = d ? (moreTimes || d.times.indexOf(at) >= 8 ? d.times : d.times.slice(0, 8)) : [];
   const short = later.minCents !== null ? later.minCents - Math.round(subtotal * 100) : 0;
   return (
     <div className="mt-2 space-y-3">
-      <div role="group" aria-label="Day" className="grid grid-cols-4 gap-2">
-        {days.map((x) => <button key={x.date} type="button" aria-pressed={x.date === day} aria-label={dayWords(x.date)} onClick={() => { setDay(x.date); setAt(''); setMoreTimes(false); }}
-          className={`min-h-[48px] rounded-xl px-1 text-[14.5px] font-semibold ${RING}`} style={x.date === day ? { background: INK, color: '#fff' } : { background: '#fff', border: `1px solid ${LINE}`, color: INK }}>{dayWords(x.date, true)}</button>)}
+      <div role="group" aria-label={tr('Day')} className="grid grid-cols-4 gap-2">
+        {days.map((x) => <button key={x.date} type="button" aria-pressed={x.date === day} aria-label={dayWords(x.date, false, lang)} onClick={() => { setDay(x.date); setAt(''); setMoreTimes(false); }}
+          className={`min-h-[48px] rounded-xl px-1 text-[14.5px] font-semibold ${RING}`} style={x.date === day ? { background: INK, color: '#fff' } : { background: '#fff', border: `1px solid ${LINE}`, color: INK }}>{capFirst(dayWords(x.date, true, lang))}</button>)}
       </div>
-      {later.days.length > 8 && <button type="button" onClick={() => setMoreDays((x) => !x)} className={`block min-h-[44px] text-[15px] font-semibold underline underline-offset-4 ${RING}`} style={{ color: INK }}>{moreDays ? 'Fewer days' : 'More days'}</button>}
-      {d && <div role="group" aria-label={driveMin !== null ? 'When it gets to you' : 'Pickup time'} className="grid grid-cols-2 gap-2">
+      {later.days.length > 8 && <button type="button" onClick={() => setMoreDays((x) => !x)} className={`block min-h-[44px] text-[15px] font-semibold underline underline-offset-4 ${RING}`} style={{ color: INK }}>{moreDays ? tr('Fewer days') : tr('More days')}</button>}
+      {d && <div role="group" aria-label={driveMin !== null ? tr('When it gets to you') : tr('Pickup time')} className="grid grid-cols-2 gap-2">
         {times.map((t) => <TimeButton key={t} label={clock(driveMin !== null ? arriveFor(t, driveMin) : t, tz)} full={false} fullWord="" on={at === t} onPick={() => setAt(t)} />)}
       </div>}
-      {d && d.times.length > 8 && <button type="button" onClick={() => setMoreTimes((x) => !x)} className={`block min-h-[44px] text-[15px] font-semibold underline underline-offset-4 ${RING}`} style={{ color: INK }}>{moreTimes ? 'Fewer times' : 'Later times'}</button>}
-      {!d && <p className="text-[14px]" style={{ color: MUTED }}>Pick a day to see its times.</p>}
-      <label className="block"><span className="text-[15px] font-semibold">How many people? <span className="font-normal" style={{ color: MUTED }}>(optional)</span></span>
+      {d && d.times.length > 8 && <button type="button" onClick={() => setMoreTimes((x) => !x)} className={`block min-h-[44px] text-[15px] font-semibold underline underline-offset-4 ${RING}`} style={{ color: INK }}>{moreTimes ? tr('Fewer times') : tr('Later times')}</button>}
+      {!d && <p className="text-[14px]" style={{ color: MUTED }}>{tr('Pick a day to see its times.')}</p>}
+      <label className="block"><span className="text-[15px] font-semibold">{tr('How many people?')} <span className="font-normal" style={{ color: MUTED }}>{tr('(optional)')}</span></span>
         <input value={people} onChange={(e) => setPeople(e.target.value.replace(/\D/g, '').slice(0, 3))} inputMode="numeric" className={`mt-2 block h-12 w-28 rounded-xl px-4 text-[16px] ${RING}`} style={{ border: `1px solid ${LINE}` }} placeholder="20" /></label>
-      {at && <p className="text-[14px]" style={{ color: MUTED }}>Paid now. Cancel for a full refund until {shortWhen(Date.parse(at) - later.noticeHours * 3600000, tz)}.</p>}
-      {short > 0 && <p role="status" className="text-[14px] font-medium" style={{ color: AMBER }}>Orders for another day start at {usd((later.minCents || 0) / 100)} before tax. Add {usd(short / 100)} more.</p>}
+      {at && <p className="text-[14px]" style={{ color: MUTED }}>{tr('Paid now. Cancel for a full refund until {when}.', { when: shortWhen(Date.parse(at) - later.noticeHours * 3600000, tz, lang) })}</p>}
+      {short > 0 && <p role="status" className="text-[14px] font-medium" style={{ color: AMBER }}>{tr('Orders for another day start at {price} before tax. Add {more} more.', { price: usd((later.minCents || 0) / 100), more: usd(short / 100) })}</p>}
     </div>);
 }
 
 /** "Open until 9:00 PM", "Opens 7:00 AM" (today) or "Opens Mon 7:00 AM", or closed. */
-function openLine(p: PlaceRow, tz?: string) {
-  if (p.open) return p.until ? `Open until ${clock(p.until, tz)}` : 'Open';
-  if (!p.opens) return 'Closed';
+function openLine(p: PlaceRow, tz: string | undefined, lang: GuestLang) {
+  if (p.open) return p.until ? gt(lang, 'Open {until}', { until: untilTime(lang, clock(p.until, tz)) }) : gt(lang, 'Open');
+  if (!p.opens) return gt(lang, 'Closed');
   const day = (iso: string | Date) => { try { return new Date(iso).toLocaleDateString('en-US', { weekday: 'short', ...(tz ? { timeZone: tz } : {}) }); } catch { return ''; } };
-  return `Opens ${day(p.opens) === day(new Date()) ? clock(p.opens, tz) : shortWhen(Date.parse(p.opens), tz)}`;
+  return gt(lang, 'Opens {when}', { when: day(p.opens) === day(new Date()) ? (lang === 'es' ? atTime(lang, clock(p.opens, tz)) : clock(p.opens, tz)) : shortWhen(Date.parse(p.opens), tz, lang) });
 }
 
 /** With more than one location: where from (lib/ahead-places). The nearest first once the guest shares where they are
  *  (asked only when they tap, and kept on this page only). */
 function PlacePicker({ business, places, tz, onPick, current }: { business: string; places: PlaceRow[]; tz?: string; onPick: (id: string) => void; current?: string | null }) {
   const [near, setNear] = React.useState<{ lat: number; lng: number } | null>(null); const [finding, setFinding] = React.useState(false); const [why, setWhy] = React.useState('');
+  const [lang, tr] = useSay(); useClearOnSwitch(lang, () => setWhy(''));
   const find = () => {
-    if (!navigator.geolocation) { setWhy('This phone can’t share where it is. Pick from the list.'); return; }
+    if (!navigator.geolocation) { setWhy(tr('This phone can’t share where it is. Pick from the list.')); return; }
     setFinding(true); setWhy('');
     navigator.geolocation.getCurrentPosition((pos) => { setNear({ lat: pos.coords.latitude, lng: pos.coords.longitude }); setFinding(false); },
-      () => { setFinding(false); setWhy('We couldn’t tell where you are. Pick from the list.'); }, { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 });
+      () => { setFinding(false); setWhy(tr('We couldn’t tell where you are. Pick from the list.')); }, { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 });
   };
   const rows = places.map((p) => ({ ...p, miles: near && p.lat !== null && p.lng !== null ? Math.round(milesApart(near, { lat: p.lat, lng: p.lng }) * 10) / 10 : null }))
     .sort((a, b) => (a.miles === null ? 1 : 0) - (b.miles === null ? 1 : 0) || (a.miles ?? 0) - (b.miles ?? 0) || Number(b.open) - Number(a.open) || a.name.localeCompare(b.name));
   return (
     <div className="space-y-4">
-      <header><h1 className="text-[26px] font-semibold tracking-tight">{business}</h1><p className="mt-1 text-[15px]" style={{ color: MUTED }}>Where are you ordering from?</p></header>
-      {!near && <button type="button" onClick={find} disabled={finding} className={`${btn} min-h-[52px] w-full text-[16px]`} style={{ background: INK, color: '#fff' }}>{finding ? 'Finding you…' : 'Find the nearest'}</button>}
+      <header><h1 className="text-[26px] font-semibold tracking-tight">{business}</h1><p className="mt-1 text-[15px]" style={{ color: MUTED }}>{tr('Where are you ordering from?')}</p></header>
+      {!near && <button type="button" onClick={find} disabled={finding} className={`${btn} min-h-[52px] w-full text-[16px]`} style={{ background: INK, color: '#fff' }}>{finding ? tr('Finding you…') : tr('Find the nearest')}</button>}
       {why && <p role="status" className="text-[14px]" style={{ color: AMBER }}>{why}</p>}
-      <ul className="space-y-2.5" aria-label="Locations">
+      <ul className="space-y-2.5" aria-label={tr('Locations')}>
         {rows.map((p, i) => (
           <li key={p.id}>
             <button type="button" onClick={() => onPick(p.id)} aria-current={current === p.id ? 'true' : undefined} className={`flex w-full flex-col gap-1 rounded-2xl bg-[#fff] px-4 py-3.5 text-left ${RING}`} style={current === p.id ? { border: `1px solid ${INK}`, boxShadow: `inset 0 0 0 1px ${INK}` } : { border: `1px solid ${LINE}` }}>
               <span className="flex items-baseline justify-between gap-3"><span className="text-[17px] font-semibold">{p.name}</span>{p.miles !== null && <span className="shrink-0 text-[14px] tabular-nums" style={{ color: MUTED }}>{p.miles} mi</span>}</span>
               {p.address && <span className="text-[14px]" style={{ color: MUTED }}>{p.address}</span>}
-              <span className="text-[14px]" style={{ color: p.open ? GREEN : MUTED }}>{openLine(p, p.tz || tz)}{near && i === 0 && p.miles !== null ? '. Nearest to you' : ''}</span>
+              <span className="text-[14px]" style={{ color: p.open ? GREEN : MUTED }}>{openLine(p, p.tz || tz, lang)}{near && i === 0 && p.miles !== null ? `. ${tr('Nearest to you')}` : ''}</span>
             </button>
           </li>))}
       </ul>
@@ -712,6 +770,19 @@ function PlacePicker({ business, places, tz, onPick, current }: { business: stri
 
 export default function OrderAhead() {
   const { tenantId } = useParams() as { tenantId: string };
+  // The page's language (lib/guest-lang): ?lang=es (or en) in its address, else what was picked on this phone, else the
+  // phone's own language. Picked: kept on this phone for this business.
+  const [lang, setLangNow] = React.useState<GuestLang>('en'); const [langRead, setLangRead] = React.useState(false);
+  React.useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get('lang'); const kept = read(guestLangKey('ahead', tenantId));
+    const own = String((navigator.languages && navigator.languages[0]) || navigator.language || '');
+    if (q === 'es' || q === 'en') write(guestLangKey('ahead', tenantId), q);
+    setLangNow(q === 'es' || q === 'en' ? q : kept === 'es' || kept === 'en' ? kept : /^es\b/i.test(own) ? 'es' : 'en'); setLangRead(true);
+  }, [tenantId]);
+  React.useEffect(() => { document.documentElement.lang = lang; }, [lang]);
+  const setLang = (l: GuestLang) => { setLangNow(l); write(guestLangKey('ahead', tenantId), l); };
+  const tr: Say = (en, v) => gt(lang, en, v);
+  const nmOf = (id: string, en: string) => inLang(lang, en, byId.get(id)?.nameEs);
   const [menu, setMenu] = React.useState<Menu | null>(null); const [err, setErr] = React.useState('');
   const [cart, setCart] = React.useState<CartLine[]>([]); const [open, setOpen] = React.useState<Item | null>(null);
   const [step, setStep] = React.useState<'menu' | 'review' | 'pay'>('menu');
@@ -754,6 +825,7 @@ export default function OrderAhead() {
   const closedNow = !!menu?.closedNow;
   const noneOpen = !!menu && !closedNow && (!!menu.asapFull || menu.asap === false) && !firstOpen(menu);
   const [placing, setPlacing] = React.useState(false); const [payBusy, setPayBusy] = React.useState(false); const [placeErr, setPlaceErr] = React.useState('');
+  useClearOnSwitch(lang, () => setPlaceErr(''), () => setCheckErr(''), () => setAgainSaid(null));
   const [pay, setPay] = React.useState<{ orderId: string; sig: string; number: string; total: number; deliveryFee?: number; tip?: number; clientSecret: string; publishableKey: string; stripeAccount: string } | null>(null);
   const [track, setTrack] = React.useState<{ o: string; s: string } | null>(null);
   const key = React.useRef<string>('');
@@ -787,7 +859,7 @@ export default function OrderAhead() {
   // Another day: never at the drive-thru; and the address is checked again (today's drivers don't come into it).
   React.useEffect(() => { if (!menu) return; setDcheck(null); setCheckErr(''); if (way && !ways.includes(way)) setWay(ways.length === 1 ? ways[0] : null); else if (!way && ways.length === 1) setWay(ways[0]);
     // (Back to today: up to 20 of each, said.)
-    if (when === 'today' && cart.some((l) => l.quantity > 20)) { setCart((c) => c.map((l) => (l.quantity > 20 ? { ...l, quantity: 20 } : l))); setPlaceErr('For today, up to 20 of each. Check your order.'); } }, [when]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (when === 'today' && cart.some((l) => l.quantity > 20)) { setCart((c) => c.map((l) => (l.quantity > 20 ? { ...l, quantity: 20 } : l))); setPlaceErr(tr('For today, up to 20 of each. Check your order.')); } }, [when]); // eslint-disable-line react-hooks/exhaustive-deps
   const count = cart.reduce((n, l) => n + l.quantity, 0); const subtotal = cart.reduce((n, l) => n + l.each * l.quantity, 0);
   /** Into the order (the same item with the same choices is one line); gives back its line's key. */
   const add = (item: Item, picks: Picks, qty: number, offer?: OfferKind, note = '') => {
@@ -802,13 +874,13 @@ export default function OrderAhead() {
     const missed: string[] = []; let n = 0;
     for (const l of lines) {
       const item = byId.get(l.itemId);
-      if (!item) { missed.push(`${l.name} isn’t on the menu now`); continue; }
-      if (item.soldOut) { missed.push(`${item.name} is sold out right now`); continue; }
-      if (!priceChoices(item, l.picks).ok) { missed.push(`${item.name} has new choices, so add it from the menu`); continue; }
+      if (!item) { missed.push(tr('{name} isn’t on the menu now', { name: l.name })); continue; }
+      if (item.soldOut) { missed.push(tr('{name} is sold out right now', { name: inLang(lang, item.name, item.nameEs) })); continue; }
+      if (!priceChoices(item, l.picks).ok) { missed.push(tr('{name} has new choices, so add it from the menu', { name: inLang(lang, item.name, item.nameEs) })); continue; }
       add(item, l.picks, Math.max(1, Math.min(20, Math.floor(Number(l.quantity)) || 1))); n++;
     }
     const why = missed.map((m) => `${m}.`).join(' ');
-    setAgainSaid({ text: n ? `Added to your order.${why ? ` ${why}` : ''}` : `Nothing could be added. ${why}`, warn: missed.length > 0 });
+    setAgainSaid({ text: n ? `${tr('Added to your order.')}${why ? ` ${why}` : ''}` : `${tr('Nothing could be added.')} ${why}`, warn: missed.length > 0 });
   };
   // Order this again from an order's page: added once the menu's here.
   React.useEffect(() => {
@@ -853,34 +925,34 @@ export default function OrderAhead() {
   // (For another day, typed: 1 to 100.)
   const setQtyTo = (k: string, v: string) => { const n = Math.floor(Number(v.replace(/\D/g, ''))); if (!Number.isFinite(n) || n < 1) return; setCart((c) => c.map((l) => (l.key === k ? { ...l, quantity: Math.min(maxQ, n) } : l))); };
   const checkAddress = async () => {
-    if (!addr.line1.trim() || !addr.city.trim() || !addr.state.trim() || !/^\d{5}(-?\d{4})?$/.test(addr.postalCode.trim())) { setCheckErr('Add the street address, town, state and ZIP code.'); return; }
+    if (!addr.line1.trim() || !addr.city.trim() || !addr.state.trim() || !/^\d{5}(-?\d{4})?$/.test(addr.postalCode.trim())) { setCheckErr(tr('Add the street address, town, state and ZIP code.')); return; }
     setChecking(true); setCheckErr('');
     const { d } = await call({ action: 'deliveryCheck', tenantId, address: addr, lines: cart.map((l) => ({ itemId: l.itemId, quantity: l.quantity })), ...(laterMode ? { later: true } : {}), ...menuPlace() });
     setChecking(false);
     if (d.ok) { setDcheck({ from: d.from || null, feeCents: Number(d.feeCents) || 0, free: !!d.free, driveMin: Number(d.driveMin) || 15, token: d.token || null, asapArrive: d.asapArrive || null, leaveFull: Array.isArray(d.leaveFull) ? d.leaveFull : [], leaveFirst: d.leaveFirst || null, asapNoDriver: !!d.asapNoDriver }); write('cf.ahead.address', JSON.stringify(addr)); }
     // (Paused at the counter: when to try again.)
-    else setCheckErr(d.code === 'paused' && d.until ? `We’re not taking deliveries for a little while. Pick it up instead, or try again after ${clock(d.until, menu?.timeZone)}.` : d.error || 'That didn’t go through. Try again.');
+    else setCheckErr(d.code === 'paused' && d.until ? tr('We’re not taking deliveries for a little while. Pick it up instead, or try again after {time}.', { time: theHour(lang, clock(d.until, menu?.timeZone)) }) : said(lang, d, 'That didn’t go through. Try again.'));
   };
   const place = async () => {
-    if (!way) { setPlaceErr(menu?.ways.includes('delivery') ? 'How will you get it?' : 'How will you pick it up?'); return; }
-    if (!name.trim()) { setPlaceErr('What name should we put on the order?'); return; }
+    if (!way) { setPlaceErr(menu?.ways.includes('delivery') ? tr('How will you get it?') : tr('How will you pick it up?')); return; }
+    if (!name.trim()) { setPlaceErr(tr('What name should we put on the order?')); return; }
     const digits = phone.replace(/\D/g, '').slice(-10);
-    if (phone.trim() && digits.length !== 10) { setPlaceErr('A 10-digit phone number, or leave it empty.'); return; }
+    if (phone.trim() && digits.length !== 10) { setPlaceErr(tr('A 10-digit phone number, or leave it empty.')); return; }
     const wantText = !!menu?.texts && textMe; const deliver = way === 'delivery';
-    if (deliver && !dcheck) { setPlaceErr('Check the address first.'); return; }
-    if (deliver && digits.length !== 10) { setPlaceErr('Add your phone number so the driver can reach you.'); return; }
-    if (wantText && digits.length !== 10) { setPlaceErr(`Add your mobile number for the text, or untick Text me when ${deliver ? 'it’s on its way' : 'it’s ready'}.`); return; }
+    if (deliver && !dcheck) { setPlaceErr(tr('Check the address first.')); return; }
+    if (deliver && digits.length !== 10) { setPlaceErr(tr('Add your phone number so the driver can reach you.')); return; }
+    if (wantText && digits.length !== 10) { setPlaceErr(deliver ? tr('Add your mobile number for the text, or untick Text me when it’s on its way.') : tr('Add your mobile number for the text, or untick Text me when it’s ready.')); return; }
     // For another day: its day and time, a number to reach them about it, and the smallest order.
-    if (laterMode && (!lday || !lat)) { setPlaceErr('Pick a day and a time.'); return; }
-    if (laterMode && digits.length !== 10) { setPlaceErr('Add your phone number, so we can reach you about your order.'); return; }
-    if (belowMin) { setPlaceErr(`Orders for another day start at ${usd((menu?.later?.minCents || 0) / 100)} before tax.`); return; }
+    if (laterMode && (!lday || !lat)) { setPlaceErr(tr('Pick a day and a time.')); return; }
+    if (laterMode && digits.length !== 10) { setPlaceErr(tr('Add your phone number, so we can reach you about your order.')); return; }
+    if (belowMin) { setPlaceErr(tr('Orders for another day start at {price} before tax.', { price: usd((menu?.later?.minCents || 0) / 100) })); return; }
     setPlacing(true); setPlaceErr(''); write('cf.ahead.name', name.trim()); if (digits) write('cf.ahead.phone', digits); if (menu?.texts) write('cf.ahead.textMe', textMe ? '1' : null);
     if (!key.current) key.current = rid();
-    const { d } = await call({ action: 'place', tenantId, key: key.current, ...menuPlace(), name: name.trim(), way, at: laterMode ? lat : at || null, ...(laterMode ? { day: lday, people: people ? Number(people) : null } : {}), ...(deliver ? { address: addr, note: dnote.trim(), deliveryToken: dcheck?.token || null, ...(dcheck?.from ? { deliveryFrom: dcheck.from.id } : {}), tip } : {}), ...(digits.length === 10 && (menu?.points || wantText || deliver || laterMode) ? { phone: digits, ...(menu?.points ? { join } : {}) } : {}), ...(wantText ? { textMe: true } : {}), lines: cart.map((l) => ({ itemId: l.itemId, quantity: l.quantity, choices: l.picks, ...(l.offer ? { offer: l.offer } : {}), ...(l.note ? { note: l.note } : {}) })), ...(hasAllergy(allergy) ? { allergy: allergyBody(allergy) } : {}) });
+    const { d } = await call({ action: 'place', tenantId, key: key.current, ...menuPlace(), ...(lang === 'es' ? { lang } : {}), name: name.trim(), way, at: laterMode ? lat : at || null, ...(laterMode ? { day: lday, people: people ? Number(people) : null } : {}), ...(deliver ? { address: addr, note: dnote.trim(), deliveryToken: dcheck?.token || null, ...(dcheck?.from ? { deliveryFrom: dcheck.from.id } : {}), tip } : {}), ...(digits.length === 10 && (menu?.points || wantText || deliver || laterMode) ? { phone: digits, ...(menu?.points ? { join } : {}) } : {}), ...(wantText ? { textMe: true } : {}), lines: cart.map((l) => ({ itemId: l.itemId, quantity: l.quantity, choices: l.picks, ...(l.offer ? { offer: l.offer } : {}), ...(l.note ? { note: l.note } : {}) })), ...(hasAllergy(allergy) ? { allergy: allergyBody(allergy) } : {}) });
     setPlacing(false);
     // A time that's gone or just filled up: the times are read again, and the soonest open one is chosen.
     if (!d.ok && d.code === 'place') { setPicking(true); return; }
-    if (!d.ok) { setPlaceErr(d.error || 'That didn’t go through. Try again.'); if (d.code === 'address' || d.code === 'too_far' || d.code === 'no_driver' || d.code === 'paused' || String(d.code || '').startsWith('delivery_')) setDcheck(null); if (d.code === 'tip') setTip(null); if (d.code === 'at' || d.code === 'slot_full' || d.code === 'asap_closed' || d.code === 'closed_now') void call({ action: 'menu', tenantId, ...menuPlace() }).then(({ d: m }) => { if (m.ok) { setMenu(m); setAt(startAt(m)); if (laterMode && !(m.later?.days || []).some((x: any) => x.date === lday && x.times.includes(lat))) setLat(''); } }); return; }
+    if (!d.ok) { setPlaceErr(said(lang, d, 'That didn’t go through. Try again.')); if (d.code === 'address' || d.code === 'too_far' || d.code === 'no_driver' || d.code === 'paused' || String(d.code || '').startsWith('delivery_')) setDcheck(null); if (d.code === 'tip') setTip(null); if (d.code === 'at' || d.code === 'slot_full' || d.code === 'asap_closed' || d.code === 'closed_now') void call({ action: 'menu', tenantId, ...menuPlace() }).then(({ d: m }) => { if (m.ok) { setMenu(m); setAt(startAt(m)); if (laterMode && !(m.later?.days || []).some((x: any) => x.date === lday && x.times.includes(lat))) setLat(''); } }); return; }
     if (d.paid) { finish(d.orderId, d.sig); return; }
     setPay(d); setStep('pay');
   };
@@ -896,123 +968,132 @@ export default function OrderAhead() {
   };
   const fresh = () => { try { window.history.replaceState(null, '', window.location.pathname); } catch { /* */ } window.location.reload(); };
 
-  const shell = (children: React.ReactNode, bar?: React.ReactNode) => (
-    <main className="min-h-dvh pb-28" style={{ background: SOFT, color: INK }}>
-      <div className="mx-auto w-full max-w-2xl px-4 pt-5">{children}</div>
-      {bar}
-    </main>
+  // (Paying: no switch there, since the card form takes its language when it opens; Back to change it.)
+  const shell = (children: React.ReactNode, bar?: React.ReactNode, paying = false) => (
+    <Lang.Provider value={lang}>
+      <main className="min-h-dvh pb-28" style={{ background: SOFT, color: INK }}>
+        <div className="mx-auto w-full max-w-2xl px-4 pt-4">{!paying && <div className="mb-3 flex justify-end"><LangSwitch lang={lang} onPick={setLang} /></div>}{children}</div>
+        {bar}
+      </main>
+    </Lang.Provider>
   );
+  // (Nothing shown until the language is read, so a phone in Spanish never flashes English first.)
+  if (!langRead) return <main className="min-h-dvh" style={{ background: SOFT }} />;
   if (track) return shell(<TrackView tenantId={tenantId} o={track.o} s={track.s} onNew={fresh} />);
-  if (err) return shell(<div className="rounded-3xl bg-[#fff] p-6" style={{ border: `1px solid ${LINE}` }}><p className="text-[20px] font-semibold">Order ahead</p><p className="mt-2 text-[15px]" style={{ color: MUTED }}>{err}</p></div>);
-  if (!menu) return shell(<div className="flex justify-center py-16"><div className="h-8 w-8 animate-spin rounded-full border-[3px]" style={{ borderColor: LINE, borderTopColor: INK }} role="status" aria-label="Loading the menu" /></div>);
+  if (err) return shell(<div className="rounded-3xl bg-[#fff] p-6" style={{ border: `1px solid ${LINE}` }}><p className="text-[20px] font-semibold">{tr('Order ahead')}</p><p className="mt-2 text-[15px]" style={{ color: MUTED }}>{sayIn(lang, err, 'This page isn’t here.')}</p></div>);
+  if (!menu) return shell(<div className="flex justify-center py-16"><div className="h-8 w-8 animate-spin rounded-full border-[3px]" style={{ borderColor: LINE, borderTopColor: INK }} role="status" aria-label={tr('Loading the menu')} /></div>);
   if ((menu.pick || picking) && (menu.places || []).length > 1) return shell(<PlacePicker business={menu.business} places={menu.places || []} tz={menu.timeZone} onPick={pickPlace} current={menu.place?.id || null} />);
-  if (!menu.on) return shell(<div className="rounded-3xl bg-[#fff] p-6" style={{ border: `1px solid ${LINE}` }}><p className="text-[20px] font-semibold">{menu.business}</p><p className="mt-2 text-[15px]" style={{ color: MUTED }}>Ordering ahead isn’t on right now. Order when you get here.</p></div>);
+  if (!menu.on) return shell(<div className="rounded-3xl bg-[#fff] p-6" style={{ border: `1px solid ${LINE}` }}><p className="text-[20px] font-semibold">{menu.business}</p><p className="mt-2 text-[15px]" style={{ color: MUTED }}>{tr('Ordering ahead isn’t on right now. Order when you get here.')}</p></div>);
 
   if (step === 'pay' && pay) return shell(
     <div className="space-y-4">
       <header className="flex items-center justify-between gap-3">
-        <button type="button" onClick={() => setStep('review')} disabled={payBusy} className={`min-h-[44px] min-w-[44px] rounded-xl px-1 text-[15px] font-medium disabled:opacity-40 ${RING}`} style={{ color: MUTED }}>Back</button>
-        <p className="text-[15px] font-medium tabular-nums" style={{ color: MUTED }}>Order {pay.number}</p>
+        <button type="button" onClick={() => setStep('review')} disabled={payBusy} className={`min-h-[44px] min-w-[44px] rounded-xl px-1 text-[15px] font-medium disabled:opacity-40 ${RING}`} style={{ color: MUTED }}>{tr('Back')}</button>
+        <p className="text-[15px] font-medium tabular-nums" style={{ color: MUTED }}>{tr('Order {n}', { n: pay.number })}</p>
       </header>
       <section className="rounded-3xl bg-[#fff] p-5" style={{ border: `1px solid ${LINE}` }}>
-        <p className="flex items-baseline justify-between"><span className="text-[16px] font-semibold">Total with tax</span><span className="text-[28px] font-semibold tabular-nums">{usd(pay.total)}</span></p>
-        {!!pay.deliveryFee && <p className="mt-1 text-[14px]" style={{ color: MUTED }}>With {usd(pay.deliveryFee)} for delivery{pay.tip ? ` and a ${usd(pay.tip)} tip for your driver` : ''}.</p>}
+        <p className="flex items-baseline justify-between"><span className="text-[16px] font-semibold">{tr('Total with tax')}</span><span className="text-[28px] font-semibold tabular-nums">{usd(pay.total)}</span></p>
+        {!!pay.deliveryFee && <p className="mt-1 text-[14px]" style={{ color: MUTED }}>{pay.tip ? tr('With {fee} for delivery and a {tip} tip for your driver.', { fee: usd(pay.deliveryFee), tip: usd(pay.tip) }) : tr('With {fee} for delivery.', { fee: usd(pay.deliveryFee) })}</p>}
       </section>
-      <section aria-label="Pay" className="rounded-3xl bg-[#fff] p-5" style={{ border: `1px solid ${LINE}` }}>
-        <Elements stripe={stripeFor(pay.publishableKey, pay.stripeAccount)} options={{ clientSecret: pay.clientSecret, appearance: { theme: 'stripe', variables: { colorPrimary: INK, borderRadius: '14px', fontSizeBase: '16px', fontFamily: 'Plus Jakarta Sans, system-ui, sans-serif' } } }}>
+      <section aria-label={tr('Pay')} className="rounded-3xl bg-[#fff] p-5" style={{ border: `1px solid ${LINE}` }}>
+        <Elements stripe={stripeFor(pay.publishableKey, pay.stripeAccount)} options={{ clientSecret: pay.clientSecret, locale: lang, appearance: { theme: 'stripe', variables: { colorPrimary: INK, borderRadius: '14px', fontSizeBase: '16px', fontFamily: 'Plus Jakarta Sans, system-ui, sans-serif' } } }}>
           <PayForm total={pay.total} link={{ tenantId, o: pay.orderId, s: pay.sig }} onPaid={() => finish(pay.orderId, pay.sig)} onBusy={setPayBusy} />
         </Elements>
       </section>
-      <p className="px-1 text-center text-[13px]" style={{ color: MUTED }}>Your card goes straight to the card company’s secure form. The business never sees it.</p>
-    </div>);
+      <p className="px-1 text-center text-[13px]" style={{ color: MUTED }}>{tr('Your card goes straight to the card company’s secure form. The business never sees it.')}</p>
+    </div>, undefined, true);
 
   if (step === 'review') return shell(
     <div className="space-y-4">
       <header className="flex items-center justify-between gap-3">
-        <button type="button" onClick={() => setStep('menu')} className={`min-h-[44px] rounded-xl px-1 text-[15px] font-medium ${RING}`} style={{ color: MUTED }}>Back to the menu</button>
+        <button type="button" onClick={() => setStep('menu')} className={`min-h-[44px] rounded-xl px-1 text-[15px] font-medium ${RING}`} style={{ color: MUTED }}>{tr('Back to the menu')}</button>
         <p className="truncate text-[15px] font-medium" style={{ color: MUTED }}>{menu.business}</p>
       </header>
-      <section aria-label="Your order" className="rounded-3xl bg-[#fff] p-5" style={{ border: `1px solid ${LINE}` }}>
-        <h1 className="mb-3 text-[22px] font-semibold tracking-tight">Your order</h1>
-        {!cart.length && <p className="text-[15px]" style={{ color: MUTED }}>Nothing yet.</p>}
+      <section aria-label={tr('Your order')} className="rounded-3xl bg-[#fff] p-5" style={{ border: `1px solid ${LINE}` }}>
+        <h1 className="mb-3 text-[22px] font-semibold tracking-tight">{tr('Your order')}</h1>
+        {!cart.length && <p className="text-[15px]" style={{ color: MUTED }}>{tr('Nothing yet.')}</p>}
         <ul className="space-y-3">
           {cart.map((l) => (
             <li key={l.key} className="flex items-center gap-3">
               {l.imageUrl && <img src={l.imageUrl} alt="" className="h-12 w-12 shrink-0 rounded-xl object-cover" style={{ background: SOFT }} />}
-              <div className="min-w-0 flex-1"><p className="truncate text-[16px] font-medium">{l.name}</p>{l.choicesText && <p className="truncate text-[13.5px]" style={{ color: MUTED }}>{l.choicesText}</p>}
-                {l.note && <p className="text-[13.5px]" style={{ color: MUTED }}>Note: {l.note}</p>}
-                {hasAllergy(allergy) && (() => { const w = conflictWords(dishConflict(byId.get(l.itemId), allergy), allergy, 'guest'); return w ? <p className="text-[13.5px] font-semibold" style={{ color: AMBER }}>{w}</p> : null; })()}
+              <div className="min-w-0 flex-1"><p className="truncate text-[16px] font-medium">{nmOf(l.itemId, l.name)}</p>{l.choicesText && <p className="truncate text-[13.5px]" style={{ color: MUTED }}>{l.choicesText}</p>}
+                {l.note && <p className="text-[13.5px]" style={{ color: MUTED }}>{tr('Note: {note}', { note: l.note })}</p>}
+                {hasAllergy(allergy) && (() => { const w = conflictWords(dishConflict(byId.get(l.itemId), allergy), allergy, 'guest', lang); return w ? <p className="text-[13.5px] font-semibold" style={{ color: AMBER }}>{w}</p> : null; })()}
                 <p className="text-[14px] tabular-nums" style={{ color: MUTED }}>{usd(l.each * l.quantity)}</p></div>
-              <div className="flex shrink-0 items-center rounded-full" style={{ border: `1px solid ${LINE}` }} role="group" aria-label={`How many ${l.name}`}>
-                <button type="button" aria-label={l.quantity === 1 ? `Take off ${l.name}` : 'One fewer'} onClick={() => qty(l.key, -1)} className={`inline-flex h-11 w-11 items-center justify-center rounded-full ${RING}`}><Minus className="h-4 w-4" /></button>
-                {laterMode ? <input value={l.quantity} onChange={(e) => setQtyTo(l.key, e.target.value)} inputMode="numeric" aria-label={`How many ${l.name}`} className={`h-9 w-10 rounded-lg text-center text-[16px] font-semibold tabular-nums ${RING}`} style={{ border: `1px solid ${LINE}` }} />
+              <div className="flex shrink-0 items-center rounded-full" style={{ border: `1px solid ${LINE}` }} role="group" aria-label={tr('How many {name}', { name: nmOf(l.itemId, l.name) })}>
+                <button type="button" aria-label={l.quantity === 1 ? tr('Take off {name}', { name: nmOf(l.itemId, l.name) }) : tr('One fewer')} onClick={() => qty(l.key, -1)} className={`inline-flex h-11 w-11 items-center justify-center rounded-full ${RING}`}><Minus className="h-4 w-4" /></button>
+                {laterMode ? <input value={l.quantity} onChange={(e) => setQtyTo(l.key, e.target.value)} inputMode="numeric" aria-label={tr('How many {name}', { name: nmOf(l.itemId, l.name) })} className={`h-9 w-10 rounded-lg text-center text-[16px] font-semibold tabular-nums ${RING}`} style={{ border: `1px solid ${LINE}` }} />
                   : <span className="w-6 text-center text-[16px] font-semibold tabular-nums">{l.quantity}</span>}
-                <button type="button" aria-label="One more" disabled={l.quantity >= maxQ} onClick={() => qty(l.key, 1)} className={`inline-flex h-11 w-11 items-center justify-center rounded-full disabled:opacity-30 ${RING}`}><Plus className="h-4 w-4" /></button>
+                <button type="button" aria-label={tr('One more')} disabled={l.quantity >= maxQ} onClick={() => qty(l.key, 1)} className={`inline-flex h-11 w-11 items-center justify-center rounded-full disabled:opacity-30 ${RING}`}><Plus className="h-4 w-4" /></button>
               </div>
             </li>
           ))}
         </ul>
-        <p className="mt-4 flex justify-between border-t pt-3 text-[15px]" style={{ borderColor: LINE }}><span>Subtotal</span><span className="font-semibold tabular-nums">{usd(subtotal)}</span></p>
-        {way === 'delivery' && dcheck && <p className="mt-1 flex justify-between text-[15px]"><span>Delivery</span><span className="font-semibold tabular-nums">{dcheck.free || !dcheck.feeCents ? 'Free' : usd(dcheck.feeCents / 100)}</span></p>}
-        {way === 'delivery' && dcheck && tipCents(tip, subtotal) > 0 && <p className="mt-1 flex justify-between text-[15px]"><span>Driver tip</span><span className="font-semibold tabular-nums">{usd(tipCents(tip, subtotal) / 100)}</span></p>}
-        <p className="text-[13px]" style={{ color: MUTED }}>Any tax is added on the next step.</p>
+        <p className="mt-4 flex justify-between border-t pt-3 text-[15px]" style={{ borderColor: LINE }}><span>{tr('Subtotal')}</span><span className="font-semibold tabular-nums">{usd(subtotal)}</span></p>
+        {way === 'delivery' && dcheck && <p className="mt-1 flex justify-between text-[15px]"><span>{tr('Delivery fee')}</span><span className="font-semibold tabular-nums">{dcheck.free || !dcheck.feeCents ? tr('Free') : usd(dcheck.feeCents / 100)}</span></p>}
+        {way === 'delivery' && dcheck && tipCents(tip, subtotal) > 0 && <p className="mt-1 flex justify-between text-[15px]"><span>{tr('Driver tip')}</span><span className="font-semibold tabular-nums">{usd(tipCents(tip, subtotal) / 100)}</span></p>}
+        <p className="text-[13px]" style={{ color: MUTED }}>{tr('Any tax is added on the next step.')}</p>
       </section>
       <section className="space-y-4 rounded-3xl bg-[#fff] p-5" style={{ border: `1px solid ${LINE}` }}>
-        <label className="block"><span className="text-[15px] font-semibold">Name for the order</span>
-          <input value={name} onChange={(e) => setName(e.target.value)} maxLength={24} autoComplete="given-name" className={`mt-2 h-12 w-full rounded-xl px-4 text-[16px] ${RING}`} style={{ border: `1px solid ${LINE}` }} placeholder="First name" /></label>
-        <AllergyChips value={allergy} onChange={setAllergy} idBase="ahead-allergy" hint="On every ticket in the kitchen. Leave it empty if there are none." />
-        {hasAllergy(allergy) && cart.some((l) => { const c = dishConflict(byId.get(l.itemId), allergy); return c === 'unknown' || c.length > 0; }) && <p role="status" className="text-[14px] font-medium" style={{ color: AMBER }}>Check the dishes marked above before paying. The kitchen sees your allergy either way.</p>}
+        <label className="block"><span className="text-[15px] font-semibold">{tr('Name for the order')}</span>
+          <input value={name} onChange={(e) => setName(e.target.value)} maxLength={24} autoComplete="given-name" className={`mt-2 h-12 w-full rounded-xl px-4 text-[16px] ${RING}`} style={{ border: `1px solid ${LINE}` }} placeholder={tr('First name')} /></label>
+        <AllergyChips value={allergy} onChange={setAllergy} idBase="ahead-allergy" hint={tr('On every ticket in the kitchen. Leave it empty if there are none.')} lang={lang} />
+        {hasAllergy(allergy) && cart.some((l) => { const c = dishConflict(byId.get(l.itemId), allergy); return c === 'unknown' || c.length > 0; }) && <p role="status" className="text-[14px] font-medium" style={{ color: AMBER }}>{tr('Check the dishes marked above before paying. The kitchen sees your allergy either way.')}</p>}
         {(menu.points || menu.texts || way === 'delivery' || laterMode) && (
           <div>
-            <label className="block"><span className="text-[15px] font-semibold">Phone <span className="font-normal" style={{ color: MUTED }}>{way === 'delivery' ? '(so the driver can reach you)' : laterMode ? '(so we can reach you about it)' : '(optional)'}</span></span>
-              <input value={phone} onChange={(e) => setPhone(e.target.value.replace(/[^\d()\-+ .]/g, '').slice(0, 18))} inputMode="tel" autoComplete="tel" aria-describedby={menu.points ? 'phone-help' : undefined} className={`mt-2 h-12 w-full rounded-xl px-4 text-[16px] ${RING}`} style={{ border: `1px solid ${LINE}` }} placeholder="Phone number" /></label>
-            {menu.points && <p id="phone-help" className="mt-1 text-[13.5px]" style={{ color: MUTED }}>It earns your {menu.points.unit}.</p>}
-            {menu.texts && <label className="mt-2 flex min-h-[44px] items-center gap-3 text-[15px]"><input type="checkbox" checked={textMe} onChange={(e) => setTextMe(e.target.checked)} className="h-5 w-5 accent-[#16171a]" />Text me when {way === 'delivery' ? 'it’s on its way' : 'it’s ready'}</label>}
+            <label className="block"><span className="text-[15px] font-semibold">{tr('Phone')} <span className="font-normal" style={{ color: MUTED }}>{way === 'delivery' ? tr('(so the driver can reach you)') : laterMode ? tr('(so we can reach you about it)') : tr('(optional)')}</span></span>
+              <input value={phone} onChange={(e) => setPhone(e.target.value.replace(/[^\d()\-+ .]/g, '').slice(0, 18))} inputMode="tel" autoComplete="tel" aria-describedby={menu.points ? 'phone-help' : undefined} className={`mt-2 h-12 w-full rounded-xl px-4 text-[16px] ${RING}`} style={{ border: `1px solid ${LINE}` }} placeholder={tr('Phone number')} /></label>
+            {menu.points && <p id="phone-help" className="mt-1 text-[13.5px]" style={{ color: MUTED }}>{menu.points.unit === 'punches' ? tr('It earns your punches.') : tr('It earns your points.')}</p>}
+            {menu.texts && <label className="mt-2 flex min-h-[44px] items-center gap-3 text-[15px]"><input type="checkbox" checked={textMe} onChange={(e) => setTextMe(e.target.checked)} className="h-5 w-5 accent-[#16171a]" />{way === 'delivery' ? tr('Text me when it’s on its way') : tr('Text me when it’s ready')}</label>}
             {menu.points?.askJoin && phone.replace(/\D/g, '').length >= 10 && (
-              <label className="flex min-h-[44px] items-center gap-3 text-[15px]"><input type="checkbox" checked={join} onChange={(e) => setJoin(e.target.checked)} className="h-5 w-5 accent-[#16171a]" />Join the rewards program, if I haven’t already</label>)}
+              <label className="flex min-h-[44px] items-center gap-3 text-[15px]"><input type="checkbox" checked={join} onChange={(e) => setJoin(e.target.checked)} className="h-5 w-5 accent-[#16171a]" />{tr('Join the rewards program, if I haven’t already')}</label>)}
           </div>)}
         {menu.later && (
-          <fieldset><legend className="text-[15px] font-semibold">When do you want it?</legend>
+          <fieldset><legend className="text-[15px] font-semibold">{tr('When do you want it?')}</legend>
             <div className="mt-2 grid grid-cols-2 gap-2">
-              {(['today', 'later'] as const).map((w) => <button key={w} type="button" aria-pressed={when === w} onClick={() => setWhen(w)} className={`${btn} min-h-[52px] text-[15px]`} style={when === w ? { background: INK, color: '#fff' } : { background: '#fff', border: `1px solid ${LINE}`, color: INK }}>{w === 'today' ? 'Today' : 'Another day'}</button>)}
+              {(['today', 'later'] as const).map((w) => <button key={w} type="button" aria-pressed={when === w} onClick={() => setWhen(w)} className={`${btn} min-h-[52px] text-[15px]`} style={when === w ? { background: INK, color: '#fff' } : { background: '#fff', border: `1px solid ${LINE}`, color: INK }}>{w === 'today' ? tr('Today') : tr('Another day')}</button>)}
             </div>
-            {laterMode && <p className="mt-2 text-[14px]" style={{ color: MUTED }}>For catering and big orders. {menu.later.noticeHours >= 24 ? `${menu.later.noticeHours / 24 === 1 ? 'A day’s' : `${menu.later.noticeHours / 24} days’`}` : `${menu.later.noticeHours} hours’`} notice{menu.later.ways.includes('delivery') ? ', picked up or delivered' : ''}.</p>}
+            {laterMode && <p className="mt-2 text-[14px]" style={{ color: MUTED }}>{tr('For catering and big orders.')} {(() => { const h = menu.later!.noticeHours;
+              const notice = h >= 24 ? (h / 24 === 1 ? tr('A day’s notice') : tr('{n} days’ notice', { n: h / 24 })) : tr('{n} hours’ notice', { n: h });
+              return menu.later!.ways.includes('delivery') ? tr('{notice}, picked up or delivered.', { notice }) : `${notice}.`; })()}</p>}
           </fieldset>)}
         {ways.length > 1 && (
-          <fieldset><legend className="text-[15px] font-semibold">{ways.includes('delivery') ? 'How you’ll get it' : 'How you’ll pick it up'}</legend>
+          <fieldset><legend className="text-[15px] font-semibold">{ways.includes('delivery') ? tr('How you’ll get it') : tr('How you’ll pick it up')}</legend>
             <div className={`mt-2 grid gap-2 ${ways.length === 3 ? 'grid-cols-3' : 'grid-cols-2'}`}>
-              {ways.map((w) => <button key={w} type="button" aria-pressed={way === w} onClick={() => setWay(w)} className={`${btn} min-h-[52px] whitespace-nowrap !px-2 text-[15px]`} style={way === w ? { background: INK, color: '#fff' } : { background: '#fff', border: `1px solid ${LINE}`, color: INK }}>{WAY_BUTTON[w] || 'Inside'}</button>)}
+              {ways.map((w) => <button key={w} type="button" aria-pressed={way === w} onClick={() => setWay(w)} className={`${btn} min-h-[52px] whitespace-nowrap !px-2 text-[15px]`} style={way === w ? { background: INK, color: '#fff' } : { background: '#fff', border: `1px solid ${LINE}`, color: INK }}>{tr(WAY_BUTTON[w] || 'Inside')}</button>)}
             </div>
-            {way === 'curbside' && <p className="mt-2 text-[14px]" style={{ color: MUTED }}>Park and tap I’m here when you arrive. We’ll bring it to your car.</p>}</fieldset>)}
-        {ways.length === 1 && (ways[0] === 'delivery' ? <p className="text-[15px] font-semibold">Delivered to you</p> : <p className="text-[15px]"><span className="font-semibold">Pick up:</span> {WAY_WORDS[ways[0]] || 'inside'}</p>)}
+            {way === 'curbside' && <p className="mt-2 text-[14px]" style={{ color: MUTED }}>{tr('Park and tap I’m here when you arrive. We’ll bring it to your car.')}</p>}</fieldset>)}
+        {ways.length === 1 && (ways[0] === 'delivery' ? <p className="text-[15px] font-semibold">{tr('Delivered to you')}</p> : <p className="text-[15px]"><span className="font-semibold">{tr('Pick up:')}</span> {tr(WAY_WORDS[ways[0]] || 'inside')}</p>)}
         {way === 'delivery' && <DeliveryFields addr={addr} setAddr={setAddr} note={dnote} setNote={setDnote} check={dcheck} checking={checking} checkErr={checkErr} onCheck={checkAddress} />}
         {way === 'delivery' && dcheck && <TipPick food={subtotal} tip={tip} setTip={setTip} />}
-        {laterMode ? (way === 'delivery' && !dcheck ? <fieldset><legend className="text-[15px] font-semibold">When it gets to you</legend><p className="mt-1 text-[14px]" style={{ color: MUTED }}>Check the address to see the days and times.</p></fieldset>
-          : <fieldset><legend className="text-[15px] font-semibold">{way === 'delivery' ? 'The day, and when it gets to you' : 'The day and time'}</legend>
+        {laterMode ? (way === 'delivery' && !dcheck ? <fieldset><legend className="text-[15px] font-semibold">{tr('When it gets to you')}</legend><p className="mt-1 text-[14px]" style={{ color: MUTED }}>{tr('Check the address to see the days and times.')}</p></fieldset>
+          : <fieldset><legend className="text-[15px] font-semibold">{way === 'delivery' ? tr('The day, and when it gets to you') : tr('The day and time')}</legend>
             <LaterPick later={menu.later!} day={lday} setDay={setLday} at={lat} setAt={setLat} people={people} setPeople={setPeople} tz={menu.timeZone} driveMin={way === 'delivery' && dcheck ? dcheck.driveMin : null} subtotal={subtotal} />
           </fieldset>)
         : closedNow ? (
           <div className="rounded-2xl px-4 py-3" style={{ background: SOFT }} role="status">
-            <p className="text-[15px] font-semibold">{menu.lateToday ? 'Too late for pickup today' : 'Closed right now'}</p>
-            <p className="mt-0.5 text-[14px]" style={{ color: MUTED }}>{menu.nextOpen ? `We open again ${opensWords(menu.nextOpen, menu.timeZone)}. Order ahead then${menu.later?.days.length ? ', or order for another day' : ''}.` : menu.later?.days.length ? 'You can order for another day.' : 'We’re not taking orders for pickup today.'}</p>
+            <p className="text-[15px] font-semibold">{menu.lateToday ? tr('Too late for pickup today') : tr('Closed right now')}</p>
+            <p className="mt-0.5 text-[14px]" style={{ color: MUTED }}>{menu.nextOpen ? (menu.later?.days.length ? tr('We open again {when}. Order ahead then, or order for another day.', { when: opensWords(menu.nextOpen, menu.timeZone, lang) }) : tr('We open again {when}. Order ahead then.', { when: opensWords(menu.nextOpen, menu.timeZone, lang) })) : menu.later?.days.length ? tr('You can order for another day.') : tr('We’re not taking orders for pickup today.')}</p>
           </div>
-        ) : way === 'delivery' && !dcheck ? <fieldset><legend className="text-[15px] font-semibold">When it gets to you</legend><p className="mt-1 text-[14px]" style={{ color: MUTED }}>Check the address to see when it can get to you.</p></fieldset>
-        : <fieldset><legend className="text-[15px] font-semibold">{way === 'delivery' ? 'When it gets to you' : 'When'}</legend>
-          {menu.opens && <p className="mt-1 text-[14px]" style={{ color: MUTED }}>We open {opensWords(menu.opens, menu.timeZone)}. Pick a time from then.</p>}
+        ) : way === 'delivery' && !dcheck ? <fieldset><legend className="text-[15px] font-semibold">{tr('When it gets to you')}</legend><p className="mt-1 text-[14px]" style={{ color: MUTED }}>{tr('Check the address to see when it can get to you.')}</p></fieldset>
+        : <fieldset><legend className="text-[15px] font-semibold">{way === 'delivery' ? tr('When it gets to you') : tr('When')}</legend>
+          {menu.opens && <p className="mt-1 text-[14px]" style={{ color: MUTED }}>{tr('We open {when}. Pick a time from then.', { when: opensWords(menu.opens, menu.timeZone, lang) })}</p>}
           <div className="mt-2 grid grid-cols-2 gap-2">
-            {menu.asap !== false && <TimeButton label={way === 'delivery' && dcheck?.asapArrive ? `As soon as it’s ready, about ${clock(to5(Date.parse(dcheck.asapArrive)), menu.timeZone)}` : 'As soon as it’s ready'} full={asapFullNow} fullWord={way === 'delivery' && dcheck?.asapNoDriver && !menu.asapFull ? 'No driver free' : 'Full right now'} on={at === ''} onPick={() => setAt('')} wide />}
-            {menu.times.slice(0, moreTimes || menu.times.indexOf(at) >= 7 ? undefined : 7).map((t) => <TimeButton key={t} label={clock(way === 'delivery' && dcheck ? arriveFor(t, dcheck.driveMin) : t, menu.timeZone)} full={timeFull(t)} fullWord="Full" on={at === t} onPick={() => setAt(t)} />)}
+            {menu.asap !== false && <TimeButton label={way === 'delivery' && dcheck?.asapArrive ? tr('As soon as it’s ready, about {time}', { time: theHour(lang, clock(to5(Date.parse(dcheck.asapArrive)), menu.timeZone)) }) : tr('As soon as it’s ready')} full={asapFullNow} fullWord={way === 'delivery' && dcheck?.asapNoDriver && !menu.asapFull ? tr('No driver free') : tr('Full right now')} on={at === ''} onPick={() => setAt('')} wide />}
+            {menu.times.slice(0, moreTimes || menu.times.indexOf(at) >= 7 ? undefined : 7).map((t) => <TimeButton key={t} label={clock(way === 'delivery' && dcheck ? arriveFor(t, dcheck.driveMin) : t, menu.timeZone)} full={timeFull(t)} fullWord={tr('Full')} on={at === t} onPick={() => setAt(t)} />)}
           </div>
-          {way === 'delivery' && dcheck && (dcheck.asapNoDriver || dcheck.leaveFull.length > 0) && <p className="mt-1 text-[14px]" style={{ color: MUTED }}>Times marked full: our drivers are out then.</p>}
-          {menu.times.length > 7 && <button type="button" onClick={() => setMoreTimes((x) => !x)} className={`${btn} mt-1 min-h-[44px] px-0 text-[15px] underline underline-offset-4`} style={{ color: INK }}>{moreTimes ? 'Fewer times' : 'Later times'}</button>}
-          {menu.closes && menu.times.length > 0 && Date.parse(menu.times[menu.times.length - 1]) > Date.parse(menu.closes) - 15 * 60000 && (moreTimes || menu.times.length <= 7) && <p className="mt-1 text-[14px]" style={{ color: MUTED }}>{way === 'delivery' && dcheck ? `Last delivery about ${clock(arriveFor(menu.times[menu.times.length - 1], dcheck.driveMin), menu.timeZone)}.` : `Last pickup ${clock(menu.times[menu.times.length - 1], menu.timeZone)}.`}</p>}
+          {way === 'delivery' && dcheck && (dcheck.asapNoDriver || dcheck.leaveFull.length > 0) && <p className="mt-1 text-[14px]" style={{ color: MUTED }}>{tr('Times marked full: our drivers are out then.')}</p>}
+          {menu.times.length > 7 && <button type="button" onClick={() => setMoreTimes((x) => !x)} className={`${btn} mt-1 min-h-[44px] px-0 text-[15px] underline underline-offset-4`} style={{ color: INK }}>{moreTimes ? tr('Fewer times') : tr('Later times')}</button>}
+          {menu.closes && menu.times.length > 0 && Date.parse(menu.times[menu.times.length - 1]) > Date.parse(menu.closes) - 15 * 60000 && (moreTimes || menu.times.length <= 7) && <p className="mt-1 text-[14px]" style={{ color: MUTED }}>{way === 'delivery' && dcheck ? tr('Last delivery about {time}.', { time: theHour(lang, clock(arriveFor(menu.times[menu.times.length - 1], dcheck.driveMin), menu.timeZone)) }) : tr('Last pickup {time}.', { time: clock(menu.times[menu.times.length - 1], menu.timeZone) })}</p>}
         </fieldset>}
-        {menu.busy && !laterMode && <p className="text-[14px]" style={{ color: MUTED }}>The kitchen is busy right now, so orders are taking about {menu.busy.minutes} {menu.busy.minutes === 1 ? 'minute' : 'minutes'} longer than usual{menu.filling ? ', and pickup times fill faster' : ''}.</p>}
+        {menu.busy && !laterMode && <p className="text-[14px]" style={{ color: MUTED }}>{menu.busy.minutes === 1
+          ? (menu.filling ? tr('The kitchen is busy right now, so orders are taking about 1 minute longer than usual, and pickup times fill faster.') : tr('The kitchen is busy right now, so orders are taking about 1 minute longer than usual.'))
+          : menu.filling ? tr('The kitchen is busy right now, so orders are taking about {n} minutes longer than usual, and pickup times fill faster.', { n: menu.busy.minutes }) : tr('The kitchen is busy right now, so orders are taking about {n} minutes longer than usual.', { n: menu.busy.minutes })}</p>}
         {placeErr && <p role="alert" className="rounded-2xl px-4 py-3 text-[15px] font-medium" style={{ background: AMBER_TINT, color: AMBER }}>{placeErr}</p>}
-        {noneOpen && !laterMode && <p className="text-[14px]" style={{ color: AMBER }}>The kitchen’s full right now. Please try again in a few minutes.</p>}
-        {laterMode ? <button type="button" onClick={place} disabled={placing || !cart.length || !lat || belowMin || (way === 'delivery' && !dcheck)} className={`${btn} min-h-[56px] w-full text-[17px]`} style={{ background: INK, color: '#fff' }}>{placing ? 'One moment…' : way === 'delivery' && !dcheck ? 'Check the address first' : !lat ? 'Pick a day and time' : belowMin ? 'Add a little more' : 'Continue to pay'}</button>
-        : <button type="button" onClick={place} disabled={placing || !cart.length || chosenFull || closedNow || (way === 'delivery' && !dcheck)} className={`${btn} min-h-[56px] w-full text-[17px]`} style={{ background: INK, color: '#fff' }}>{placing ? 'One moment…' : closedNow ? (menu.lateToday ? 'Too late for today' : 'Closed right now') : noneOpen ? 'Full right now' : way === 'delivery' && !dcheck ? 'Check the address first' : chosenFull ? (way === 'delivery' ? 'Pick a delivery time' : 'Pick a pickup time') : 'Continue to pay'}</button>}
-        <p className="text-center text-[13px]" style={{ color: MUTED }}>{laterMode ? 'You pay now, and it’s made on its day.' : way === 'delivery' ? 'You pay now, and we bring it to you.' : 'You pay now, so it’s ready when you get here.'}</p>
+        {noneOpen && !laterMode && <p className="text-[14px]" style={{ color: AMBER }}>{tr('The kitchen’s full right now. Please try again in a few minutes.')}</p>}
+        {laterMode ? <button type="button" onClick={place} disabled={placing || !cart.length || !lat || belowMin || (way === 'delivery' && !dcheck)} className={`${btn} min-h-[56px] w-full text-[17px]`} style={{ background: INK, color: '#fff' }}>{placing ? tr('One moment…') : way === 'delivery' && !dcheck ? tr('Check the address first') : !lat ? tr('Pick a day and time') : belowMin ? tr('Add a little more') : tr('Continue to pay')}</button>
+        : <button type="button" onClick={place} disabled={placing || !cart.length || chosenFull || closedNow || (way === 'delivery' && !dcheck)} className={`${btn} min-h-[56px] w-full text-[17px]`} style={{ background: INK, color: '#fff' }}>{placing ? tr('One moment…') : closedNow ? (menu.lateToday ? tr('Too late for today') : tr('Closed right now')) : noneOpen ? tr('Full right now') : way === 'delivery' && !dcheck ? tr('Check the address first') : chosenFull ? (way === 'delivery' ? tr('Pick a delivery time') : tr('Pick a pickup time')) : tr('Continue to pay')}</button>}
+        <p className="text-center text-[13px]" style={{ color: MUTED }}>{laterMode ? tr('You pay now, and it’s made on its day.') : way === 'delivery' ? tr('You pay now, and we bring it to you.') : tr('You pay now, so it’s ready when you get here.')}</p>
       </section>
     </div>);
 
@@ -1020,48 +1101,48 @@ export default function OrderAhead() {
     <div className="space-y-5">
       <header>
         <h1 className="text-[26px] font-semibold tracking-tight">{menu.business}</h1>
-        <p className="mt-1 text-[15px]" style={{ color: MUTED }}>{headWords(menu.ways)}</p>
-        {menu.place && (menu.places || []).length > 1 && <p className="mt-1 flex flex-wrap items-center gap-x-3 text-[15px]"><span>From <b className="font-semibold">{menu.place.name}</b></span>
-          <button type="button" onClick={() => setPicking(true)} className={`min-h-[44px] font-medium underline underline-offset-4 ${RING}`} style={{ color: INK }}>Change</button></p>}
-        {menu.closedNow && <p className="mt-3 rounded-2xl px-4 py-3 text-[15px]" style={{ background: SOFT }} role="status"><b className="font-semibold">{menu.lateToday ? 'Too late for pickup today.' : 'Closed right now.'}</b> {menu.nextOpen ? `We open again ${opensWords(menu.nextOpen, menu.timeZone)}. ` : ''}{menu.later?.days.length ? 'You can order for another day now.' : 'You can look through the menu now.'}</p>}
+        <p className="mt-1 text-[15px]" style={{ color: MUTED }}>{headWords(menu.ways, tr)}</p>
+        {menu.place && (menu.places || []).length > 1 && <p className="mt-1 flex flex-wrap items-center gap-x-3 text-[15px]"><span>{tr('From')} <b className="font-semibold">{menu.place.name}</b></span>
+          <button type="button" onClick={() => setPicking(true)} className={`min-h-[44px] font-medium underline underline-offset-4 ${RING}`} style={{ color: INK }}>{tr('Change')}</button></p>}
+        {menu.closedNow && <p className="mt-3 rounded-2xl px-4 py-3 text-[15px]" style={{ background: SOFT }} role="status"><b className="font-semibold">{menu.lateToday ? tr('Too late for pickup today.') : tr('Closed right now.')}</b> {menu.nextOpen ? `${tr('We open again {when}.', { when: opensWords(menu.nextOpen, menu.timeZone, lang) })} ` : ''}{menu.later?.days.length ? tr('You can order for another day now.') : tr('You can look through the menu now.')}</p>}
       </header>
       {past.length > 0 && (
         <section aria-labelledby="again-title" className="rounded-3xl bg-[#fff] p-4" style={{ border: `1px solid ${LINE}` }}>
-          <h2 id="again-title" className="text-[18px] font-semibold tracking-tight">Order again</h2>
+          <h2 id="again-title" className="text-[18px] font-semibold tracking-tight">{tr('Order again')}</h2>
           <ul className="mt-3 grid gap-2 sm:grid-cols-2">
-            {past.map((p) => { const words = pastWords(p); return (
+            {past.map((p) => { const words = pastWords(p, (l) => nmOf(l.itemId, l.name)); return (
               <li key={p.o} className="flex flex-col gap-2 rounded-2xl p-3" style={{ border: `1px solid ${LINE}` }}>
                 <div className="flex items-start justify-between gap-2">
                   <p className="min-w-0 text-[15px] font-semibold leading-snug">{words}</p>
-                  <button type="button" aria-pressed={!!p.fav} aria-label={`Favorite: ${words}`} onClick={() => setFavorite(p, !p.fav)} className={`-my-1.5 -mr-1.5 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${RING}`}><Star className="h-5 w-5" fill={p.fav ? 'currentColor' : 'none'} style={{ color: p.fav ? INK : MUTED }} aria-hidden /></button>
+                  <button type="button" aria-pressed={!!p.fav} aria-label={tr('Favorite: {words}', { words })} onClick={() => setFavorite(p, !p.fav)} className={`-my-1.5 -mr-1.5 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${RING}`}><Star className="h-5 w-5" fill={p.fav ? 'currentColor' : 'none'} style={{ color: p.fav ? INK : MUTED }} aria-hidden /></button>
                 </div>
-                <p className="text-[13.5px]" style={{ color: MUTED }}>{p.fav ? 'Your favorite' : whenWords(p.at, menu.timeZone)}</p>
-                <button type="button" onClick={() => addAgain(p.lines)} aria-label={`Add to order: ${words}`} className={`${btn} mt-auto min-h-[44px] text-[15px]`} style={p.fav ? { background: INK, color: '#fff' } : { background: '#fff', border: `1px solid ${LINE}`, color: INK }}>Add to order</button>
+                <p className="text-[13.5px]" style={{ color: MUTED }}>{p.fav ? tr('Your favorite') : whenWords(p.at, menu.timeZone, lang)}</p>
+                <button type="button" onClick={() => addAgain(p.lines)} aria-label={tr('Add to order: {words}', { words })} className={`${btn} mt-auto min-h-[44px] text-[15px]`} style={p.fav ? { background: INK, color: '#fff' } : { background: '#fff', border: `1px solid ${LINE}`, color: INK }}>{tr('Add to order')}</button>
               </li>); })}
           </ul>
           <p aria-live="polite" className={againSaid ? 'mt-3 rounded-2xl px-4 py-3 text-[14.5px]' : 'sr-only'} style={againSaid ? (againSaid.warn ? { background: AMBER_TINT, color: AMBER } : { background: GREEN_TINT, color: GREEN }) : undefined}>{againSaid?.text || ''}</p>
         </section>)}
       {past.length === 0 && againSaid && <p aria-live="polite" className="rounded-2xl px-4 py-3 text-[14.5px]" style={againSaid.warn ? { background: AMBER_TINT, color: AMBER } : { background: GREEN_TINT, color: GREEN }}>{againSaid.text}</p>}
       {menu.sections.length > 1 && (
-        <nav aria-label="Menu sections" className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
-          {menu.sections.map((s) => <a key={s.name} href={`#sec-${encodeURIComponent(s.name)}`} className={`inline-flex min-h-[44px] shrink-0 items-center rounded-full bg-[#fff] px-4 text-[15px] font-medium ${RING}`} style={{ border: `1px solid ${LINE}`, color: INK }}>{s.name}</a>)}
+        <nav aria-label={tr('Menu sections')} className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
+          {menu.sections.map((s) => <a key={s.name} href={`#sec-${encodeURIComponent(s.name)}`} className={`inline-flex min-h-[44px] shrink-0 items-center rounded-full bg-[#fff] px-4 text-[15px] font-medium ${RING}`} style={{ border: `1px solid ${LINE}`, color: INK }}>{inLang(lang, s.name, s.nameEs)}</a>)}
         </nav>)}
-      {menu.klair && <section className="rounded-3xl bg-[#fff] p-5" style={{ border: `1px solid ${LINE}` }}>
+      {menu.klair && lang === 'en' && <section className="rounded-3xl bg-[#fff] p-5" style={{ border: `1px solid ${LINE}` }}>
         <MenuAsk name={menu.klair.name} tell={TELL_TEAM} colors={{ accent: INK, soft: SOFT, ink: INK, muted: MUTED, line: LINE, card: '#fff' }} ask={async (question) => {
           const r = await call({ tenantId, action: 'menu_ask', question });
           return r.d?.ok && r.d.answer ? { text: String(r.d.answer.text || ''), tell: !!r.d.answer.tell } : { error: r.d?.error || 'That didn’t send. Ask the team.' };
         }} /></section>}
       {menu.sections.map((s) => (
-        <section key={s.name} id={`sec-${encodeURIComponent(s.name)}`} aria-label={s.name} className="scroll-mt-4">
-          <h2 className="mb-3 text-[19px] font-semibold tracking-tight">{s.name}</h2>
+        <section key={s.name} id={`sec-${encodeURIComponent(s.name)}`} aria-label={inLang(lang, s.name, s.nameEs)} className="scroll-mt-4">
+          <h2 className="mb-3 text-[19px] font-semibold tracking-tight">{inLang(lang, s.name, s.nameEs)}</h2>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             {s.items.map((i) => (
               <button key={i.id} type="button" disabled={i.soldOut} onClick={() => setOpen(i)} className={`flex flex-col overflow-hidden rounded-2xl bg-[#fff] text-left disabled:opacity-60 ${RING}`} style={{ border: `1px solid ${LINE}` }}>
                 <span className="relative block aspect-square w-full" style={{ background: SOFT }}>
                   {i.imageUrl && <img src={i.imageUrl} alt="" className="h-full w-full object-cover" />}
-                  {i.soldOut && <span className="absolute left-2 top-2 rounded-full bg-[#fff] px-2.5 py-1 text-[12.5px] font-semibold" style={{ color: AMBER }}>Sold out</span>}
+                  {i.soldOut && <span className="absolute left-2 top-2 rounded-full bg-[#fff] px-2.5 py-1 text-[12.5px] font-semibold" style={{ color: AMBER }}>{tr('Sold out')}</span>}
                 </span>
-                <span className="block px-3 py-2.5"><span className="block text-[15px] font-semibold leading-snug">{i.name}</span><span className="mt-0.5 flex flex-wrap gap-x-2 text-[14px] tabular-nums" style={{ color: MUTED }}><span>{i.from ? `From ${usd(i.startPrice)}` : usd(i.price)}</span>{i.calories != null && <span>{i.calories} cal</span>}</span></span>
+                <span className="block px-3 py-2.5"><span className="block text-[15px] font-semibold leading-snug">{inLang(lang, i.name, i.nameEs)}</span><span className="mt-0.5 flex flex-wrap gap-x-2 text-[14px] tabular-nums" style={{ color: MUTED }}><span>{i.from ? tr('From {price}', { price: usd(i.startPrice) }) : usd(i.price)}</span>{i.calories != null && <span>{tr('{n} cal', { n: i.calories })}</span>}</span></span>
               </button>
             ))}
           </div>
@@ -1073,7 +1154,7 @@ export default function OrderAhead() {
     count > 0 ? (
       <div className="fixed inset-x-0 bottom-0 z-40 px-4 pb-4 pt-2" style={{ background: 'linear-gradient(rgba(245,245,247,0), #f5f5f7 40%)' }}>
         <button type="button" onClick={() => setStep('review')} className={`${btn} mx-auto min-h-[60px] w-full max-w-2xl justify-between text-[17px] shadow-lg`} style={{ background: INK, color: '#fff' }}>
-          <span className="inline-flex items-center gap-2"><ShoppingBag className="h-5 w-5" aria-hidden />View order · {count} item{count === 1 ? '' : 's'}</span><span className="tabular-nums">{usd(subtotal)}</span>
+          <span className="inline-flex items-center gap-2"><ShoppingBag className="h-5 w-5" aria-hidden />{tr('View order')} · {count === 1 ? tr('{n} item', { n: count }) : tr('{n} items', { n: count })}</span><span className="tabular-nums">{usd(subtotal)}</span>
         </button>
       </div>) : null,
   );

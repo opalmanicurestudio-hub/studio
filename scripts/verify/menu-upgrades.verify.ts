@@ -124,7 +124,7 @@ const req = (body: any) => ({ json: async () => body, text: async () => JSON.str
 
   console.log('the guest’s sheet (order ahead)');
   const fs = await import('fs'); const pg = fs.readFileSync('src/app/order/[tenantId]/page.tsx', 'utf8');
-  check('right after Add: what’s offered, asked once on the same sheet (No thanks until something’s taken, then Done)', /<Sheet title="Added to your order"/.test(pg) && /Anything with it\?/.test(pg) && /after\.took\.length \? 'Done' : 'No thanks'/.test(pg));
+  check('right after Add: what’s offered, asked once on the same sheet (No thanks until something’s taken, then Done)', /<Sheet title=\{tr\('Added to your order'\)\}/.test(pg) && /tr\('Anything with it\?'\)/.test(pg) && /after\.took\.length \? tr\('Done'\) : tr\('No thanks'\)/.test(pg));
   check('…only what can be had: offersFor with the guest’s own menu and what’s in the order already; not again after a No thanks', /offersFor\(item, picks, \(id\) => byId\.get\(id\), \(id\) => cart\.some\(\(l\) => l\.itemId === id\)\)/.test(pg) && /if \(passed\.includes\(item\.id\)\) return;/.test(pg) && /setPassed\(\(p\) => \[\.\.\.p, after\.itemId\]\)/.test(pg));
   check('…the size up changes the line just added (priced by the menu’s rules); something with choices opens its own sheet, added without asking again', /const picks = sizedUp\(line\.picks, a\.size\); const p = priceChoices\(item, picks\)/.test(pg) && /if \(x\.choices\.length\) \{ setAfter\(null\); setOffered\(true\); setOpen\(x\); return; \}/.test(pg) && /if \(offered\) \{ setOffered\(false\); return; \}/.test(pg));
   check('…and each line says whether it was taken as an offer (the server checks it)', /\.\.\.\(l\.offer \? \{ offer: l\.offer \} : \{\}\)/.test(pg));

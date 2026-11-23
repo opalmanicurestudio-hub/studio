@@ -40,6 +40,7 @@ import { failedView } from '@/lib/food-delivery-settle-server';
 import { posTaxAmount } from '@/lib/pos-tax';
 import { foodDeliveryOf, driveMinutes, cleanAddress, cleanNote, withDeliveryFee, arrivalTimes, addressLine, deliveryStep, tipCentsOf, etaOf, type FoodAddress } from '@/lib/food-delivery';
 import { cleanLineNote, cleanOrderAllergy, orderAllergyOf, allergyWords, mergeAllergy, sameAllergy } from '@/lib/order-allergy';
+import { cleanGuestLang, spanishOf } from '@/lib/guest-lang';
 import { deliveryNowOf, drivableTimes } from '@/lib/driver-load';
 import { driverLoad, driversAt, forgetDriverLoad } from '@/lib/driver-load-server';
 import { deliveryFrom } from '@/lib/delivery-plan';
@@ -124,7 +125,7 @@ async function placeList(db: any, tenantId: string, tenant: any, places: BizLoca
 
 /** What a guest sees of one item (only what's on the menu for everyone; sold out says so), and what they're offered
  *  once it's added (lib/menu-upgrades): only items on this same menu (`shown`). */
-const guestItem = (m: MenuItem, shown: Set<string>) => ({ id: m.id, name: m.name, section: m.section, words: m.words, price: m.price, from: m.from, startPrice: m.startPrice, imageUrl: m.imageUrl,
+const guestItem = (m: MenuItem, shown: Set<string>) => ({ id: m.id, name: m.name, nameEs: m.nameEs, wordsEs: m.wordsEs, section: m.section, words: m.words, price: m.price, from: m.from, startPrice: m.startPrice, imageUrl: m.imageUrl,
   choices: m.choices, soldOut: m.soldOut || !m.inStock, calories: m.calories, upgrades: { size: m.upgrades?.size === true, items: (m.upgrades?.items || []).filter((id) => shown.has(id)) },
   // What it contains of the major allergens, when the business has said (null: nobody has, never "none").
   allergens: m.allergensSet ? m.allergens : null });
@@ -171,9 +172,10 @@ export async function aheadMenu(db: any, tenantId: string, tenant: any, o: { at?
   else { all = await readMenu(db, tenantId, place?.id || null); menuCache.set(menuKey, { at: Date.now(), menu: all }); if (menuCache.size > 500) menuCache.delete(menuCache.keys().next().value as string); }
   // (Sold by weight: weighed at the counter, never ordered ahead: lib/menu-weight.)
   const menu = all.filter((m) => m.onMenu && !m.membersOnly && !m.byWeight);
-  const sections: { name: string; items: ReturnType<typeof guestItem>[] }[] = [];
+  // (With the business's Spanish for each item and section, for a guest who picks Español: lib/guest-lang.)
+  const sections: { name: string; nameEs: string | null; items: ReturnType<typeof guestItem>[] }[] = []; const es = spanishOf(tenant).sections;
   const shown = new Set(menu.map((m) => m.id));
-  for (const m of menu) { let s = sections.find((x) => x.name === m.section); if (!s) sections.push((s = { name: m.section, items: [] })); s.items.push(guestItem(m, shown)); }
+  for (const m of menu) { let s = sections.find((x) => x.name === m.section); if (!s) sections.push((s = { name: m.section, nameEs: es[m.section] || null, items: [] })); s.items.push(guestItem(m, shown)); }
   const payments = !!accountOf(tenant) && !!process.env.STRIPE_SECRET_KEY && !!process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY && !!secret();
   // The rewards program, when it's on: the page asks for a phone number (and, for a program you join, whether they want to).
   const L = loyaltyOf(tenant);
@@ -214,7 +216,7 @@ export async function aheadMenu(db: any, tenantId: string, tenant: any, o: { at?
 
 /** Place an order (not paid yet) and start its payment. Opened again with the same key (a refresh, a second tap), it's the
  *  same order and the same payment. */
-export async function placeAhead(db: any, tenantId: string, tenant: any, b: { key?: unknown; lines?: unknown; name?: unknown; way?: unknown; at?: unknown; phone?: unknown; join?: unknown; textMe?: unknown; address?: unknown; note?: unknown; deliveryToken?: unknown; tip?: unknown; allergy?: unknown; day?: unknown; people?: unknown; place?: unknown; deliveryFrom?: unknown }, o: { stripe?: any; now?: number } = {}): Promise<any> {
+export async function placeAhead(db: any, tenantId: string, tenant: any, b: { key?: unknown; lines?: unknown; name?: unknown; way?: unknown; at?: unknown; phone?: unknown; join?: unknown; textMe?: unknown; address?: unknown; note?: unknown; deliveryToken?: unknown; tip?: unknown; allergy?: unknown; day?: unknown; people?: unknown; place?: unknown; deliveryFrom?: unknown; lang?: unknown }, o: { stripe?: any; now?: number } = {}): Promise<any> {
   const A = aheadOf(tenant);
   if (!A.on) return fail('Ordering ahead isn’t on here right now.', 409, 'off');
   const acct = accountOf(tenant); const stripe = o.stripe || readerStripe();
@@ -369,7 +371,7 @@ export async function placeAhead(db: any, tenantId: string, tenant: any, b: { ke
     const n = Math.floor(num(c.ahead)) + 1; const number = orderNumber('ahead', n);
     tx.set(counterRef, { ahead: n, day }, { merge: true });
     tx.set(db.doc(`${T}/aheadCodes/${dk}_${code}`), { orderId, at: nowIso() });
-    tx.set(orderRef, { id: orderId, number, channel: 'ahead', status: 'building', lines, ...money, ...(tipCents > 0 ? { tipFor: 'driver' } : {}), guestName: name, createdAt: new Date(now).toISOString(), createdBy: 'Ordered ahead', day, ...(ep ? { locationId: ep.id } : {}),
+    tx.set(orderRef, { id: orderId, number, channel: 'ahead', status: 'building', lines, ...money, ...(tipCents > 0 ? { tipFor: 'driver' } : {}), guestName: name, ...(cleanGuestLang(b?.lang) === 'es' ? { guestLang: 'es' } : {}), createdAt: new Date(now).toISOString(), createdBy: 'Ordered ahead', day, ...(ep ? { locationId: ep.id } : {}),
       ...(allergy ? { allergy: { ...allergy, by: 'The guest', at: new Date(now).toISOString() } } : {}),
       ahead: { state: 'awaiting_pay', way, at, slot, code, cents, payId: null, ...(deliv ? { checkout: key } : {}), ...(phone && loyaltyOf(tenant).on ? { pointsPhone: phone, pointsJoin: b.join === true } : {}),
         // (Due at the door the drive after it's ready: its pickup time is when the driver leaves.)
@@ -630,7 +632,9 @@ export async function aheadView(db: any, tenantId: string, tenant: any, orderId:
     // (With what was picked, so the page can put the same order together again: Order this again.)
     // (What they told the kitchen: their allergies, and a note on a dish.)
     allergy: allergyWords(orderAllergyOf(or)) || null,
-    lines: (or.lines || []).map((l: any) => ({ name: String(l.name || ''), quantity: num(l.quantity), choicesText: l.choicesText || null, note: l.note || null, price: Math.round(num(l.unitPrice) * num(l.quantity) * 100) / 100, imageUrl: l.imageUrl || null,
+    // (The same, as kept, so a page set to Spanish can say it in Spanish.)
+    allergyOf: (() => { const a = orderAllergyOf(or); return a ? { keys: a.keys, other: a.other || '', severe: !!a.severe } : null; })(),
+    lines: (or.lines || []).map((l: any) => ({ name: String(l.name || ''), nameEs: l.nameEs || null, quantity: num(l.quantity), choicesText: l.choicesText || null, note: l.note || null, price: Math.round(num(l.unitPrice) * num(l.quantity) * 100) / 100, imageUrl: l.imageUrl || null,
       itemId: String(l.itemId || ''), picks: picksOf(l.choices) })),
     // The text when it's ready (lib/ready-text): asked for (its last four digits) or sent, and whether it can be asked.
     text: readyTextView(or), texts: readyTextsOn(tenant) && or.status === 'sent' && !or.readyText?.sentAt,

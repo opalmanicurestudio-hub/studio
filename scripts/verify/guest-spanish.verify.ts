@@ -245,6 +245,45 @@ const hh = (h: number) => `${String(((h % 24) + 24) % 24).padStart(2, '0')}:00`;
   check('what the server says: its Spanish when known, else the Spanish of what to do; in English as it said', L.sayIn('es', 'Add something first.', 'That didn’t go through. Try again.') === 'Primero agregue algo.' && L.sayIn('es', 'Iced tea is sold out right now.', 'That didn’t go through. Try again.') === 'No se pudo completar. Inténtelo de nuevo.'
     && L.sayIn('en', 'Iced tea is sold out right now.', 'x') === 'Iced tea is sold out right now.' && L.sayIn('en', '', 'Fallback.') === 'Fallback.');
   check('what the team sees on the kiosk stays in English (Team, the card reader)', /aria-label="This kiosk’s card reader"|<Modal label="This kiosk’s card reader"/.test(kioskPage) && />Team<\/button>/.test(kioskPage));
+  check('the kiosk’s number pad says Delete (Back is for going back), and an order placed in Spanish keeps it for its text', /k === 'back' \? t\('Delete'\)/.test(kioskPage) && L.gt('es', 'Delete') === 'Borrar' && L.gt('es', 'Back') === 'Volver'
+    && /\.\.\.\(lang === 'es' \? \{ lang \} : \{\}\)/.test(kioskPage) && /\.\.\.\(cleanGuestLang\(b\?\.lang\) === 'es' \? \{ guestLang: 'es' \} : \{\}\)/.test(src('src/lib/kiosk.ts')) && /lang: b\.lang \}/.test(src('src/app/api/kiosk/route.ts')));
+
+  console.log('the order-ahead page');
+  const aheadPage = src('src/app/order/[tenantId]/page.tsx');
+  const aheadObj = (name: string) => { const m = new RegExp(`const ${name}[^=]*= \\{([^}]+)\\}`).exec(aheadPage); return m ? Array.from(m[1].matchAll(/:\s*'((?:[^'\\]|\\.)+)'/g)).map((x) => x[1]) : []; };
+  // Every line put through the dictionary (tr('…'), gt(lang, '…'), what the server said and what to say instead), and
+  // the ways to get it and the server's codes, has its Spanish.
+  const aheadSaid = [...Array.from(aheadPage.matchAll(/\btr\('((?:[^'\\]|\\.)+)'/g)).map((m) => m[1]), ...Array.from(aheadPage.matchAll(/gt\((?:lang|'es'), '((?:[^'\\]|\\.)+)'/g)).map((m) => m[1]),
+    ...Array.from(aheadPage.matchAll(/(?:sayIn\(lang, [^,]+|said\(lang, d), '((?:[^'\\]|\\.)+)'\)/g)).map((m) => m[1]), ...Array.from(aheadPage.matchAll(/sayIn\(lang, [^,]+, [^?]+\? '((?:[^'\\]|\\.)+)' : '((?:[^'\\]|\\.)+)'\)/g)).flatMap((m) => [m[1], m[2]]),
+    ...Array.from(aheadPage.matchAll(/\btr\([a-z.!=' ]+\? '((?:[^'\\]|\\.)+)' : '((?:[^'\\]|\\.)+)'/g)).flatMap((m) => [m[1], m[2]]), ...aheadObj('WAY_WORDS'), ...aheadObj('WAY_BUTTON'), ...aheadObj('BY_CODE'),
+    ...Array.from(aheadPage.matchAll(/setHeld\('((?:[^'\\]|\\.)+)'\)/g)).map((m) => m[1])];
+  const aheadMissing = Array.from(new Set(aheadSaid)).filter((w) => !L.hasGuestSpanish(w));
+  check(`every line the order-ahead page shows a guest has its Spanish (${new Set(aheadSaid).size} of them)`, new Set(aheadSaid).size > 300 && !aheadMissing.length, aheadMissing);
+  check('…and none of its English left showing to a guest in Spanish (only the tip and people examples, which are numbers)', !/>[A-Z][a-z’' ,.!?]{3,}</.test(aheadPage)
+    && Array.from(aheadPage.matchAll(/(?:aria-label|placeholder|alt|title)="([^"]+)"/g)).every((m) => /^[\d.]+$/.test(m[1])));
+  check('English or Español at the top of every step: ?lang=es first, then what was picked on this phone, then the phone’s own language', /<Lang\.Provider value=\{lang\}>/.test(aheadPage) && /<LangSwitch lang=\{lang\} onPick=\{setLang\} \/>/.test(aheadPage)
+    && /GUEST_LANGS\.map\(\(x\) => <button key=\{x\.id\} type="button" lang=\{x\.id\} aria-pressed=\{lang === x\.id\}/.test(aheadPage) && /min-h-\[44px\]/.test(aheadPage.slice(aheadPage.indexOf('function LangSwitch'), aheadPage.indexOf('const earnedLine')))
+    && /setLangNow\(q === 'es' \|\| q === 'en' \? q : kept === 'es' \|\| kept === 'en' \? kept : \/\^es\\b\/i\.test\(own\) \? 'es' : 'en'\)/.test(aheadPage) && /write\(guestLangKey\('ahead', tenantId\), l\)/.test(aheadPage) && /document\.documentElement\.lang = lang/.test(aheadPage));
+  check('the business’s Spanish: items, descriptions and sections on the menu; lines on the order and its page; Order again', /nameEs: m\.nameEs, wordsEs: m\.wordsEs/.test(src('src/lib/counter-ahead.ts')) && /nameEs: es\[m\.section\] \|\| null/.test(src('src/lib/counter-ahead.ts')) && /nameEs: l\.nameEs \|\| null/.test(src('src/lib/counter-ahead.ts'))
+    && /const name = inLang\(lang, item\.name, item\.nameEs\); const words = inLang\(lang, item\.words \|\| '', item\.wordsEs\)/.test(aheadPage) && /inLang\(lang, s\.name, s\.nameEs\)/.test(aheadPage) && /inLang\(lang, l\.name, l\.nameEs\)/.test(aheadPage) && /pastWords\(p, \(l\) => nmOf\(l\.itemId, l\.name\)\)/.test(aheadPage));
+  check('choices, allergies, notes and what a dish contains in Spanish; the allergy told to the kitchen too', /<ChoicePicker item=\{item\} picks=\{picks\} onChange=\{setPicks\} lang=\{lang\} \/>/.test(aheadPage) && /<NoteField [^>]*lang=\{lang\} \/>/.test(aheadPage) && /<AllergyChips [^>]*lang=\{lang\} \/>/.test(aheadPage)
+    && /containsLine\(item, lang\)/.test(aheadPage) && /allergy, 'guest', lang\)/.test(aheadPage) && /lang === 'es' && t\.allergyOf \? allergyIn\(lang, t\.allergyOf\) : t\.allergy/.test(aheadPage));
+  check('the card form in Spanish too (no switch while paying: the form takes its language when it opens); the menu questions box (English only) left out in Spanish', /clientSecret: pay\.clientSecret, locale: lang,/.test(aheadPage) && /\{!paying && <div className="mb-3 flex justify-end"><LangSwitch/.test(aheadPage)
+    && /<\/div>, undefined, true\);/.test(aheadPage) && /menu\.klair && lang === 'en' && <section/.test(aheadPage));
+  check('nothing shown until the language is read (no English flash); a message said in one language is taken down on a switch', /if \(!langRead\) return <main/.test(aheadPage) && (aheadPage.match(/useClearOnSwitch\(lang, /g) || []).length >= 6
+    && /useClearOnSwitch\(lang, \(\) => setPlaceErr\(''\), \(\) => setCheckErr\(''\), \(\) => setAgainSaid\(null\)\)/.test(aheadPage) && /held \? tr\(held\) :/.test(aheadPage));
+  check('the drive-thru keeps its name in Spanish for guests (“autoservicio” reads as self-service)', L.gt('es', 'Drive-thru') === 'Drive-thru' && L.gt('es', 'at the drive-thru') === 'en el drive-thru' && !/autoservicio/i.test(src('src/lib/guest-lang.ts').replace(/\/\/[^\n]*/g, '')));
+  check('what the server says: its Spanish, or for words made up around an item’s name, what its code means', /const said = \(lang: GuestLang, d: any, fallback: string\) => \(lang === 'es' && d\?\.code && BY_CODE\[d\.code\] && !hasGuestSpanish/.test(aheadPage)
+    && /setPlaceErr\(said\(lang, d, 'That didn’t go through\. Try again\.'\)\)/.test(aheadPage) && /\.\.\.\(lang === 'es' \? \{ lang \} : \{\}\), name: name\.trim\(\)/.test(aheadPage));
+  const AD = await import('../../src/lib/ahead-days');
+  check('days and times in Spanish: “viernes 8 de mayo”, “vie 8”, “la 1:00 PM”, and a phone’s own “1:00 p. m.”; English as before', AD.dayWords('2026-05-08', false, 'es') === 'viernes 8 de mayo' && AD.dayWords('2026-05-08', true, 'es') === 'vie 8'
+    && AD.dayWords('2026-05-08') === 'Friday, May 8' && AD.dayWords('2026-05-08', true) === 'Fri 8' && L.theHour('es', '1:00 PM') === 'la 1:00 PM' && L.theHour('es', '7:00 PM') === 'las 7:00 PM' && L.theHour('en', '7:00 PM') === '7:00 PM'
+    && L.atTime('es', '1:00 p. m.') === 'a la 1:00 p. m.' && L.atTime('es', '11:30 a. m.') === 'a las 11:30 a. m.' && L.capFirst('viernes') === 'Viernes',
+    [AD.dayWords('2026-05-08', false, 'es'), AD.dayWords('2026-05-08', true, 'es'), L.atTime('es', '1:00 p. m.')]);
+  const RT = await import('../../src/lib/ready-text');
+  check('the text when it’s ready, in Spanish for an order placed in Spanish (ahead, each way, and the kiosk)', RT.readyWords({ number: '12', channel: 'ahead', guestLang: 'es', ahead: { way: 'drive-thru' } }, 'L') === 'Su pedido 12 está listo. Entre al drive-thru y diga su código en la bocina. Su pedido: L'
+    && RT.readyWords({ number: '12', channel: 'ahead', guestLang: 'es', ahead: { way: 'delivery' } }, null) === 'Su pedido 12 va en camino.' && RT.readyWords({ number: '7', channel: 'kiosk', guestLang: 'es' }, null) === 'Su pedido 7 está listo. Recójalo en el mostrador.'
+    && RT.readyWords({ number: '12', channel: 'ahead', ahead: { way: 'curbside' } }, null) === 'Order 12 is ready. Tap I’m here when you park, and we’ll bring it out.' && /&lang=es' : ''/.test(src('src/lib/ready-text.ts')));
 
   console.log(failures ? `\n${failures} failed` : '\nall passed');
   process.exit(failures ? 1 : 0);

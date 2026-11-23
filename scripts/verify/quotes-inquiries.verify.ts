@@ -70,7 +70,7 @@ const src = (p: string) => readFileSync(p, 'utf8');
   console.log('the client’s quote');
   const { POST: Q } = await import('../../src/app/api/quote/route');
   const KEY = 'k'.repeat(32);
-  const quote = (x: any = {}) => ({ eventName: 'Spring team day', clientId: 'c1', status: 'sent', sentAt: '2026-11-08T15:00:00Z', expiresInDays: 14, clientSecret: KEY, eventDate: '2026-12-05T05:00:00.000Z', totalHours: 3,
+  const quote = (x: any = {}) => ({ eventName: 'Spring team day', clientId: 'c1', status: 'sent', sentAt: new Date(Date.now() - 2 * 86400000).toISOString(), expiresInDays: 14, clientSecret: KEY, eventDate: '2026-12-05T05:00:00.000Z', totalHours: 3,
     lineItems: [{ name: 'Group class', price: 40, quantity: 10, cost: 15 }], travelExpenses: 50, projectFee: 10, depositAmount: 100, staffPayouts: [{ staffId: 'st1', name: 'Ana', amount: 200 }], ...x });
   const fresh = async (x: any = {}, t: any = {}) => { db = strictTransactions(makeDb()); await db.doc(T).set({ name: 'North Loft', timezone: 'America/New_York', ...t }); await db.doc(`${T}/quotes/q1`).set(quote(x)); };
   const ask = (action: string, x: any = {}) => Q(req({ tenantId: 't1', id: 'q1', k: KEY, action, ...x })) as any;

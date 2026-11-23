@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
     if (action === 'place') {
       // However busy, a kiosk places a few orders a minute at most.
       const slow = await limitPublic(req, 'kiosk_place', tenantId, { perHour: 240, perDay: 3000 }); if (slow) return slow;
-      return answer(await kioskPlace(db, tenantId, tenant, screen, { key: b.orderKey, lines: b.lines, name: b.name, toGo: b.toGo, allergy: b.allergy }));
+      return answer(await kioskPlace(db, tenantId, tenant, screen, { key: b.orderKey, lines: b.lines, name: b.name, toGo: b.toGo, allergy: b.allergy, lang: b.lang }));
     }
     if (action === 'pay') return answer(await kioskPay(db, tenantId, tenant, screen, b.orderId));
     if (action === 'check') return answer(await kioskCheck(db, tenantId, tenant, screen, b.orderId));

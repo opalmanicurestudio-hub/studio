@@ -157,7 +157,7 @@ const TOK = 'abcdefghijklmnopqrstuv';
 
   console.log('the screens');
   const bill = src('src/app/bill/[tenantId]/[token]/page.tsx'); const order = src('src/app/order/[tenantId]/page.tsx'); const ask = src('src/components/klair/MenuAsk.tsx'); const set = src('src/app/(app)/settings/embeds/page.tsx');
-  check('the table’s page and ordering ahead: “Ask Mae about the menu”', /pass\.klair && <VisitCard><MenuAsk/.test(bill) && /menu\.klair && <section/.test(order) && ask.includes('Ask {name} about the menu') && /TELL_SERVER/.test(ask));
+  check('the table’s page and ordering ahead: “Ask Mae about the menu”', /pass\.klair && <VisitCard><MenuAsk/.test(bill) && /menu\.klair && lang === 'en' && <section/.test(order) && ask.includes('Ask {name} about the menu') && /TELL_SERVER/.test(ask));
   check('the setting: off until the business turns it on, saying how she answers', set.includes('Answer guests’ menu questions') && set.includes('Off until you turn it on.') && /'klair\.menuAnswers'/.test(set));
   const mine = src('src/lib/klair-menu.ts') + src('src/lib/klair-floor.ts') + src('src/lib/klair-menu-server.ts') + ask;
   check('house style in the new code', !/salon|stylist|booth|chair/i.test(mine) && !/uppercase|font-black/.test(mine) && !/ · /.test(mine));

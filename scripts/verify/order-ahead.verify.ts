@@ -69,8 +69,8 @@ const slot = (minutes: number) => { const step = 15 * 60000; return new Date(Mat
   const { POST: kitchen } = await import('../../src/app/api/kitchen/route');
   const { handleConnectWebhook } = await import('../../src/lib/connect-webhook');
   const CC = await import('../../src/lib/counter-card');
-  await db.doc(T).set({ name: 'Northside', timezone: 'UTC', stripeAccountId: 'acct_1', stripeChargesEnabled: true, retailSettings: { taxRatePercent: 10 }, salesTax: { configured: true } });
-  await db.doc(`${T}/inventory/burger`).set({ type: 'refreshment', name: 'Burger', category: 'Burgers', price: 5, totalStock: 50, makeSeconds: 240, imageUrl: 'https://img.test/burger.png' });
+  await db.doc(T).set({ name: 'Northside', timezone: 'UTC', stripeAccountId: 'acct_1', stripeChargesEnabled: true, retailSettings: { taxRatePercent: 10 }, salesTax: { configured: true }, menuSpanish: { sections: { Burgers: 'Hamburguesas' } } });
+  await db.doc(`${T}/inventory/burger`).set({ type: 'refreshment', name: 'Burger', category: 'Burgers', price: 5, totalStock: 50, makeSeconds: 240, imageUrl: 'https://img.test/burger.png', nameEs: 'Hamburguesa', descriptionEs: 'Con queso' });
   await db.doc(`${T}/inventory/fries`).set({ type: 'refreshment', name: 'Fries', category: 'Sides', price: 2, totalStock: 3, makeSeconds: 60, choices: [{ id: 'sz', name: 'Size', pick: 'one', required: true, options: [{ id: 's', name: 'Small', price: 0 }, { id: 'l', name: 'Large', price: 1 }] }] });
   await db.doc(`${T}/inventory/shake`).set({ type: 'refreshment', name: 'Shake', category: 'Drinks', price: 4, totalStock: 30, soldOut: true });
   await db.doc(`${T}/inventory/secret`).set({ type: 'refreshment', name: 'Members burger', category: 'Burgers', price: 9, totalStock: 30, isMembersOnly: true });
@@ -100,6 +100,8 @@ const slot = (minutes: number) => { const step = 15 * 60000; return new Date(Mat
   const items = r.body.sections.flatMap((s: any) => s.items); const offered: string[] = r.body.times || [];
   check('the menu by section, with photos and choices; sold out says so; members-only items aren’t shown', r.body.on === true && r.body.business === 'Northside' && JSON.stringify(r.body.ways) === '["drive-thru","inside"]'
     && items.find((i: any) => i.id === 'burger')?.imageUrl === 'https://img.test/burger.png' && items.find((i: any) => i.id === 'fries')?.choices.length === 1 && items.find((i: any) => i.id === 'shake')?.soldOut === true && !items.some((i: any) => i.id === 'secret'), r.body);
+  check('in Spanish too, for a guest who picks it: each item’s and section’s own Spanish, and none where the business hasn’t written it', items.find((i: any) => i.id === 'burger')?.nameEs === 'Hamburguesa' && items.find((i: any) => i.id === 'burger')?.wordsEs === 'Con queso'
+    && r.body.sections.find((x: any) => x.name === 'Burgers')?.nameEs === 'Hamburguesas' && items.find((i: any) => i.id === 'fries')?.nameEs === null && r.body.sections.find((x: any) => x.name === 'Sides')?.nameEs === null, r.body.sections);
   check('times every 15 minutes, from 20 minutes out, for 2 hours, today only', r.body.times.length <= 8 && r.body.times.every((t: string) => t.slice(0, 10) === new Date().toISOString().slice(0, 10) || new Date().getUTCHours() >= 22) && Date.parse(r.body.times[0]) >= Date.now() + 19 * 60000 && r.body.times.every((t: string) => Date.parse(t) % (15 * 60000) === 0), r.body.times);
 
   console.log('placing');
@@ -326,7 +328,7 @@ const slot = (minutes: number) => { const step = 15 * 60000; return new Date(Mat
   check('the menu board: by section, with photos and prices, sold out as it is, members-only items not shown', r.body.ok && r.body.business.name === 'Northside' && mbItems.find((i: any) => i.id === 'burger')?.price === 5 && mbItems.find((i: any) => i.id === 'burger')?.imageUrl
     && mbItems.find((i: any) => i.id === 'shake')?.soldOut === true && !mbItems.some((i: any) => i.id === 'secret'), r.body);
   check('…with the code to order ahead while that’s on', r.body.orderAhead === 'https://app.test/order/t1', r.body.orderAhead);
-  const allowed = ['id', 'name', 'words', 'price', 'from', 'startPrice', 'imageUrl', 'soldOut', 'featured', 'badge', 'calories', 'number'];
+  const allowed = ['id', 'name', 'words', 'nameEs', 'wordsEs', 'price', 'from', 'startPrice', 'imageUrl', 'soldOut', 'featured', 'badge', 'calories', 'number'];
   check('…and nothing about costs or stock counts (only what a guest may see)', mbItems.every((i: any) => Object.keys(i).every((k) => allowed.includes(k))) && !/cost|canMake|totalStock|supplier|short/.test(JSON.stringify(r.body)), mbItems[0]);
   const boardNums = mbItems.map((i: any) => i.number);
   check('…each item with the number guests order by: 1, 2, 3… in the order the board shows them', boardNums.length > 1 && boardNums.every((n: any, k: number) => n === k + 1), boardNums);
@@ -342,6 +344,20 @@ const slot = (minutes: number) => { const step = 15 * 60000; return new Date(Mat
   r = await MB({ action: 'menuBoard' });
   check('ordering ahead off: no code on the board', r.body.ok && r.body.orderAhead === null, r.body.orderAhead);
   await Mn({ action: 'ahead', on: true });
+
+  console.log('in Spanish');
+  const RT = await import('../../src/lib/ready-text');
+  r = await A({ ...base, key: nextKey(), name: 'Lucía', way: 'inside', lang: 'es', lines: [{ itemId: 'burger', quantity: 1 }], allergy: { keys: ['milk'], other: '', severe: true } });
+  const oEs = await get(`${T}/counterOrders/${r.body.orderId}`); const idEs = r.body.orderId; const sEs = r.body.sig;
+  const rEn: any = await A({ ...base, key: nextKey(), name: 'Sam', way: 'inside', lines: [{ itemId: 'burger', quantity: 1 }] });
+  const oEn = await get(`${T}/counterOrders/${rEn.body.orderId}`);
+  check('placed from the page in Spanish: the order keeps it (for its text); one in English keeps nothing', r.body.ok && oEs?.guestLang === 'es' && rEn.body.ok && oEn && !('guestLang' in oEn), { es: oEs?.guestLang, en: oEn?.guestLang });
+  paid(oEs.ahead.payId); await A({ action: 'done', o: idEs, s: sEs });
+  const trEs: any = await A({ action: 'track', o: idEs, s: sEs });
+  check('…its page gets each line’s Spanish name and the allergy as kept, to say them in Spanish', trEs.body.lines?.[0]?.nameEs === 'Hamburguesa' && trEs.body.allergyOf?.keys?.[0] === 'milk' && trEs.body.allergyOf?.severe === true && /Milk/.test(trEs.body.allergy || ''), trEs.body);
+  const oEsPaid = await get(`${T}/counterOrders/${idEs}`);
+  check('…and the text when it’s ready goes in Spanish, its link opening the page in Spanish', RT.readyWords(oEsPaid, 'https://app.test/order/t1?o=x&s=y&lang=es') === `Su pedido ${oEsPaid.number} está listo. Muestre su código en el mostrador. Su pedido: https://app.test/order/t1?o=x&s=y&lang=es`
+    && RT.readyWords({ ...oEsPaid, guestLang: undefined }, null) === `Order ${oEsPaid.number} is ready. Show your code at the counter.`, RT.readyWords(oEsPaid, null));
 
   console.log('closed');
   await db.doc(T).set({ accessLocked: true, accessLockedAt: new Date().toISOString() }, { merge: true });

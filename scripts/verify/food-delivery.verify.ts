@@ -571,10 +571,10 @@ const PLAN = { on: true, by: 'postal', zones: [{ id: 'near', name: 'Near', posta
   console.log('the screens');
   const order = src('src/app/order/[tenantId]/page.tsx'); const card = src('src/components/menu/OrderAheadCard.tsx'); const desk = src('src/components/drive-thru/Deliveries.tsx'); const counter = src('src/app/(app)/counter/page.tsx');
   check('ordering: the address, a note for the driver, checking it, and arrival times', /Check the address/.test(order) && /Notes for the driver/.test(order) && /When it gets to you/.test(order) && /action: 'deliveryCheck'/.test(order) && /autoComplete=\{auto\}/.test(order) && /'address-line1'/.test(order));
-  check('…the fee in the totals, and the page after paying follows it', /<span>Delivery<\/span>/.test(order) && /function DeliveryStatus/.test(order) && /Left\$\{D\.driver/.test(order) && /onWay/.test(order));
+  check('…the fee in the totals, and the page after paying follows it', /<span>\{tr\('Delivery fee'\)\}<\/span>/.test(order) && /function DeliveryStatus/.test(order) && /tr\('Left with \{driver\} \{at\}', \{ driver: D\.driver/.test(order) && /onWay/.test(order));
   check('the Menu page: delivery by our drivers, and the longest drive', /Delivery, by our drivers/.test(card) && /Longest drive for hot food/.test(card) && /\/retail-orders\/policies\/delivery/.test(card));
   check('the counter: deliveries, ready ones to leave now, out, delivered, couldn’t deliver and why', /<Deliveries rows=/.test(counter) && /Out for delivery/.test(desk) && /leave now/.test(desk) && /Couldn’t deliver/.test(desk) && /deliveryFailed/.test(desk) && /What happened\?/.test(desk));
-  check('running late: the counter and the guest’s page say so, with the new time', /Running late/.test(desk) && /From yesterday/.test(desk) && /Running a little late\. It was due at/.test(order) && /st === 'out' && D\.eta \? D\.eta : D\.arriveAt/.test(order));
+  check('running late: the counter and the guest’s page say so, with the new time', /Running late/.test(desk) && /From yesterday/.test(desk) && /tr\('Running a little late\. It was due \{at\}\.', \{ at: atTime\(lang, clock\(D\.arriveAt\)\) \}\)/.test(order) && /st === 'out' && D\.eta \? D\.eta : D\.arriveAt/.test(order));
   check('the new screens keep the house style (no all caps, no heaviest weight, 44px taps)', ![order, card, desk].some((s) => /\buppercase\b|font-black/.test(s)) && /min-h-\[44px\]/.test(desk));
 
   console.log(failures ? `\n${failures} failed` : '\nall passed');

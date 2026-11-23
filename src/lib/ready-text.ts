@@ -12,6 +12,7 @@
 // (tenant.readyTexts.off). A number that replied STOP gets nothing (lib/sms sendTenantSms).
 import { sendTenantSms, smsConfigured, toE164 } from '@/lib/sms';
 import { linkOrigin } from '@/lib/app-origin';
+import { orderLangOf } from '@/lib/guest-lang';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 type Fail = { ok: false; error: string; status: number; code?: string };
@@ -53,18 +54,21 @@ export function readyTextView(order: any, now = Date.now()): { last4: string; se
   return { last4: String(r.last4), sent: !!r.sentAt, failed: !!r.sentAt && (r.ok === false || overdue) };
 }
 
-/** What the text says (the business's name goes first: lib/sms). Placed ahead: how to pick it up, and the order's page. */
+/** What the text says (the business's name goes first: lib/sms). Placed ahead: how to pick it up, and the order's page.
+ *  In Spanish when the guest ordered in Spanish (lib/guest-lang orderLangOf: the order-ahead page or the kiosk). */
 export function readyWords(order: any, link: string | null): string {
-  const n = String(order?.number || '').trim();
-  const what = n ? `Order ${n} is ready.` : 'Your order is ready.';
-  if (order?.channel !== 'ahead') return `${what} Pick it up at the counter.`;
+  const n = String(order?.number || '').trim(); const es = orderLangOf(order) === 'es';
+  const what = es ? (n ? `Su pedido ${n} está listo.` : 'Su pedido está listo.') : n ? `Order ${n} is ready.` : 'Your order is ready.';
+  const page = link ? (es ? ` Su pedido: ${link}` : ` Your order: ${link}`) : '';
+  if (order?.channel !== 'ahead') return `${what} ${es ? 'Recójalo en el mostrador.' : 'Pick it up at the counter.'}`;
   const way = order?.ahead?.way;
   // Delivered by the business's drivers (lib/food-delivery): told when it leaves, not when it's ready.
-  if (way === 'delivery') return `${n ? `Order ${n}` : 'Your order'} is on its way.${link ? ` Your order: ${link}` : ''}`;
-  const then = way === 'drive-thru' ? ' Pull into the drive-thru and say your code at the speaker.'
+  if (way === 'delivery') return es ? `${n ? `Su pedido ${n}` : 'Su pedido'} va en camino.${page}` : `${n ? `Order ${n}` : 'Your order'} is on its way.${page}`;
+  const then = es ? (way === 'drive-thru' ? ' Entre al drive-thru y diga su código en la bocina.' : way === 'curbside' ? ' Toque Ya llegué al estacionarse y se lo llevamos.' : ' Muestre su código en el mostrador.')
+    : way === 'drive-thru' ? ' Pull into the drive-thru and say your code at the speaker.'
     : way === 'curbside' ? ' Tap I’m here when you park, and we’ll bring it out.'
     : ' Show your code at the counter.';
-  return `${what}${then}${link ? ` Your order: ${link}` : ''}`;
+  return `${what}${then}${page}`;
 }
 
 /** Ask for the text (or `phone` null: don't text after all). Already ready: it goes now. */
@@ -137,7 +141,7 @@ export async function textIfReady(db: any, tenantId: string, orderIds: string[],
         const tenant: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
         const { aheadSig } = await import('@/lib/counter-ahead');
         const s = aheadSig(tenantId, id); const base = linkOrigin(tenant, null);
-        if (s && base) link = `${base}/order/${encodeURIComponent(tenantId)}?o=${encodeURIComponent(id)}&s=${encodeURIComponent(s)}`;
+        if (s && base) link = `${base}/order/${encodeURIComponent(tenantId)}?o=${encodeURIComponent(id)}&s=${encodeURIComponent(s)}${orderLangOf(claim.or) === 'es' ? '&lang=es' : ''}`;
       }
       // The text log keeps the last four digits and the words without the order's link (lib/sms `forget`).
       let r: any;
