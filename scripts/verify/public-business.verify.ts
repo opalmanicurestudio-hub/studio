@@ -243,6 +243,12 @@ const src = (p: string) => fs.readFileSync(p, 'utf8');
   check('…and nothing is on two lists', PB.KNOWN_PRIVATE.every((k: string) => !(PB.PUBLIC_FIELDS as readonly string[]).includes(k) && !(k in PB.PUBLIC_PICKS) && !(k in PB.PUBLIC_OMIT))
     && Object.keys(PB.PUBLIC_PICKS).every((k) => !(PB.PUBLIC_FIELDS as readonly string[]).includes(k) && !(k in PB.PUBLIC_OMIT)) && Object.keys(PB.PUBLIC_OMIT).every((k) => !(PB.PUBLIC_FIELDS as readonly string[]).includes(k)));
 
+  // Step 2: the full record is locked to the team, renters and the business's own screens.
+  const rules = src('firestore.rules');
+  check('the full record is read only by the team, renters and the business’s own screens (everyone else gets the public view)',
+    /match \/tenants\/\{tenantId\} \{[^}]*?allow get: if isStaff\(tenantId\) \|\| isPortalMember\(tenantId\);\s*allow list: if false;/.test(rules)
+    && !/match \/tenants\/\{tenantId\} \{\s*allow get: if true;/.test(rules));
+
   console.log(failures ? `\n${failures} failed` : '\nall passed');
   process.exit(failures ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });

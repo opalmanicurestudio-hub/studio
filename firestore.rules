@@ -78,7 +78,10 @@ service cloud.firestore {
       );
     }
     match /tenants/{tenantId} {
-      allow get: if true;
+      // The business's full record: its team, its renters and its own screens (signed in with the business's portal
+      // sign-in). Anyone else gets the public view from the server (/api/public/business: name, look, contact details,
+      // the booking page and its policies), never pay rules, margins, limits, keys or codes.
+      allow get: if isStaff(tenantId) || isPortalMember(tenantId);
       allow list: if false;
       allow create: if false;
       // Account status, billing and paid add-ons ('addons', lib/addons) are changed only by the server.
