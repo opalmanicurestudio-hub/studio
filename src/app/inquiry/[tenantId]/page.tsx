@@ -4,6 +4,7 @@
 // the server (api/inquiry), which checks and tidies every answer and names and prices services from the business's
 // own list. Inspiration pictures go up through api/inquiry/upload-image. No sign-in.
 
+import { loadPublicBusiness } from '@/lib/public-business-client';
 import React, { useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
@@ -136,7 +137,8 @@ export default function QuoteInquiryPage() {
     (async () => {
       try {
         const db = getDb();
-        const t = await getDoc(doc(db, `tenants/${tenantId}`)); if (t.exists()) setTenant(t.data());
+        // (The business's public details come from the server: lib/public-business.)
+        const biz = await loadPublicBusiness(tenantId).catch(() => null); if (biz) setTenant(biz);
         const s = await getDocs(collection(db, `tenants/${tenantId}/services`));
         setServices(s.docs.map((d) => ({ id: d.id, ...(d.data() as any) })).filter((x: any) => x.type !== 'addon' && x.status !== 'archived')
           .sort((a: any, b: any) => String(a.name || '').localeCompare(String(b.name || ''))));

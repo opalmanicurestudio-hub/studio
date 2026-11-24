@@ -11,6 +11,7 @@ import { loadStripe } from '@stripe/stripe-js';
 import { EmbeddedCheckoutProvider, EmbeddedCheckout } from '@stripe/react-stripe-js';
 import { CheckCircle2, ShieldCheck, CreditCard, Loader, AlertTriangle, Lock, FileSignature, Upload, Image as ImageIcon } from 'lucide-react';
 import { pageAccent } from '@/lib/studio-page';
+import { loadPublicBusiness } from '@/lib/public-business-client';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // /complete/[tenantId]/[token]
@@ -65,13 +66,14 @@ function CompletionContent({ tenantId, token }: { tenantId: string; token: strin
       if (!db || !tenantId || !token) { setLoading(false); return; }
       try {
         // The completion record is team-only; the server returns a safe copy (no email, first name only) for this token.
-        const [tSnap, cRes] = await Promise.all([
-          getDoc(doc(db, 'tenants', tenantId)),
+        // (The business's public details come from the server too: lib/public-business.)
+        const [biz, cRes] = await Promise.all([
+          loadPublicBusiness(tenantId).catch(() => null),
           fetch(`/api/visit-completion?token=${encodeURIComponent(token)}&tenantId=${encodeURIComponent(tenantId)}`, { cache: 'no-store' })
             .then((r) => r.json()).catch(() => null),
         ]);
         if (cancelled) return;
-        if (tSnap.exists()) setTenant({ id: tSnap.id, ...tSnap.data() });
+        if (biz) setTenant(biz);
         if (cRes?.ok && cRes.completion) {
           const comp = cRes.completion as any;
           setCompletion(comp);

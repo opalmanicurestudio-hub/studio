@@ -17,6 +17,7 @@
  * through the same scheduler (and the same clash check) as every other tour.
  */
 
+import { loadPublicBusiness } from '@/lib/public-business-client';
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { initializeApp, getApps } from 'firebase/app';
@@ -71,10 +72,10 @@ export default function TourInvitePage() {
         const db = getDb();
         const [invSnap, tenantSnap] = await Promise.all([
           getDoc(doc(db, `tenants/${tenantId}/tourInvites/${token}`)),
-          getDoc(doc(db, `tenants/${tenantId}`)),
+          loadPublicBusiness(tenantId).catch(() => null),
         ]);
         if (invSnap.exists()) setInvite({ id: invSnap.id, ...invSnap.data() });
-        if (tenantSnap.exists()) setBusinessName((tenantSnap.data() as any)?.name || '');
+        if (tenantSnap) setBusinessName(tenantSnap.name || '');
       } catch (e) {
         console.error(e);
       } finally {

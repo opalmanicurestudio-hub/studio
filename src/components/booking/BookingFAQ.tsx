@@ -1,6 +1,7 @@
 
 'use client';
 
+import { usePublicBusiness } from '@/lib/public-business-client';
 import {
   Accordion,
   AccordionContent,
@@ -41,7 +42,9 @@ export const BookingFAQ = () => {
   const params = useParams();
   const tenantId = params.tenantId as string;
 
-  const { data: tenant } = useDoc<Tenant>(doc(firestore, `tenants/${tenantId}`));
+  // (The business's public details come from the server: lib/public-business.)
+  const { data: tenantPublic } = usePublicBusiness(tenantId);
+  const tenant = (tenantPublic || null) as Tenant | null;
 
   if (tenant?.bookingPageSettings?.showFaq === false) return null;
 

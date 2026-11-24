@@ -12,6 +12,7 @@
  * exactly once, only while pending.
  */
 
+import { loadPublicBusiness } from '@/lib/public-business-client';
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { initializeApp, getApps } from 'firebase/app';
@@ -66,10 +67,10 @@ export default function InterviewInvitePage() {
         const db = getDb();
         const [invSnap, tenantSnap] = await Promise.all([
           getDoc(doc(db, `tenants/${tenantId}/interviewInvites/${token}`)),
-          getDoc(doc(db, `tenants/${tenantId}`)),
+          loadPublicBusiness(tenantId).catch(() => null),
         ]);
         if (invSnap.exists()) setInvite({ id: invSnap.id, ...invSnap.data() });
-        if (tenantSnap.exists()) setBusinessName((tenantSnap.data() as any)?.name || '');
+        if (tenantSnap) setBusinessName(tenantSnap.name || '');
       } catch (e) {
         console.error(e);
       } finally {

@@ -1,4 +1,5 @@
 'use client';
+import { usePublicBusiness } from '@/lib/public-business-client';
 import { usePublicStaff } from '@/lib/use-public-staff';
 
 /**
@@ -141,8 +142,9 @@ export default function CheckInPage() {
         return () => { live = false; };
     }, [appointmentData?.id, (appointmentData as any)?.status, tenantId, token, verifyFirst, revoked, trust, payScreen, payOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    const tenantDocRef = useMemoFirebase(() => !firestore || !tenantId ? null : doc(firestore, `tenants/${tenantId}`), [firestore, tenantId]);
-    const { data: tenant, isLoading: tenantLoading } = useDoc<Tenant>(tenantDocRef);
+    // (The business's public details come from the server: lib/public-business.)
+    const { data: tenantPublic, isLoading: tenantLoading } = usePublicBusiness(tenantId || null);
+    const tenant = (tenantPublic || null) as Tenant | null;
     // The guest Wi-Fi isn't on the public business record (lib/tenant-private): it comes through this visit link.
     const [wifi, setWifi] = React.useState<{ network: string; password: string | null } | null>(null);
     React.useEffect(() => {

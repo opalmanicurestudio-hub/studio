@@ -55,6 +55,7 @@
 // studio name brings it back, giant touch targets everywhere, and the screen
 // resets itself between guests.
 
+import { loadPublicBusiness } from '@/lib/public-business-client';
 import { guestLogo } from '@/lib/brand';
 import { useToast } from '@/hooks/use-toast';
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
@@ -335,12 +336,13 @@ export default function WalkInKioskPage() {
     (async () => {
       try {
         const db = getFirestore(getApp());
-        const [tSnap, svSnap] = await Promise.all([
-          getDoc(doc(db, 'tenants', tenantId)),
+        // (The business's public details come from the server: lib/public-business.)
+        const [biz, svSnap] = await Promise.all([
+          loadPublicBusiness(tenantId).catch(() => null),
           getDocs(collection(db, `tenants/${tenantId}/services`)),
         ]);
         if (cancelled) return;
-        if (tSnap.exists()) setTenant({ id: tSnap.id, ...tSnap.data() });
+        if (biz) setTenant(biz);
         setServices(
           svSnap.docs.map(d => ({ id: d.id, ...(d.data() as any) }))
             .filter((s: any) => s.isActive !== false && s.type !== 'addon' && s.walkInEnabled !== false),
@@ -407,8 +409,9 @@ export default function WalkInKioskPage() {
         if (!u) { setIsOwner(false); return; }
         try {
           const db = getFirestore(getApp());
-          const tSnap = await getDoc(doc(db, 'tenants', tenantId));
-          if (tSnap.exists() && (tSnap.data() as any)?.userId === u.uid) { setIsOwner(true); return; }
+          // (Signed in: only the business's own team can read its full record, so anyone else falls through.)
+          const tSnap = await getDoc(doc(db, 'tenants', tenantId)).catch(() => null); // team only
+          if (tSnap?.exists() && (tSnap.data() as any)?.userId === u.uid) { setIsOwner(true); return; }
           const sSnap = await getDoc(doc(db, `tenants/${tenantId}/staff`, u.uid));
           setIsOwner(sSnap.exists() && (sSnap.data() as any)?.role === 'owner');
         } catch { setIsOwner(false); }

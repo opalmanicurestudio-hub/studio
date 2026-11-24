@@ -1,4 +1,5 @@
 'use client';
+import { usePublicBusiness } from '@/lib/public-business-client';
 import { PortalRewards } from '@/components/loyalty/PortalRewards';
 import { usePublicStaff } from '@/lib/use-public-staff';
 
@@ -139,8 +140,9 @@ export default function ClientPortalPage() {
     const clientRef = useMemoFirebase(() => doc(firestore, `tenants/${tenantId}/clients/${clientId}`), [firestore, tenantId, clientId]);
     const { data: client, isLoading: clientLoading } = useDoc<Client>(clientRef);
 
-    const tenantRef = useMemoFirebase(() => doc(firestore, `tenants/${tenantId}`), [firestore, tenantId]);
-    const { data: tenant } = useDoc<Tenant>(tenantRef);
+    // (The business's public details come from the server: lib/public-business.)
+    const { data: tenantPublic } = usePublicBusiness(tenantId);
+    const tenant = (tenantPublic || null) as Tenant | null;
 
     const appointmentsQuery = useMemoFirebase(() => query(collection(firestore, `tenants/${tenantId}/appointments`), where('clientId', '==', clientId)), [firestore, tenantId, clientId]);
     const { data: appointments, isLoading: appointmentsLoading } = useCollection<Appointment>(appointmentsQuery);

@@ -10,6 +10,7 @@ import { channelFrom, catSlug } from '@/lib/share-links';
 import { holdKeyOf, payForHeld, releaseHeld, KEPT_HOLD, EARLIER_PAID, type HeldPay } from '@/lib/booking/engine-confirm';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { getFirestore } from 'firebase/firestore';
+import { loadPublicBusiness } from '@/lib/public-business-client';
 import { getApp } from 'firebase/app';
 import { doc, setDoc, getDoc, getDocs, addDoc, collection, query, orderBy, where } from 'firebase/firestore';
 import { type PageBuilderConfig } from '@/lib/data';
@@ -213,12 +214,12 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
     if (!tenantId) { setConfigReady(true); return; }
     let cancelled = false;
     const run = async () => {
-      const db = getDb();
-      if (!db) { setConfigReady(true); return; }
       try {
-        const tSnap = await getDoc(doc(db, 'tenants', tenantId));
-        if (!cancelled && tSnap.exists()) {
-          const t = { id: tSnap.id, ...tSnap.data() } as any;
+        // (The business's public details, from the server: lib/public-business.)
+        // (The owner's own preview, in Settings, asks for it fresh so a saved change shows at once.)
+        const fresh = (() => { try { return new URLSearchParams(window.location.search).get('preview') === '1'; } catch { return false; } })();
+        const t: any = await loadPublicBusiness(tenantId, { fresh });
+        if (!cancelled && t) {
           setTenant(t);
           const pc = t?.bookingPageSettings?.cfPageConfig;
           if (isBuilderConfig(pc)) setSavedConfig(pc as PageBuilderConfig);   // a renter's booking flow still takes its look from it
@@ -228,7 +229,7 @@ function BookingPageContent({ tenantId }: { tenantId: string }) {
     };
     run();
     return () => { cancelled = true; };
-  }, [tenantId, getDb]);
+  }, [tenantId]);
 
   // Phase 2: Load services, staff, events (non-blocking)
   useEffect(() => {

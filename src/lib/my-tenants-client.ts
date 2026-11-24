@@ -25,7 +25,7 @@ export function useMyTenants(user: any, firestore: Firestore | null) {
   useEffect(() => {
     if (!firestore || ids === null) return;
     if (!ids.length) { setDocs({}); setLoading(false); return; }
-    let first = new Set(ids); const uns = ids.map((id) => onSnapshot(doc(firestore, 'tenants', id), (s) => { setDocs((m) => ({ ...m, [id]: s.exists() ? { ...(s.data() as any), id } : null })); first.delete(id); if (!first.size) setLoading(false); }, () => { first.delete(id); if (!first.size) setLoading(false); }));
+    let first = new Set(ids); const uns = ids.map((id) => onSnapshot(doc(firestore, 'tenants', id), (s) => { setDocs((m) => ({ ...m, [id]: s.exists() ? { ...(s.data() as any), id } : null })); first.delete(id); if (!first.size) setLoading(false); }, () => { first.delete(id); if (!first.size) setLoading(false); }));   // team only: the signed-in person's own businesses
     return () => uns.forEach((u) => u());
   }, [firestore, (ids || []).join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
   const tenants = (ids || []).map((id) => docs[id]).filter(Boolean);

@@ -9,6 +9,7 @@
  * managers read it on the Applicants view).
  */
 
+import { loadPublicBusiness } from '@/lib/public-business-client';
 import { guestLogo } from '@/lib/brand';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams } from 'next/navigation';
@@ -88,8 +89,9 @@ export default function ApplyPage() {
     const load = async () => {
       try {
         const db = getDb();
-        const snap = await getDoc(doc(db, `tenants/${tenantId}`));
-        if (snap.exists()) setTenant(snap.data());
+        // (The business's public details come from the server: lib/public-business.)
+        const biz = await loadPublicBusiness(tenantId).catch(() => null);
+        if (biz) setTenant(biz);
         try {
           const listingSnap = await getDocs(collection(db, `tenants/${tenantId}/jobListings`));
           const open = listingSnap.docs
