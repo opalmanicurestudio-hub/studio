@@ -3,7 +3,9 @@
 // whole record from the database, so anyone with a link could read every setting on it. They now ask the server
 // (api/public/business), which reads the live record and hands back only what's listed here: the details guests are
 // shown already. Anything else on the record, including anything added later, stays with the team until it's put on
-// this list on purpose. The team, renters and the business's own screens still read the full record as before.
+// this list on purpose. Renters signed in to the team portal get the renter view below (design board "Renters off the
+// full record"): this plus the few settings their screens use. Only the team and the business's own screens (kiosk,
+// kitchen, check-in) read the full record.
 // scripts/verify/public-business.verify.ts fails if a public page reads the record itself again, or touches a detail
 // that's on neither this list nor its known-private list.
 import { accessLockOf } from '@/lib/tenant-access';
@@ -68,6 +70,12 @@ export const KNOWN_PRIVATE = [
 
 export type PublicBusiness = { id: string } & Record<string, any>;
 
+/** The renter view adds these, whole: the document folders, the visit-readiness rules, and how the business is shaped
+ *  (whether there's a front desk, and the owner's first name for "ask …" when there isn't), which the renter's portal
+ *  screens use. Their own role's permissions are added too, and only theirs: the other roles, and the team's privacy
+ *  settings, stay with the team. */
+export const RENTER_FIELDS = ['docCollections', 'readiness', 'shape', 'teamSize', 'ownerName'] as const;
+
 const DROP = Symbol('drop');
 const plain = (v: unknown) => v !== undefined && typeof v !== 'function';
 const isPlainObject = (v: any) => { const p = Object.getPrototypeOf(v); return p === Object.prototype || p === null; };
@@ -118,5 +126,20 @@ export function publicBusiness(id: string, t: any, now = Date.now()): PublicBusi
     if (Object.keys(o).length) out[k] = o;
   }
   if (accessLockOf(t, now).locked) { out.accessLocked = true; out.suspended = true; }
+  return out;
+}
+
+/** What a renter signed in to the team portal may see of the business (api/portal/business): the public view, plus
+ *  RENTER_FIELDS and the renter role's own permissions. Pay rules, margins, limits, automations, paid add-ons, the other
+ *  roles and anything added later stay with the team. */
+export function renterBusiness(id: string, t: any, now = Date.now()): PublicBusiness {
+  const out = publicBusiness(id, t, now);
+  if (!t || typeof t !== 'object') return out;
+  for (const k of RENTER_FIELDS) if (plain(t[k])) put(out, k, t[k]);
+  const mine = t.roles && typeof t.roles === 'object' && !Array.isArray(t.roles) ? t.roles.renter : undefined;
+  if (mine && typeof mine === 'object' && !Array.isArray(mine) && isPlainObject(mine)) {
+    const r: Record<string, unknown> = {}; for (const k of ['name', 'caps']) if (plain(mine[k])) put(r, k, mine[k]);
+    out.roles = { renter: r };
+  }
   return out;
 }

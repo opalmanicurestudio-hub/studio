@@ -1,6 +1,7 @@
 // src/app/api/portal/chat-people/route.ts — WHO'S IN TEAM CHAT, for people the database won't show the staff list to
 // (booth renters: they run their own business, so the staff records — phone numbers, emails — stay closed to them).
-//   GET  ?tenantId → the people this person can see in chat: name, photo, role, and whether they're away. Renters see
+//   GET  ?tenantId → the people this person can see in chat: name, photo, role, whether they're a manager (renters
+//        can't read the business's roles) and whether they're away. Renters see
 //        the managers and the other renters (Building Announcements); the team sees the team.
 //   POST { tenantId, action: 'announcements' } → opens (or brings up to date) the announcements thread for them —
 //        Building Announcements for renters, Team Announcements for the team — with everyone who belongs in it.
@@ -19,7 +20,7 @@ async function peopleFor(db: any, tenantId: string, staffId: string) {
   const me = all.find((x: any) => x.id === staffId)?.s || {}; const renter = isRenterRec(me);
   const mgr = (s: any) => ['owner', 'admin', 'manager'].includes(String(s.role || '')) || isManagerRole(tenant, String(s.role || ''));
   const seen = all.filter(({ s }: any) => (renter ? isRenterRec(s) || mgr(s) : !isRenterRec(s)));
-  return { renter, people: seen.map(({ id, s }: any) => ({ id, name: String(s.name || 'Team member'), avatarUrl: s.avatarUrl || null, role: String(s.role || 'staff'), isRenter: isRenterRec(s),
+  return { renter, people: seen.map(({ id, s }: any) => ({ id, name: String(s.name || 'Team member'), avatarUrl: s.avatarUrl || null, role: String(s.role || 'staff'), isRenter: isRenterRec(s), manager: mgr(s),
     notificationAvailability: s.notificationAvailability ? { mode: s.notificationAvailability.mode || null, awayUntil: s.notificationAvailability.awayUntil || null } : null })) };
 }
 

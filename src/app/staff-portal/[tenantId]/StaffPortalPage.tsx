@@ -122,6 +122,7 @@ import {
 } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { useFirebase, useCollection, useMemoFirebase, useUser } from '@/firebase';
+import { loadBusinessForMe, usePortalBusiness } from '@/lib/portal-business-client';
 import { businessLocations, worksAt, atLocation, homeLocation } from '@/lib/business-locations';
 import { useDoc } from '@/firebase/firestore/use-doc';
 import { PortalHousekeeping } from '@/components/staff/MyTurnovers';
@@ -161,6 +162,14 @@ import { FloorLinks } from '@/components/portal/FloorLinks';
 import { curbsideOn } from '@/lib/modules';
 import { HereForYou } from '@/components/visit/HereForYou';
 import { isFoodBusiness } from '@/lib/food-setup';
+
+// A renter's sign-in: the same test the portal's sign-in uses (api/portal/auth), so a renter's screens match what their
+// sign-in may read (the renter view of the business, not the team's record). That includes someone made a renter from
+// the renters page or a lease, whose role may still say staff.
+const isRenterSignIn = (m: any) => m?.isRenter === true || m?.role === 'renter';
+const RENTER_TABS = ['rent', 'messages', 'inbox', 'documents', 'me'];
+/** A renter sent to a tab that isn't theirs goes to their own: from Today to Messages (their team chat), anything else to Rent. */
+const renterTab = (t: any): any => (RENTER_TABS.includes(t) ? t : t === 'today' ? 'messages' : 'rent');
 
 // ─── TIMELINE CONSTANTS ───────────────────────────────────────────────────────
 // Full 24h so the "now" line is always visible no matter the time
@@ -2830,7 +2839,7 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
   // their business, studio escalations are ours), DMs only with
   // owner/admin (decision: renters message management, not each other or
   // staff), and Building Announcements instead of Team Announcements.
-  const isRenter = staffMember.role === 'renter';
+  const isRenter = isRenterSignIn(staffMember);
   const { toast } = useToast();
   const { user: authUser } = useUser();
   const isOwnerOrAdmin = (staffMember.role === 'owner' || staffMember.role === 'admin' || staffMember.role === 'manager');
@@ -2839,9 +2848,8 @@ function StaffMessagesTab({ staffMember, tenantId, firestore }: any) {
   const [tenantDocData, setTenantDocData] = useState<any>(null);
   useEffect(() => {
     if (!firestore || !tenantId) return;
-    getDoc(doc(firestore, 'tenants', tenantId))
-      .then(snap => setTenantDocData(snap.data() || {}))
-      .catch(() => setTenantDocData({}));
+    // (A renter gets the server's renter view: lib/portal-business-client.)
+    loadBusinessForMe(firestore, tenantId).then(setTenantDocData);
   }, [firestore, tenantId]);
   const showFinancials = canSeeFinancials(tenantDocData, staffMember.role);
   const [section, setSection] = useState<'clients'|'team'>('team'); // renters never leave 'team'
@@ -3767,13 +3775,18 @@ function RenterRentTab({ tenantId, firestore, staffMember, renter }: any) {
 function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const { toast } = useToast();
   const router = useRouter();
-  const [activeTab, setActiveTab]   = useState<'today'|'schedule'|'requests'|'earnings'|'inbox'|'messages'|'team'|'documents'|'rent'|'orders'|'deliveries'|'me'>(staffMember.role === 'renter' ? 'rent' : 'today');
+  const [activeTab, setActiveTab]   = useState<'today'|'schedule'|'requests'|'earnings'|'inbox'|'messages'|'team'|'documents'|'rent'|'orders'|'deliveries'|'me'>(isRenterSignIn(staffMember) ? 'rent' : 'today');
   // Opened from a phone notification (?tab=…) → that tab. Only the portal's own tabs; anything else is ignored.
   useEffect(() => {
     try { const t = new URLSearchParams(window.location.search).get('tab') as any;
-      const allowed = staffMember.role === 'renter' ? ['rent', 'messages', 'inbox', 'documents', 'me'] : ['today', 'schedule', 'requests', 'earnings', 'inbox', 'messages', 'team', 'documents', 'orders', 'deliveries', 'me', 'rent'];
+      const allowed = isRenterSignIn(staffMember) ? RENTER_TABS : ['today', 'schedule', 'requests', 'earnings', 'inbox', 'messages', 'team', 'documents', 'orders', 'deliveries', 'me', 'rent'];
       if (t && allowed.includes(t)) setActiveTab(t); } catch { /* fine */ }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Renters have only their own tabs (their screens get the renter view of the business, not the team's record). What
+  // sends them elsewhere goes through renterTab; this catches anything that doesn't.
+  useEffect(() => {
+    if (isRenterSignIn(staffMember) && !RENTER_TABS.includes(activeTab)) setActiveTab(renterTab(activeTab));
+  }, [activeTab, staffMember.role, (staffMember as any).isRenter]); // eslint-disable-line react-hooks/exhaustive-deps
   const [selectedDate, setSelectedDate] = useState(() => bizNow());
   // Today's view: Now / Day / Floor. Chosen by hand it holds until the next visit starts; otherwise it follows the day.
   const [editingDetails, setEditingDetails] = useState(false);
@@ -3793,7 +3806,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const pickCalView = (v: 'day' | 'week' | 'month') => { setCalView(v); try { localStorage.setItem('cf_portal_cal', v); } catch { /* not saved */ } };
   const [todayPick, setTodayPick] = useState<{ view: 'now' | 'day' | 'floor'; visitId: string | null } | null>(null);
   // Calls the front desk passed on to this person (or to managers, if they are one).
-  const myCalls = useMyCalls(staffMember.role === 'renter' ? null : firestore, tenantId, staffMember.id, ['owner', 'admin', 'manager'].includes(String(staffMember.role)));
+  const myCalls = useMyCalls(isRenterSignIn(staffMember) ? null : firestore, tenantId, staffMember.id, ['owner', 'admin', 'manager'].includes(String(staffMember.role)));
   const [drawerApt, setDrawerApt]   = useState<any>(null);
   const [ticketId, setTicketId] = useState<string | null>(null); const [scanOpen, setScanOpen] = useState(false);
   const [drawerSvc, setDrawerSvc]   = useState<any>(null);
@@ -3812,12 +3825,9 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const isOwnerOrAdmin = (staffMember.role === 'owner' || staffMember.role === 'admin' || staffMember.role === 'manager');
   // v76 — renters don't get floor-wide subscriptions (client names, the
   // whole roster's shifts, walk-ins). Their tabs never used this data.
-  const isRenterUser = staffMember.role === 'renter';
-  const portalTenantQ = useMemoFirebase(
-    () => (!firestore || !tenantId) ? null : doc(firestore, 'tenants', tenantId),
-    [firestore, tenantId],
-  );
-  const { data: portalTenant } = useDoc<any>(portalTenantQ);
+  const isRenterUser = isRenterSignIn(staffMember);
+  // The business's settings: the full record, live, for the team; the renter view from the server for a renter.
+  const portalTenant = usePortalBusiness(firestore, tenantId, isRenterUser);
   // Every "today", "now" and time on these screens is the business's clock, not the phone's (lib/biz-clock). Set during
   // render so the screens below read it on this same pass; once it's known, the chosen day starts on the business's today.
   const bizTz = portalTenant && hasTimeZone(portalTenant) ? tenantTimeZone(portalTenant) : '';
@@ -4099,10 +4109,11 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
 
   const handleNotifClick = async (n: any) => {
     if (!n.read) { try { await updateDoc(doc(firestore,`tenants/${tenantId}/notifications`,n.id),{ read:true }); } catch {} }
-    if (n.type === 'call_message') { setActiveTab('today'); return; }
+    const go = (t: any) => setActiveTab(isRenterUser ? renterTab(t) : t);
+    if (n.type === 'call_message') { go('today'); return; }
     const map: Record<string,typeof activeTab> = { '/staff-portal?tab=schedule':'schedule', '/staff-portal?tab=messages':'messages', requests:'requests', schedule:'schedule', '/my-schedule':'schedule', '/schedule/requests':'requests', earnings:'earnings', today:'today' };
     if (n.link && map[n.link]) {
-      setActiveTab(map[n.link]);
+      go(map[n.link]);
       return;
     }
     // v24 — FIX: previously any link that wasn't one of the five internal
@@ -4115,7 +4126,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
     if (n.link && !isMgr) {
       const l = String(n.link);
       const tab = /^\/(my-)?schedule\/requests/.test(l) ? 'requests' : /^\/(my-)?schedule/.test(l) ? 'schedule' : /^\/messages/.test(l) ? 'messages' : null;
-      if (tab) setActiveTab(tab as any);
+      if (tab) go(tab);
       return;
     }
     if (n.link) {
@@ -4158,7 +4169,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   // businesses inside the building) see Messages + Inbox only — no
   // schedules, earnings, or studio requests. Same link, same PIN flow,
   // different world once inside.
-  const isRenter = staffMember.role === 'renter';
+  const isRenter = isRenterSignIn(staffMember);
   // v78 — HYBRID MODEL: a renter record can be linked to this identity
   // (linkedStaffId), or matched by email/phone. Renter-role users get
   // their renter doc resolved for the Rent tab; STAFF with a linked
@@ -4167,7 +4178,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const myRentData = useMyRent(tenantId, staffMember.id); const myRenter = myRentData?.renter || null;
   const myOpenInvoice = (myRentData?.invoices || []).filter((i: any) => i.status === 'due' || i.status === 'late').sort((a: any, b: any) => String(a.dueDate || '').localeCompare(String(b.dueDate || '')))[0] || null;
   // A business of one: they get the studio card on Today, like a renter does on their home.
-  const isSoloBiz = !isRenter && (allStaff || []).filter((m: any) => m.archived !== true && m.isActive !== false && m.role !== 'renter').length <= 1;
+  const isSoloBiz = !isRenter && (allStaff || []).filter((m: any) => m.archived !== true && m.isActive !== false && !isRenterSignIn(m)).length <= 1;
   const isHybrid = !isRenter && !!myRenter;
   // Refunds to give (cash pickups, app refunds): the front desk and managers, same as the app's Refunds page.
   const canRefunds = !isRenter && (isMgr || ['owner', 'admin', 'manager', 'front_desk'].includes(String(staffMember?.role || '').toLowerCase()));
@@ -4193,7 +4204,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const showOrders = !!fulfilmentPerms.canPick && fr !== 'none' && (anyOrder || []).length > 0
     && (!!fr || isMgr);
   // Drives the shop's own deliveries: delivery is on and they're on its list of drivers (lib/delivery-run).
-  const driveInfo = useDeliveryDriver(firestore, tenantId, String(staffMember.id));
+  const driveInfo = useDeliveryDriver(isRenter ? null : firestore, tenantId, String(staffMember.id));   // (renters never drive, and can't read the team's record)
   const driver = !isRenter && fr !== 'none' && driveInfo.isDriver;
   const canDeliver = !isRenter && fr !== 'none' && driveInfo.canDeliver;
   const ORDERS_TAB = { id: 'orders', label: 'Orders', icon: ShoppingCart };
@@ -4299,12 +4310,12 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            {staffMember.role !== 'renter' && (
+            {!isRenterSignIn(staffMember) && (
               <button onClick={() => setScanOpen(true)} aria-label="Scan a ticket" className="h-10 rounded-full border border-[#ececee] bg-white px-3 text-[13px] font-semibold flex items-center gap-1.5">
                 <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3M7 12h10" /></svg>Scan
               </button>
             )}
-            {staffMember.role !== 'renter' && (
+            {!isRenterSignIn(staffMember) && (
               <button onClick={() => setIsRequestOpen(true)} aria-label="New request" className="h-10 w-10 rounded-full border border-[#ececee] bg-white flex items-center justify-center">
                 <Plus className="w-[18px] h-[18px]" />
               </button>
@@ -4315,7 +4326,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
             </button>
           </div>
         </div>
-        {staffMember.role !== 'renter' && navKey === 'today' && (
+        {!isRenterSignIn(staffMember) && navKey === 'today' && (
         <div className="flex items-center gap-3 rounded-[20px] border border-[#ececee] bg-white p-3" style={{ boxShadow: '0 10px 24px -20px rgba(22,23,26,.5)' }}>
           <span className={cn('h-2.5 w-2.5 rounded-full shrink-0', clockStatus.isOnBreak ? 'bg-amber-500 animate-pulse' : clockStatus.isClockedIn ? 'bg-emerald-600' : 'bg-slate-300')} />
           <div className="flex-1 min-w-0">
@@ -4339,7 +4350,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
         {navKey === 'today' && !isRenter && <HereForYou tenantId={tenantId} visits={todaysMine} serviceOf={(v: any) => (services || []).find((x: any) => x.id === v.serviceId)?.name || ''} />}
         {navKey === 'today' && <PushPrompt tenantId={tenantId} />}
         {navKey === 'today' && !isRenter && isFoodBusiness(portalTenant) && <FloorLinks job={(staffMember as any).job || null} curbside={curbsideOn(portalTenant)} />}
-        {staffMember.role !== 'renter' && navKey === 'today' && <StaffOverruns tenantId={tenantId} />}
+        {!isRenterSignIn(staffMember) && navKey === 'today' && <StaffOverruns tenantId={tenantId} />}
         {navKey === 'today' && !isRenter && (
           <Segments label="Today's view" value={todayView} onChange={pickToday}
             options={[{ value: 'now', label: 'Now' }, { value: 'day', label: 'Day' }, ...(canFloor ? [{ value: 'floor' as const, label: 'Floor' }] : [])]} />
@@ -4352,8 +4363,8 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
           <Segments label="Team" value={activeTab === 'inbox' ? 'inbox' : 'messages'} onChange={(v) => setActiveTab(v as any)}
             options={[{ value: 'messages', label: 'Chats', badge: messagesBadge + teamBadge }, { value: 'inbox', label: 'Notices', badge: unreadCount }]} />
         )}
-        {navKey === 'pay' && staffMember.role !== 'renter' && <MyTips tenantId={tenantId} />}
-        {navKey === 'pay' && staffMember.role !== 'renter' && <DeclareTips tenantId={tenantId} />}
+        {navKey === 'pay' && !isRenterSignIn(staffMember) && <MyTips tenantId={tenantId} />}
+        {navKey === 'pay' && !isRenterSignIn(staffMember) && <DeclareTips tenantId={tenantId} />}
         {navKey === 'me' && activeTab !== 'me' && (
           <button onClick={() => setActiveTab('me')} className="inline-flex items-center gap-1 text-[14px] font-semibold text-[#6d7075]"><ChevronLeft className="w-4 h-4" />Me</button>
         )}
@@ -4396,7 +4407,6 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
 {todayView === 'now' && !retailOnly && <NowPanel apts={todaysMine} services={services || []} tenantId={tenantId} tenant={portalTenant} accent={accentColor} onOpenDoc={isRenter ? undefined : (id) => { if (id) setOpenDocId(id); setActiveTab('documents'); }} onOpen={(apt: any) => { setDrawerApt(apt); setDrawerSvc((services||[]).find((s: any) => s.id===apt.serviceId)); }} />}
 <RotationsToday tenantId={tenantId} staffMember={staffMember} onOpenDoc={(id) => { if (id) setOpenDocId(id); setActiveTab('documents'); }} />
 {!isRenter && <TidyPanel tenantId={tenantId} compact />}
-{isRenter && <TasksForYou tenantId={tenantId} staffMember={staffMember} />}
 {!retailOnly && <PortalHousekeeping tenantId={tenantId} staffId={staffMember.id} myAppts={myApptsRaw || []} services={services || []} staff={allStaff || []} />}
 {!retailOnly && stuckApts.length > 0 && (
                   <div className="rounded-[22px] border border-amber-300 bg-amber-50 overflow-hidden">
@@ -4585,6 +4595,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   mine={allMyApts || []} rentInvoice={isRenter || isHybrid ? myOpenInvoice : null} onOpen={(apt: any) => { setDrawerApt(apt); setDrawerSvc((services||[]).find((s: any) => s.id===apt.serviceId)); }}
   onCases={() => { setActiveTab('me' as any); setViewingCases(true); }} onRent={() => setActiveTab('rent')} /></div>
           )}
+          {activeTab==='rent' && isRenter && <TasksForYou tenantId={tenantId} staffMember={staffMember} />}
           {activeTab==='rent' && (isRenter || isHybrid) && (
             <RenterRentTab tenantId={tenantId} firestore={firestore} staffMember={staffMember} renter={myRenter} />
           )}
@@ -4622,7 +4633,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
             </div>
           )}
           {activeTab==='me' && editingDetails && (
-            <div className="pt-1"><MyDetails firestore={firestore} tenantId={tenantId} staffId={staffMember.id} name={staffMember.name || 'A team member'} managerIds={(allStaff || []).filter((x: any) => isManagerRole(portalTenant, String(x.role || '')) && !x.archived).map((x: any) => x.id)} onDone={() => setEditingDetails(false)} /></div>
+            <div className="pt-1"><MyDetails firestore={firestore} tenantId={tenantId} staffId={staffMember.id} name={staffMember.name || 'A team member'} managerIds={(allStaff || []).filter((x: any) => (x.manager === true || isManagerRole(portalTenant, String(x.role || ''))) && !x.archived).map((x: any) => x.id)} onDone={() => setEditingDetails(false)} /></div>
           )}
           {activeTab==='me' && editingAlerts && !editingDetails && (
             <div className="pt-1"><AlertSettings firestore={firestore} tenantId={tenantId} staffId={staffMember.id} isManager={isMgr} isRenter={isRenter} hasRent={isHybrid} accent={accentColor} onDone={() => setEditingAlerts(false)} /></div>

@@ -54,7 +54,7 @@ export function StaffDocs({ firestore, tenantId, tenant, staffMember, accent = I
     <div className="space-y-3.5" style={{ color: INK }}>
       <div><p className="text-[12px] tracking-[0.1em]" style={{ color: MUTED }}>{String(tenant?.name || '').toLowerCase()}</p><h2 className="text-[28px] font-normal tracking-[-0.03em]">Handbook and SOPs</h2></div>
       {stationId && <AtStation docs={docs || []} stationId={stationId} cols={cols} onOpen={setOpen} onClear={onClearStation} />}
-      {staffMember.role !== 'renter' && <CertifiedFor tenantId={tenantId} onOpenDoc={setOpen} title="Your certifications" />}
+      {!renter && <CertifiedFor tenantId={tenantId} onOpenDoc={setOpen} title="Your certifications" />}
       {isLoading ? <p className="text-[14px]" style={{ color: MUTED }}>Loading…</p> : !rows.length ? <p className="rounded-[18px] p-5 text-[14.5px]" style={{ background: SOFT, color: MUTED }}>When a manager publishes a handbook page or SOP for you, it shows here to read and sign.</p> :
         <div className="overflow-hidden rounded-[20px] border bg-white" style={{ borderColor: LINE }}>{rows.map((r, i) => { const s = docStats(r.x); const late = r.x.signBy && r.x.signBy < today;
           return <button key={r.x.id} type="button" onClick={() => setOpen(r.x.id)} className="flex w-full items-center gap-3 px-3.5 py-3 text-left" style={{ borderTop: i ? `1px solid ${LINE}` : undefined }}>

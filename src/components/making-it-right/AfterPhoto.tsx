@@ -3,14 +3,15 @@
 // (Settings → Making it right). Fair evidence for both sides if there's a complaint later — the work as it left. Saved on
 // the visit (afterPhotoUrls). When the business requires it, finishing waits for one.
 import * as React from 'react';
-import { doc, getDoc, updateDoc, arrayUnion } from 'firebase/firestore';
+import { doc, updateDoc, arrayUnion } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { settingsOf } from '@/lib/making-it-right';
+import { loadBusinessForMe } from '@/lib/portal-business-client';
 import { shrink } from '@/components/making-it-right/VoiceNote';
 
 export function AfterPhoto({ firestore, tenantId, appointment, serviceIds, onRequiredMissing }: { firestore: any; tenantId: string; appointment: any; serviceIds: string[]; onRequiredMissing: (missing: boolean) => void }) {
   const [rule, setRule] = React.useState<{ on: boolean; required: boolean } | null>(null); const [urls, setUrls] = React.useState<string[]>(appointment?.afterPhotoUrls || []); const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState('');
-  React.useEffect(() => { if (!firestore || !tenantId) return; getDoc(doc(firestore, `tenants/${tenantId}`)).then((d) => { const S = settingsOf(d.data() || {}); const on = !!(d.data() as any)?.makingItRight && serviceIds.some((id) => S.afterPhotos.services.includes(id)); setRule({ on, required: on && S.afterPhotos.required }); }).catch(() => setRule({ on: false, required: false })); }, [firestore, tenantId, serviceIds.join(',')]);   // eslint-disable-line react-hooks/exhaustive-deps
+  React.useEffect(() => { if (!firestore || !tenantId) return; loadBusinessForMe(firestore, tenantId).then((t) => { const S = settingsOf(t || {}); const on = !!(t as any)?.makingItRight && serviceIds.some((id) => S.afterPhotos.services.includes(id)); setRule({ on, required: on && S.afterPhotos.required }); }).catch(() => setRule({ on: false, required: false })); }, [firestore, tenantId, serviceIds.join(',')]);   // eslint-disable-line react-hooks/exhaustive-deps
   React.useEffect(() => { onRequiredMissing(!!rule?.required && urls.length === 0); }, [rule, urls.length]);   // eslint-disable-line react-hooks/exhaustive-deps
   if (!rule?.on) return null;
   const add = async (files: FileList | null) => {

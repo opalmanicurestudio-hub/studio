@@ -1329,7 +1329,7 @@ export async function markDelivered(
       if (proof.manager !== true && String(order.delivery?.driverId || '') !== actor.id) return { ok: false, message: notTheDriver(order) };
       if (order.stage !== 'ready' || !canAdvance(order, 'completed').ok) return { ok: false, message: `This order is ${STAGE_LABELS[order.stage as keyof typeof STAGE_LABELS] || order.stage}, so it can’t be marked delivered.` };
       // The proof the shop asks for at the door (lib/delivery-run): a manager can mark it without, and it says so.
-      const tSnap = await txn.get(doc(fs, `tenants/${tenantId}`));
+      const tSnap = await txn.get(doc(fs, `tenants/${tenantId}`));   // team only: packing orders
       const plan = deliveryFrom(((tSnap.exists() ? tSnap.data() : {}) as any)?.retailSettings);
       const left = proof.left === true;
       const need = proofNeeded(order, plan, left);

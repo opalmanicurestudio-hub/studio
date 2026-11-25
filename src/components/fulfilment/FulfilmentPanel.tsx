@@ -81,7 +81,7 @@ export function FulfilmentPanel({ tenantId, firestore, staffMember }: {
 
   React.useEffect(() => {
     if (!fs || !tenantId) return;
-    getDoc(doc(fs, 'tenants', tenantId)).then((s) => { setRs((s.data() as any)?.retailSettings || {}); setShopZone(tenantTimeZone(s.data())); }).catch(() => {});
+    getDoc(doc(fs, 'tenants', tenantId)).then((s) => { setRs((s.data() as any)?.retailSettings || {}); setShopZone(tenantTimeZone(s.data())); }).catch(() => {});   // team only: the Orders tab, which renters never open
     return onSnapshot(query(collection(fs, `tenants/${tenantId}/retailOrders`), where('stage', 'in', ACTIVE)),
       (snap) => { setOrders(snap.docs.map((d) => ({ ...(d.data() as any), id: d.id }))); setLoading(false); }, () => setLoading(false));
   }, [fs, tenantId]);

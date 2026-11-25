@@ -12,7 +12,7 @@ const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f3f3f5', BL
 
 export function AftercareNote({ apt, tenantId, firestore, staffId, staffName }: { apt: any; tenantId: string; firestore: any; staffId: string; staffName?: string }) {
   const [tenant, setTenant] = React.useState<any>(null);
-  React.useEffect(() => { let stop = false; if (firestore && tenantId) getDoc(doc(firestore, `tenants/${tenantId}`)).then((s) => { if (!stop) setTenant(s.data() || {}); }).catch(() => {}); return () => { stop = true; }; }, [firestore, tenantId]);
+  React.useEffect(() => { let stop = false; if (firestore && tenantId) getDoc(doc(firestore, `tenants/${tenantId}`)).then((s) => { if (!stop) setTenant(s.data() || {}); }).catch(() => {}); return () => { stop = true; }; }, [firestore, tenantId]);   // team only: not shown on a renter's visits
   const docs = usePublishedDocs(tenantId);
   const [text, setText] = React.useState<string>(String(apt?.aftercareNote?.text || '')); const [saved, setSaved] = React.useState(''); const [busy, setBusy] = React.useState(false);
   if (!tenant || !apt || apt.isRenterBooking) return null;

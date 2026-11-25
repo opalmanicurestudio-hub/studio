@@ -49,7 +49,7 @@ export function MyPrep({ tenantId, staffId, services, staff }: { tenantId: strin
  *  housekeeping queue and every station waiting to be reset. */
 export function PortalHousekeeping({ tenantId, staffId, myAppts, services, staff }: { tenantId: string; staffId: string; myAppts: any[]; services: any[]; staff: any[] }) {
   const { firestore } = useFirebase();
-  const tRef = useMemoFirebase(() => (firestore && tenantId ? doc(firestore, 'tenants', tenantId) : null), [firestore, tenantId]);
+  const tRef = useMemoFirebase(() => (firestore && tenantId ? doc(firestore, 'tenants', tenantId) : null), [firestore, tenantId]);   // team only: on the team's Today tab, which renters never open
   const { data: tenant } = useDoc<any>(tRef as any);
   const isAttendant = attendantIds(tenant).includes(staffId);
   // Housekeeping people need everyone's visits from today, not only their own.

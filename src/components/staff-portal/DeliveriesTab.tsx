@@ -41,7 +41,7 @@ const itemsOf = (o: any) => (o?.lines || []).reduce((n: number, l: any) => n + M
  * or able to deliver because the shop keeps no list (Deliveries under Me).
  */
 export function useDeliveryDriver(firestore: any, tenantId: string, staffId: string): { plan: DeliveryPlan | null; tenant: any; isDriver: boolean; canDeliver: boolean } {
-  const ref = useMemoFirebase(() => (firestore && tenantId ? doc(firestore, 'tenants', tenantId) : null), [firestore, tenantId]);
+  const ref = useMemoFirebase(() => (firestore && tenantId ? doc(firestore, 'tenants', tenantId) : null), [firestore, tenantId]);   // team only: the Deliveries tab, which renters never open
   const { data: tenant } = useDoc<any>(ref);
   const plan = tenant ? deliveryFrom(tenant.retailSettings) : null;
   const isDriver = !!plan?.on && plan.drivers.includes(staffId);

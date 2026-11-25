@@ -4,7 +4,7 @@
 // (lib/cases, via 'staff'). The desk (or, with none, the owner) and managers are told; safety reasons go straight to a
 // manager.
 import * as React from 'react';
-import { doc, getDoc } from 'firebase/firestore';
+import { loadBusinessForMe } from '@/lib/portal-business-client';
 import { settingsOf } from '@/lib/making-it-right';
 import { payPost } from '@/components/pay/pay-client';
 
@@ -12,7 +12,7 @@ export function NotHappy({ apt, tenantId, firestore, desk = true }: { apt: any; 
   const [open, setOpen] = React.useState(false); const [S, setS] = React.useState<any>(null);
   const [reason, setReason] = React.useState(''); const [words, setWords] = React.useState(''); const [did, setDid] = React.useState('');
   const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState(''); const [sent, setSent] = React.useState<string>('');
-  React.useEffect(() => { if (!open || S) return; getDoc(doc(firestore, `tenants/${tenantId}`)).then((d) => setS(settingsOf(d.data() || {}))).catch(() => setS(settingsOf({}))); }, [open, S, firestore, tenantId]);
+  React.useEffect(() => { if (!open || S) return; loadBusinessForMe(firestore, tenantId).then((t) => setS(settingsOf(t || {}))).catch(() => setS(settingsOf({}))); }, [open, S, firestore, tenantId]);
   if (S && S.channels?.staff === false) return null;
   const safety = !!S?.reasons.find((r: any) => r.id === reason)?.safety;
   const go = async () => { setBusy(true); setErr(''); const r = await payPost('/api/cases', { tenantId, action: 'open', via: 'staff', appointmentId: apt.id, clientId: apt.clientId || '', clientName: apt.clientName || '', reasonId: reason, words, providerAction: did }); setBusy(false); if (r.ok) setSent(r.number); else setErr(r.error || 'That didn’t send — try again.'); };

@@ -1,12 +1,15 @@
-// Checks the public view of each business (design board "A public view of each business"): lib/public-business,
-// api/public/business, lib/public-business-client, and the public pages switched to it (the booking page, the visit
-// completion page, both client portal pages, the walk-in screen, the visit link, job applications, quote requests, tour
-// and interview invites, and the booking page's FAQ and gallery).
+// Checks the public view of each business (design boards "A public view of each business" and "Renters off the full
+// record"): lib/public-business, api/public/business, lib/public-business-client, and the public pages switched to it
+// (the booking page, the visit completion page, both client portal pages, the walk-in screen, the visit link, job
+// applications, quote requests, tour and interview invites, and the booking page's FAQ and gallery); and the renter view
+// (api/portal/business, lib/portal-business-client) the renter's portal screens get instead of the full record.
 // - Only the public details are handed out: private settings (pay and clock-in rules, margins, Stripe and billing, API
 //   keys and access codes, fraud limits, the plan) never are, nor anything added to the record later.
 // - Settings that mix both are handed out in part; a locked business shows as closed, never why.
 // - No public page reads the business's record itself any more; and every business detail the public pages' code
 //   touches is on the public list or the known-private list (so a new one is a decision, not an accident).
+// - Renters get the public view plus the few settings their screens use, which decide the same as the full record; no
+//   renter screen reads the full record; and the rules lock it to the team and the business's own screens.
 // Run: npx tsx --tsconfig tsconfig.json scripts/verify/public-business.verify.ts
 import Module from 'module';
 import * as fs from 'fs';
@@ -17,7 +20,7 @@ const db: any = makeDb();
 const M: any = Module as any; const load = M._load;
 M._load = function (request: string, ...rest: any[]) {
   if (request === 'next/server') return { NextResponse: { json: (body: any, init?: any) => ({ status: init?.status || 200, body, headers: init?.headers || {} }) } };
-  if (request === '@/lib/firebase-admin') return { getAdminDb: () => db };
+  if (request === '@/lib/firebase-admin') return { getAdminDb: () => db, getAdminAuth: () => ({ verifyIdToken: async (t: string) => { if (!t.includes(':')) throw new Error('bad'); return { uid: t }; } }) };
   return load.call(this, request, ...rest);
 };
 const src = (p: string) => fs.readFileSync(p, 'utf8');
@@ -243,10 +246,69 @@ const src = (p: string) => fs.readFileSync(p, 'utf8');
   check('…and nothing is on two lists', PB.KNOWN_PRIVATE.every((k: string) => !(PB.PUBLIC_FIELDS as readonly string[]).includes(k) && !(k in PB.PUBLIC_PICKS) && !(k in PB.PUBLIC_OMIT))
     && Object.keys(PB.PUBLIC_PICKS).every((k) => !(PB.PUBLIC_FIELDS as readonly string[]).includes(k) && !(k in PB.PUBLIC_OMIT)) && Object.keys(PB.PUBLIC_OMIT).every((k) => !(PB.PUBLIC_FIELDS as readonly string[]).includes(k)));
 
-  // Step 2: the full record is locked to the team, renters and the business's own screens.
+  // Renters (design board "Renters off the full record"): the renter view, its route, the renter's screens, and the lock.
+  const P = await import('../../src/lib/permissions');
+  const DC = await import('../../src/lib/doc-collections');
+  const BS = await import('../../src/lib/business-shape');
+  const PV = await import('../../src/lib/privacy');
+  const full: any = { ...record, roles: { renter: { name: 'Booth partner', caps: ['money.view', 'bookings.all', 'nonsense'] }, shift_lead: { name: 'Shift lead', caps: ['team.manage'] }, staff: { caps: ['clients.contact'] } },
+    docCollections: [{ id: 'safety', name: 'Safety' }], readiness: { consent: 'required' }, shape: { desk: false }, teamSize: 3, ownerName: 'Jo Owner', payRules: { commission: 0.4 } };
+  const rv: any = PB.renterBusiness('t1', full); const rvJson = JSON.stringify(rv);
+  check('a renter gets the public view plus the document folders, the visit-readiness rules, the business’s shape and their own role', rv.name === 'Opal Test' && rv.depositPolicy.percent === 20
+    && rv.docCollections[0].id === 'safety' && rv.readiness.consent === 'required' && rv.shape.desk === false && rv.teamSize === 3 && JSON.stringify(Object.keys(rv.roles)) === '["renter"]' && rv.roles.renter.name === 'Booth partner', rv);
+  check('…never the team’s pay rules, margins, limits or keys, the other roles, the team’s privacy settings, nor anything added later', !/secret|shippo|WHOLE1|uid_owner|owner@example|1234|"pw"|Shift lead|team\.manage/.test(rvJson)
+    && ['payRules', 'tmhr', 'restocking', 'staffPrivacy', 'addons', 'voiceAgent', 'someNewSettingAddedLater', 'stripeAccountId', 'subscriptionStatus', 'overtimeMultiplier', 'userId'].every((k) => !(k in rv))
+    && !('deskLimitCents' in rv.makingItRight) && !('automationRules' in rv.bookingPageSettings), Object.keys(rv));
+  const plainBiz: any = { ...record, roles: { shift_lead: { caps: ['team.manage'] } } };
+  const same = (t: any) => { const v: any = PB.renterBusiness('t1', t); return P.ALL_CAPS.every((c: any) => P.can(v, 'renter', c) === P.can(t, 'renter', c)) && P.isManagerRole(v, 'renter') === P.isManagerRole(t, 'renter')
+    && PV.canSeeFinancials(v, 'renter') === PV.canSeeFinancials(t, 'renter') && JSON.stringify(DC.collectionsOf(v)) === JSON.stringify(DC.collectionsOf(t)) && [null, [], [{ id: 'o', role: 'owner', name: 'Jo Owner' }]].every((st: any) => JSON.stringify(BS.shapeOf(v, st)) === JSON.stringify(BS.shapeOf(t, st))); };
+  check('…and their screens decide the same with it as with the full record (what their role allows, money, folders, front desk and who to ask), changed role or not', same(full) && same(plainBiz) && same({ name: 'Bare' })
+    && same({ ...full, shape: undefined, teamSize: 1 })
+    && P.can(full, 'renter', 'money.view' as any) && !P.can(plainBiz, 'renter', 'money.view' as any));
+
+  await db.doc('tenants/t1').set(full);
+  await db.doc('tenants/t1/staff/r1').set({ name: 'Rae', role: 'renter', isRenter: true });
+  const RB = await import('../../src/app/api/portal/business/route');
+  const rreq = (q: string, tk?: string) => ({ nextUrl: new URL(`https://app.example.com/api/portal/business${q}`), headers: { get: (h: string) => (h.toLowerCase() === 'authorization' && tk ? `Bearer ${tk}` : null) } }) as any;
+  const rOk: any = await RB.GET(rreq('?tenantId=t1', 'portal:t1:r1'));
+  check('the server hands a signed-in renter the renter view of the live record, kept nowhere', rOk.status === 200 && rOk.body.business.docCollections[0].id === 'safety' && JSON.stringify(Object.keys(rOk.body.business.roles)) === '["renter"]'
+    && !/secret|payRules|Shift lead/.test(JSON.stringify(rOk.body)) && rOk.headers['Cache-Control'] === 'no-store', rOk);
+  const [rNone, rBad, rOther, rGhost, rBadId] = await Promise.all([RB.GET(rreq('?tenantId=t1')), RB.GET(rreq('?tenantId=t1', 'garbage')), RB.GET(rreq('?tenantId=t1', 'portal:t2:r1')), RB.GET(rreq('?tenantId=t1', 'portal:t1:ghost')), RB.GET(rreq('?tenantId=../x', 'portal:t1:r1'))]) as any[];
+  check('…but not to someone signed out, signed in to another business, or not on this one', rNone.status === 401 && rBad.status === 401 && rOther.status === 403 && rGhost.status === 403 && rBadId.status === 400,
+    [rNone.status, rBad.status, rOther.status, rGhost.status, rBadId.status]);
+
+  // The renter's screens: everything the team portal and the renter portal load. A read of the full record left there is
+  // either on a screen renters never open (marked "team only", and only these) or skipped for a renter.
+  const unmarked = (files: Iterable<string>) => { const out: string[] = []; const marked: string[] = [];
+    for (const f of files) { if (!notTeam(f)) continue; const s = src(f); let m: RegExpExecArray | null; const hits: number[] = []; READ.lastIndex = 0; while ((m = READ.exec(s))) hits.push(m.index);
+      PATH_NAME.lastIndex = 0; while ((m = PATH_NAME.exec(s))) { const use = new RegExp(String.raw`\bdoc\(\s*${H}\s*,\s*${m[1]}\s*(?:${CALL})?\s*\)`, 'g'); let u: RegExpExecArray | null; while ((u = use.exec(s))) hits.push(u.index); }
+      for (const i of hits) { const at = s.slice(0, i).split('\n').length; const line = s.split('\n')[at - 1] || '';
+        if (/(?:updateDoc|setDoc|deleteDoc|updateDocumentNonBlocking|setDocumentNonBlocking|deleteDocumentNonBlocking|\.update|\.set|\.delete)\(\s*$/.test(s.slice(Math.max(0, i - 40), i))) continue;
+        (/\/\/.*team only/.test(line) ? marked : out).push(path.relative(ROOT, f)); } }
+    return { out, marked: [...new Set(marked)].sort() }; };
+  const renterSeen = reach(['src/app/staff-portal/[tenantId]/page.tsx', 'src/app/rent/[tenantId]/page.tsx']);
+  const rr = unmarked(renterSeen);
+  const TEAM_ONLY = ['src/components/fulfilment/FulfilmentPanel.tsx', 'src/components/staff-portal/AftercareNote.tsx', 'src/components/staff-portal/DeliveriesTab.tsx', 'src/components/staff/MyTurnovers.tsx',
+    'src/lib/my-tenants-client.ts', 'src/lib/portal-business-client.ts', 'src/lib/retail-fulfill.ts'];
+  check('no renter screen reads the full record itself; the few reads left are on the team’s own screens, and only these', rr.out.length === 0 && JSON.stringify(rr.marked) === JSON.stringify(TEAM_ONLY) && renterSeen.size > 200, rr);
+  const SP = src('src/app/staff-portal/[tenantId]/StaffPortalPage.tsx');
+  check('…the portal gets the business through the renter view for a renter, and keeps renters on their own tabs (where those team screens never show)',
+    /const portalTenant = usePortalBusiness\(firestore, tenantId, isRenterUser\);/.test(SP) && /loadBusinessForMe\(firestore, tenantId\)\.then\(setTenantDocData\)/.test(SP)
+    && /const isRenterSignIn = \(m: any\) => m\?\.isRenter === true \|\| m\?\.role === 'renter';/.test(SP) && /const isRenterUser = isRenterSignIn\(staffMember\);/.test(SP)
+    && !/staffMember\.role [!=]== 'renter'/.test(SP + src('src/components/staff-portal/StaffDocs.tsx').replace("staffMember.role === 'renter' || staffMember.isRenter === true", '')) && /isRenterSignIn\(staffMember\) && !RENTER_TABS\.includes\(activeTab\)\) setActiveTab\(renterTab\(activeTab\)\)/.test(SP)
+    && /const go = \(t: any\) => setActiveTab\(isRenterUser \? renterTab\(t\) : t\);/.test(SP) && !/const handleNotifClick[\s\S]{0,3000}?setActiveTab\((?!isRenterUser)/.test(SP.slice(SP.indexOf('const handleNotifClick'), SP.indexOf('const handleNotifClick') + 3000))
+    && /useDeliveryDriver\(isRenter \? null : firestore,/.test(SP) && /activeTab==='rent' && isRenter && <TasksForYou/.test(SP)
+    && /activeTab==='orders' && \(\s*<div className="p-4">\s*<FulfilmentPanel/.test(SP) && /activeTab==='deliveries' && \(\s*<div className="p-4">\s*<DeliveriesTab/.test(SP)
+    && /\{!viewerIsRenter && \[[^\]]*\]\.includes\(st\) && <AftercareNote/.test(SP)
+    && SP.indexOf("{activeTab==='today' && !viewingWalkIns && (") < SP.indexOf('<PortalHousekeeping') && SP.indexOf('<PortalHousekeeping') < SP.indexOf("{activeTab==='schedule'"));
+  check('…“they weren’t happy” and the after photo ask the same way, and renters see which people are managers without the roles', /loadBusinessForMe\(firestore, tenantId\)/.test(src('src/components/staff-portal/NotHappy.tsx'))
+    && /loadBusinessForMe\(firestore, tenantId\)/.test(src('src/components/making-it-right/AfterPhoto.tsx')) && /manager: mgr\(s\)/.test(src('src/app/api/portal/chat-people/route.ts'))
+    && /x\.manager === true \|\| isManagerRole\(portalTenant/.test(SP));
+
+  // The lock: the full record is read only by the team and the business's own screens (kiosk, kitchen, check-in).
   const rules = src('firestore.rules');
-  check('the full record is read only by the team, renters and the business’s own screens (everyone else gets the public view)',
-    /match \/tenants\/\{tenantId\} \{[^}]*?allow get: if isStaff\(tenantId\) \|\| isPortalMember\(tenantId\);\s*allow list: if false;/.test(rules)
+  check('the full record is read only by the team and the business’s own screens (renters get the renter view, everyone else the public view)',
+    /match \/tenants\/\{tenantId\} \{[^}]*?allow get: if isStaff\(tenantId\) \|\| \(isPortalMember\(tenantId\) && request\.auth\.token\.get\('isRenter', false\) != true\);\s*allow list: if false;/.test(rules)
     && !/match \/tenants\/\{tenantId\} \{\s*allow get: if true;/.test(rules));
 
   console.log(failures ? `\n${failures} failed` : '\nall passed');
