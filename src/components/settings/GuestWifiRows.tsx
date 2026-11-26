@@ -18,7 +18,7 @@ export function GuestWifiRows({ tenantId }: { tenantId: string }) {
     setNote(await save(patch) ? 'Saved' : '');
   };
   return (<>
-    <Row label="Network name"><input className={cfInput} style={cfInputStyle} value={net} disabled={!values} onChange={(e) => { setNet(e.target.value); setNote(''); }} onBlur={() => void keep({ wifiNetwork: net })} placeholder="e.g. Opal Guest" autoComplete="off" /></Row>
+    <Row label="Network name"><input className={cfInput} style={cfInputStyle} value={net} disabled={!values} onChange={(e) => { setNet(e.target.value); setNote(''); }} onBlur={() => void keep({ wifiNetwork: net })} placeholder="e.g. Guest Wi-Fi" autoComplete="off" /></Row>
     <Row label="Password"><input className={cfInput} style={cfInputStyle} value={pw} disabled={!values} onChange={(e) => { setPw(e.target.value); setNote(''); }} onBlur={() => void keep({ wifiPassword: pw })} placeholder="Leave empty if there isn’t one" autoComplete="off" /></Row>
     {(error || note) && <p className="px-1 text-[13px]" style={{ color: error ? '#b45309' : 'var(--muted, #6d7075)' }}>{error || note}</p>}
   </>);

@@ -192,6 +192,7 @@ export async function POST(req: NextRequest) {
     if (action === 'booking_charge' || action === 'booking_letgo' || action === 'booking_cancel') {
       const bookingId = String(b.bookingId || ''); if (!/^tb[0-9a-f]{16}$/.test(bookingId)) return bad('Which booking?');
       try {
+        if (action === 'booking_charge') { const { accessLockOf, CLOSED_FOR_TEAM } = await import('@/lib/tenant-access'); if (accessLockOf(tenant).locked) return NextResponse.json({ ok: false, closed: true, error: CLOSED_FOR_TEAM }, { status: 403 }); }
         if (action === 'booking_charge') return ok(await chargeBooking(db, T, tenant, tenantId, bookingId, by));
         if (action === 'booking_cancel') return ok(await cancelBooking(db, T, tenant, tenantId, bookingId, by, { guestAsked: b.guestAsked === true }));
         return ok(await letGo(db, T, tenant, bookingId, by));

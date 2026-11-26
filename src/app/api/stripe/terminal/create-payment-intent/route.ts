@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireRole } from '@/lib/route-guard';
+import { accessLockOf, CLOSED_FOR_TEAM } from '@/lib/tenant-access';
 import Stripe from 'stripe';
 import { readerDepositAmount, recordWaitingReaderDeposit } from '@/lib/reader-deposit';
 import { earlierReaderPayment, liveShares, noteReaderStart, paidPayloadOf, releaseReaderPayment, ticketPayment, viaWords } from '@/lib/reader-sale';
@@ -72,6 +73,8 @@ export async function POST(req: NextRequest) {
     }
 
     const tenantSnap = await db.doc(`tenants/${tenantId}`).get();
+    // A paused or cancelled business takes no money (HQ, lib/tenant-access), even on a screen left open.
+    if (accessLockOf(tenantSnap.data() || {}).locked) return NextResponse.json({ ok: false, closed: true, error: CLOSED_FOR_TEAM }, { status: 403 });
     const stripeAccountId = tenantSnap.data()?.stripeAccountId;
     if (!stripeAccountId) {
       return NextResponse.json({ error: 'No connected Stripe account' }, { status: 400 });

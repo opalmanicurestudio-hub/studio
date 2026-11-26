@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { limitPublic } from '@/lib/rate-limit';
 import { phoneSigOk, phoneView, settlePhone, NOT_KEPT, CHANGED } from '@/lib/counter-phone';
+import { accessLockOf } from '@/lib/tenant-access';
 export const dynamic = 'force-dynamic';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -34,6 +35,8 @@ export async function POST(req: NextRequest) {
     const slow = await limitPublic(req, 'drive_thru_pay', tenantId, { perHour: 600, perDay: 6000 }); if (slow) return slow;
     const db = getAdminDb();
     if (action === 'view') {
+      const [tv, ov] = await Promise.all([db.doc(`tenants/${tenantId}`).get(), db.doc(`tenants/${tenantId}/counterOrders/${orderId}`).get()]);
+      if (accessLockOf(tv.data() || {}).locked && !(ov.data() as any)?.paidAt) return reply({ ok: false, error: 'Paying by phone isn’t open right now. Pay at the window.' }, 403);
       const r: any = await phoneView(db, tenantId, orderId, b.s);
       if (r.ok && r.paid) { const url = await receiptUrlOf(db, tenantId, orderId, req.nextUrl.origin); if (url) r.receiptUrl = url; }
       return reply(r, r.ok ? 200 : r.status);

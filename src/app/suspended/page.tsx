@@ -1,7 +1,8 @@
 'use client';
 // src/app/suspended/page.tsx — WHERE A LOCKED BUSINESS'S TEAM LANDS (components/auth/AccessGate, lib/tenant-access).
 // Plain words for each reason, one way forward: billing problems go to Your ClarityFlow to fix them; a pause by
-// ClarityFlow says where to write. Sign out is always here, so someone else can use this device.
+// ClarityFlow says where to write, with Check again to open the app once access is back. Sign out is always here, so
+// someone else can use this device.
 import { Suspense, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -39,6 +40,7 @@ function Suspended() {
         <h1 style={{ margin: 0, fontSize: 24, fontWeight: 700, letterSpacing: '-0.01em' }}>{copy.title}</h1>
         <p style={{ margin: 0, fontSize: 15.5, lineHeight: 1.5, color: '#4a4c52' }}>{copy.body}</p>
         {copy.fix && <Link href={copy.fix.href} style={{ minHeight: 48, borderRadius: 14, background: '#16171a', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, fontWeight: 600, textDecoration: 'none', marginTop: 6 }}>{copy.fix.label}</Link>}
+        {reason === 'paused' && <Link href="/dashboard" style={{ minHeight: 48, borderRadius: 14, border: '1px solid #ececee', color: '#16171a', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, fontWeight: 600, textDecoration: 'none' }}>Check again</Link>}
         {SUPPORT && <p style={{ margin: 0, fontSize: 14, color: '#4a4c52' }}>Questions? Email <a href={`mailto:${SUPPORT}`} style={{ color: '#16171a', fontWeight: 600 }}>{SUPPORT}</a></p>}
         <button type="button" onClick={leave} disabled={leaving} style={{ minHeight: 44, border: 0, background: 'transparent', color: '#6d7075', fontSize: 14, textDecoration: 'underline', textUnderlineOffset: 4, cursor: 'pointer', alignSelf: 'flex-start', padding: 0 }}>{leaving ? 'Signing out…' : 'Sign out'}</button>
       </div>

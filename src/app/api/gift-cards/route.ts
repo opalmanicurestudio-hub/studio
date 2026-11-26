@@ -78,7 +78,8 @@ export async function POST(req: NextRequest) {
       return j({ ok: true, orders: sn.docs.map((d: any) => ({ ...d.data(), path: B.bulkPath(tenantId, d.id) })).filter((o: any) => o.status !== 'cancelled').sort((a: any, z: any) => String(z.createdAt).localeCompare(String(a.createdAt))) }); }
     if (action === 'bulk-save') { const r: any = await B.saveBulk(db, tenantId, b.order || {}, by); return j(r, r.ok ? 200 : 400); }
     const id = String(b.id || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 60); if (!id) return j({ ok: false, error: 'That order wasn’t found.' }, 404);
-    if (action === 'bulk-send') { const r: any = await B.sendBulkInvoice(db, tenantId, id, req.nextUrl.origin); return j(r, r.ok ? 200 : 400); }
+    if (action === 'bulk-send') { const { accessLockOf, CLOSED_FOR_TEAM } = await import('@/lib/tenant-access'); if (accessLockOf((await db.doc(T).get()).data() || {}).locked) return j({ ok: false, closed: true, error: CLOSED_FOR_TEAM }, 403);
+      const r: any = await B.sendBulkInvoice(db, tenantId, id, req.nextUrl.origin); return j(r, r.ok ? 200 : 400); }
     if (action === 'bulk-paid') { const via = ['check', 'transfer', 'cash', 'card'].includes(b.via) ? b.via : 'check'; const r: any = await B.markBulkPaid(db, tenantId, id, { via, by });
       if (r.ok) await alertManagers(db, tenantId, `${by} marked a company gift card order paid (${via}) — ${r.made} cards made.`, '/gift-cards', g.actor?.uid || null).catch(() => {}); return j(r, r.ok ? 200 : 400); }
     if (action === 'bulk-cancel') { const r: any = await B.cancelBulk(db, tenantId, id, by); return j(r, r.ok ? 200 : 400); }

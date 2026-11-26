@@ -23,6 +23,7 @@ import { readerStripe, safeId, ticketBlocks } from '@/lib/reader-sale';
 import { closeOpenPayment, closedAnswer, closeScreenPaymentsFor, paidOnScreen, recordCardShare, stillOpen } from '@/lib/screen-pay';
 import { pageAccent } from '@/lib/studio-page';
 import { sendTotalReady } from '@/lib/visit-pay-notice';
+import { accessLockOf, CLOSED_FOR_PAYERS, CLOSED_FOR_TEAM } from '@/lib/tenant-access';
 
 export const dynamic = 'force-dynamic';
 const now = () => new Date().toISOString();
@@ -93,6 +94,7 @@ export async function POST(req: NextRequest) {
     }
     const T = `tenants/${s.tenantId}`; const t: any = ((await db.doc(T).get()).data() as any) || {};
     const acct = t.stripeAccountId; if (!acct || !process.env.STRIPE_SECRET_KEY) return NextResponse.json({ ok: false, error: 'Card payments are not set up for this business.' }, { status: 400 });
+    if (action !== 'pay_done' && !q.answeredAt && accessLockOf(t).locked) return NextResponse.json({ ok: false, code: 'closed', error: CLOSED_FOR_PAYERS }, { status: 403 });
     const stripe: any = readerStripe();   // the same card payments client as the rest of the desk (lib/reader-sale)
     // Sent to their phone a while ago and never paid: it's called off now (one that went through goes on its sale, and one
     // still going through at the bank stays). Confirming a payment they've already made always goes ahead.
@@ -293,6 +295,7 @@ export async function POST(req: NextRequest) {
   if (action === 'request') {
     const kind = String(b.kind || '');
     if (!['tip', 'approve', 'thanks', 'idle', 'cash', 'change', 'pay', 'sign', 'gift', 'giftuse'].includes(kind)) return NextResponse.json({ ok: false, error: 'Unknown request.' }, { status: 400 });
+    if (kind === 'pay' && accessLockOf(t).locked) return NextResponse.json({ ok: false, closed: true, error: CLOSED_FOR_TEAM }, { status: 403 });
     if (kind === 'idle' && b.soft === true && s.request?.kind === 'thanks' && (['choose', 'pay'].includes(s.request.rebook?.stage) || Date.parse(s.request.holdUntil || '') > Date.now())) {
       await ref.update({ 'request.idleWhenDone': true, ticket: null });   // they're still busy — finish, then back to the logo
       return NextResponse.json({ ok: true, requestId: s.request.id, deferred: true });

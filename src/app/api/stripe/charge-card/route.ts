@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyStaffActor } from '@/lib/staff-auth';
+import { accessLockOf, CLOSED_FOR_TEAM } from '@/lib/tenant-access';
 import Stripe from 'stripe';
 import { markSalePaid, safeId, tellDeskReader, ticketBlocks } from '@/lib/reader-sale';
 import { recordCardShare } from '@/lib/screen-pay';
@@ -199,6 +200,8 @@ export async function POST(req: NextRequest) {
   }
 
   const { db, FieldValue } = getAdmin();
+  // A paused or cancelled business takes no money (HQ, lib/tenant-access): not from the desk, not from a scheduled run.
+  if (accessLockOf((await db.doc(`tenants/${tenantId}`).get()).data() || {}).locked) return NextResponse.json({ ok: false, closed: true, error: CLOSED_FOR_TEAM, code: 'paused' }, { status: 403 });
   const amountDollars    = amountCents / 100;
   const surchargeDollars = Math.max(0, Number(surchargeAmountCents) || 0) / 100;
   const baseDollars      = Number((amountDollars - surchargeDollars).toFixed(2));

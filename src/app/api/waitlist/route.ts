@@ -290,12 +290,13 @@ export async function POST(req: NextRequest) {
 
     const results: { channel: string; ok: boolean; status: string }[] = [];
     if (phone) {
+      // (A spot held for minutes: during the business's quiet hours it isn't held for the morning, the desk is told to call.)
       const r = await sendNotification(db, {
-        tenantId, channel: 'sms', to: phone, text, kind: 'waitlist_opening',
+        tenantId, channel: 'sms', to: phone, text, kind: 'waitlist_opening', noHold: true,
         clientId: entry.clientId || null, clientName: who,
         recipientType: 'client', recipientId: entry.clientId || null, recipientName: who,
       });
-      results.push({ channel: 'sms', ok: !!r.ok, status: r.status });
+      results.push({ channel: 'sms', ok: !!r.ok, status: (r as any).quiet ? 'quiet_hours' : r.status });
     }
     if (email) {
       const r = await sendNotification(db, {
@@ -332,7 +333,9 @@ export async function POST(req: NextRequest) {
         ok: false,
         error: noProvider
           ? 'Texting and email are not set up yet, so nothing was sent. Give them a call instead.'
-          : 'The message could not be delivered. Give them a call instead.',
+          : results.some(r => r.status === 'quiet_hours')
+            ? 'It’s your quiet hours for texts, so nothing was sent. Give them a call instead.'
+            : 'The message could not be delivered. Give them a call instead.',
       }, { status: 502 });
     }
 

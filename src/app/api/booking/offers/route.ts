@@ -10,6 +10,7 @@ import { limitPublic, bump } from '@/lib/rate-limit';
 import { createHash } from 'crypto';
 import { publicOffers, startOfferSale, finishOfferSale, takesCards } from '@/lib/offer-sale';
 import { studioPage } from '@/lib/studio-page';
+import { closedReply } from '@/lib/tenant-open-server';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -42,6 +43,7 @@ export async function POST(req: NextRequest) {
       if (!okEmail) return NextResponse.json({ ok: false, error: 'Too many tries for now. Please try again in an hour.' }, { status: 429 });
       const t: any = (await db.doc(`tenants/${tenantId}`).get()).data();
       if (!t || !studioPage(t).on.offers) return NextResponse.json({ ok: false, error: 'That isn’t available online.' }, { status: 404 });
+      { const shut = closedReply(t); if (shut) return shut; }
       // Where the client comes back to: the business's own address (lib/app-origin), never one a request names.
       const r = await startOfferSale(db, stripe(), { tenantId, kind: b.kind, id: String(b.id || ''), name: b.name, email: b.email, phone: b.phone, origin: req.nextUrl.origin });
       return r.ok ? NextResponse.json({ ok: true, url: r.url }) : NextResponse.json({ ok: false, error: r.error }, { status: r.status });

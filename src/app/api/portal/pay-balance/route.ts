@@ -27,6 +27,7 @@ import { verifyStaffActor } from '@/lib/staff-auth';
 import { checkPortalKey, portalKeysReady } from '@/lib/portal-key';
 import { chargeClaimedFees, claimFees, releaseFeeClaim, resolveStaleFees } from '@/lib/fee-pay';
 import { available, spendGiftCard, notifyGiftUse } from '@/lib/gift-cards';
+import { accessLockOf, CLOSED_FOR_PAYERS } from '@/lib/tenant-access';
 
 export const dynamic = 'force-dynamic';
 
@@ -56,6 +57,7 @@ export async function POST(req: NextRequest) {
 
   const cRef = db.doc(`${T}/clients/${clientId}`);
   const tenant: any = ((await db.doc(T).get()).data() as any) || {};
+  if (accessLockOf(tenant).locked) return NextResponse.json({ ok: false, code: 'closed', error: CLOSED_FOR_PAYERS }, { status: 403 });
   const stripe: any = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2024-06-20' as any }) : null;
   let later = 'You can settle it at your next visit instead.';
   const giftOnly = b.useGift === true && b.cardToo !== true;

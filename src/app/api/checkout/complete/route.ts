@@ -31,6 +31,7 @@ import { popupToday } from '@/lib/popup';
 import { tenantTimeZone as popupZone, todayIn as popupDay } from '@/lib/tenant-time';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
+import { accessLockOf, CLOSED_FOR_TEAM } from '@/lib/tenant-access';
 import { logAuditAdmin } from '@/lib/audit';
 import { computeCheckout } from '@/lib/checkout-calc';
 import { addOnIdsOf, overCeiling, workOf } from '@/lib/prep-checkout';
@@ -119,6 +120,11 @@ export async function POST(req: NextRequest) {
   const auth: any = await verifyStaffActor(req, tenantId);
   if (!auth.ok) return NextResponse.json({ ok: false, error: auth.error || 'Sign in to do that.' }, { status: auth.status || 401 });
   const db = getAdminDb(); const T = `tenants/${tenantId}`; const action = String(b.action || 'complete');
+  // A paused or cancelled business takes no money (HQ, lib/tenant-access), even on a screen left open: nothing new is
+  // started or charged. Saving a sale whose card payment already went through (it names the payment, which is checked
+  // with the card company below, as always), letting a ticket go and giving a part back still work.
+  const savesPaidCard = action === 'complete' && !!String(b.payment?.stripePaymentIntentId || '').trim();
+  if (['prepare', 'tender', 'reader_extra', 'complete'].includes(action) && !savesPaidCard && accessLockOf(auth.tenant || {}).locked) return NextResponse.json({ ok: false, closed: true, error: CLOSED_FOR_TEAM }, { status: 403 });
   // ── A ticket is saved as "started" before a card is charged, so a paid sale can always be recorded later ──
   //  - A ticket already paid is never changed: it stays exactly as it was paid for, and the desk is told it's paid (and
   //    what it was rung up with), so it saves the sale as it was paid instead of taking another payment.

@@ -54,6 +54,7 @@ import { requireCan, requireRole } from '@/lib/route-guard';
 import { logAuditAdmin } from '@/lib/audit';
 import { stripeRefused as saidNo } from '@/lib/stripe-said-no';
 import { spacePayAccount, onAccount, renterCardAccount, renterBusinessCard, RENTER_CARD_AGAIN } from '@/lib/space-stripe';
+import { accessLockOf, CLOSED_FOR_TEAM } from '@/lib/tenant-access';
 
 // Ids named after what they record, so a second run of the same step finds it done.
 const safeKey = (v: any) => String(v || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 120);
@@ -346,6 +347,10 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ ok: false, error: 'No card on file. It’s saved when the renter first pays rent online, or they can save one in their portal, under Money.' }, { status: 400 });
     }
     const tenantDoc: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
+    if (accessLockOf(tenantDoc).locked) {
+      const was: any = (await db.doc(`tenants/${tenantId}/renters/${renterId}/charges/inc_${key}`).get()).data() || null;
+      if (!['charging', 'charged'].includes(String(was?.status || ''))) return NextResponse.json({ ok: false, closed: true, error: CLOSED_FOR_TEAM }, { status: 403 });
+    }
     // Charged on the business's own account, to a card saved there (lib/space-stripe); one saved before the move is
     // saved again first.
     const card = renterBusinessCard(renter, spacePayAccount(tenantDoc));

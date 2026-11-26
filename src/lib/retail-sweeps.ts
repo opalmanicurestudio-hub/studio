@@ -27,6 +27,7 @@
 
 import { brandedEmail, brandFromTenant, emailButton, getEmailBrand } from '@/lib/email-shell';
 import { trailStatus } from './label-doubt';
+import { tenantTimeZone } from './tenant-time';
 
 const DAY = 86400000;
 
@@ -352,7 +353,7 @@ export async function sweepExpiredRequests(
 
         const first = String(apt.clientName || '').trim().split(/\s+/)[0];
         const when = apt.startTime
-          ? new Date(apt.startTime).toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+          ? new Date(apt.startTime).toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tenantTimeZone(tenant) })
           : 'your requested time';
         const bookUrl = origin ? `${origin}/book/${tenantId}` : '';
         /* Wording comes from the message catalog — the shop's own if they
@@ -431,7 +432,7 @@ export async function sweepPendingRequestNudge(
     const link = origin ? `${origin}/appointments/requests` : '';
     const rows = urgent.slice(0, 10).map((a) => {
       const when = a.startTime
-        ? new Date(a.startTime).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+        ? new Date(a.startTime).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tenantTimeZone(tenant) })
         : 'time TBC';
       return `<tr><td style="padding:6px 0;font-size:13px;color:#0f172a">${String(a.clientName || 'A client')}<br>
         <span style="font-size:11px;color:#64748b">${String(a.serviceName || 'Service')} \u00b7 ${when}</span></td></tr>`;
@@ -482,6 +483,9 @@ export async function sweepUnpaidAccepted(
     const tenantSnap = await db.collection('tenants').doc(tenantId).get();
     if (!tenantSnap.exists) return res;
     const tenant = tenantSnap.data() || {};
+    // A paused business collects nothing: its unpaid deposits aren't retried, chased or released while it's paused (a
+    // refused try would count as a failed card and give the slot away). They carry on once it's open again.
+    { const { accessLockOf } = await import('./tenant-access'); if (accessLockOf(tenant).locked) return res; }
     const brand = brandFromTenant(tenant);
     const { internalOrigin } = await import('./message-policy');
     const origin = opts?.origin || internalOrigin(tenant, null) || originOf(tenant);
@@ -502,7 +506,7 @@ export async function sweepUnpaidAccepted(
 
         const first = String(apt.clientName || '').trim().split(/\s+/)[0];
         const when = apt.startTime
-          ? new Date(apt.startTime).toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+          ? new Date(apt.startTime).toLocaleString('en-US', { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tenantTimeZone(tenant) })
           : 'your appointment';
         const money = `$${((Number(apt.depositAmountCents) || 0) / 100).toFixed(2)}`;
         const link = origin && apt.checkInToken ? `${origin}/check-in/${apt.checkInToken}` : '';
@@ -584,7 +588,7 @@ export async function sweepUnpaidAccepted(
         const markerRef = db.collection(`tenants/${tenantId}/systemMarkers`).doc(markerId);
         const halfway = due - (due - Date.parse(String(apt.decidedAt || apt.createdAt || ''))) / 2;
         if (Number.isFinite(halfway) && now >= halfway && email && !(await markerRef.get()).exists) {
-          const dueLabel = new Date(due).toLocaleString('en-US', { weekday: 'long', hour: 'numeric', minute: '2-digit' });
+          const dueLabel = new Date(due).toLocaleString('en-US', { weekday: 'long', hour: 'numeric', minute: '2-digit', timeZone: tenantTimeZone(tenant) });
           const msg = resolveMessage(tenant, 'deposit_failed', {
             client_first: first, amount: money, when,
             card_issue: String(apt.depositFailureGuidance || ''),

@@ -14,6 +14,7 @@
 // The booking's deposit (kept, rolled over, or waiting to be refunded: lib/deposit-outcome) is settled here too when the
 // event carries the plan for it, so a cancellation cut off before its deposit was settled is settled by the same job.
 import { FieldValue } from 'firebase-admin/firestore';
+import { accessLockOf } from '@/lib/tenant-access';
 
 const money = (n: number) => `$${Number(n || 0).toFixed(2)}`;
 const fmt = (iso: string, tz: string, long: boolean) => { try { return new Date(iso).toLocaleString('en-US', long ? { weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tz } : { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: tz }); } catch { return ''; } };
@@ -54,7 +55,8 @@ export async function processCancellationEvent(db: any, stripe: any, tenantId: s
   } else if (data.chargeStatus === 'succeeded') {
     updates.chargeStatus = 'charged';   // the route already took the fee — nothing more to collect
   } else if (data.chargeFee && fee > 0 && data.paymentMethod === 'card_on_file' && data.stripePaymentMethodId && data.stripeCustomerId) {
-    if (!tenant.stripeAccountId) { updates.chargeStatus = 'failed'; updates.errorMessage = 'The fee could not be charged because payments are not connected.'; await owedLine('Payments not connected at cancellation time — added to balance.'); await owe('Cancellation fee — payments not connected'); }
+    if (accessLockOf(tenant).locked) { updates.chargeStatus = 'balance'; await owedLine('The business was paused, so the card wasn’t charged — added to their balance.'); await owe('Cancellation fee'); }
+    else if (!tenant.stripeAccountId) { updates.chargeStatus = 'failed'; updates.errorMessage = 'The fee could not be charged because payments are not connected.'; await owedLine('Payments not connected at cancellation time — added to balance.'); await owe('Cancellation fee — payments not connected'); }
     else {
       try {
         const cents = Math.round(fee * 100);

@@ -18,11 +18,15 @@
 import { logAuditAdmin } from '@/lib/audit';
 import { tenantTimeZone } from '@/lib/tenant-time';
 import { recordWaitingReaderDeposit } from '@/lib/reader-deposit';
+import { accessLockOf } from '@/lib/tenant-access';
 
 export async function releaseUnpaidHolds(db: any, tenantId: string, opts: { origin?: string; now?: number } = {}): Promise<{ released: number }> {
   const T = `tenants/${tenantId}`; const now = opts.now ?? Date.now();
   const t: any = ((await db.doc(T).get()).data()) || {};
   const holdMin = Number(t?.bookingMode?.holdMinutes) > 0 ? Number(t.bookingMode.holdMinutes) : 30;
+  // Paused: the pay link and the booking page are closed, so the client can neither pay nor book again, and nothing is
+  // let go. Once it's open again, an accepted request still waiting has its time to pay again (reopenHolds, below).
+  if (accessLockOf(t, now).locked) return { released: 0 };
   const snap = await db.collection(`${T}/appointments`).where('status', '==', 'pending_payment').limit(200).get();
   let released = 0;
   // Stripe is asked about at most this many bookings a run (each can take a few seconds when Stripe is slow); the rest
@@ -105,6 +109,46 @@ export async function releaseUnpaidHolds(db: any, tenantId: string, opts: { orig
     } catch (e) { console.error('[release-unpaid] client message failed (released anyway)', e); }
   }
   return { released };
+}
+
+/** A business open again after being paused or locked (HQ's restore, or its subscription paid up). An accepted request
+ *  still waiting on its deposit gets its time to pay again from now, as long as it had to begin with (never past the visit
+ *  itself), written on its own deadline (paymentDueAt): the calendar, the release above and the deposit sweep all read
+ *  that one date, and the sweep's reminder goes again with the new time. Never for a time someone else has booked since,
+ *  and never for a checkout someone walked away from (that one was never theirs). */
+export async function reopenHolds(db: any, tenantId: string, tenant: any, now = Date.now()): Promise<{ moved: number }> {
+  const T = `tenants/${tenantId}`; let moved = 0;
+  const graceH = Number(tenant?.bookingMode?.paymentGraceHours);
+  const snap = await db.collection(`${T}/appointments`).where('status', '==', 'pending_payment').limit(300).get();
+  for (const d of snap.docs) {
+    const a: any = d.data() || {};
+    if (!a.paymentDueAt || a.depositStatus === 'paid' || a.depositDeskHold === true) continue;
+    const due = Date.parse(String(a.paymentDueAt)), from = Date.parse(String(a.decidedAt || a.createdAt || '')), start = Date.parse(String(a.startTime || ''));
+    if (!Number.isFinite(due) || (Number.isFinite(start) && start <= now)) continue;
+    const win = Number(a.payWindowMs) > 0 ? Number(a.payWindowMs) : Number.isFinite(from) && due > from ? due - from : graceH > 0 ? graceH * 3600000 : 24 * 3600000;
+    const next = Math.min(Math.max(due, now + win), Number.isFinite(start) ? start : Infinity);
+    if (!(next > due + 60000)) continue;   // (already given its time: asked again, nothing moves)
+    // Taken by someone else meanwhile (the calendar let the time go at its old deadline): it isn't held again.
+    if (due < now && Number.isFinite(start)) {   // (one with no time on the calendar holds none)
+      const end = Date.parse(String(a.endTime || '')) || start + 60 * 60000;
+      const staff = String(a.staffId || '');
+      // (Around that day only, by time alone, so no extra index is needed; that provider's are picked out here. Not able to
+      // look: it isn't held again, rather than risk two bookings for one time.)
+      const dayStart = new Date(start - 24 * 3600000).toISOString(), dayEnd = new Date(end + 24 * 3600000).toISOString();
+      const near: any = staff ? await db.collection(`${T}/appointments`).where('startTime', '>=', dayStart).where('startTime', '<=', dayEnd).get().catch(() => null) : { docs: [] };
+      if (!near) continue;
+      const others = near.docs.filter((o: any) => String((o.data() || {}).staffId || '') === staff);
+      const taken = others.some((o: any) => { if (o.id === d.id) return false; const x: any = o.data() || {};
+        if (['cancelled', 'declined', 'expired', 'pending_payment', 'no_show'].includes(String(x.status || ''))) return false;
+        const s = Date.parse(String(x.startTime || '')), e = Date.parse(String(x.endTime || '')) || s + 60 * 60000;
+        return Number.isFinite(s) && s < end && e > start; });
+      if (taken) continue;
+    }
+    await d.ref.set({ paymentDueAt: new Date(next).toISOString(), payWindowMs: win }, { merge: true });
+    await db.doc(`${T}/systemMarkers/unpaid-nudge-${d.id}`).delete().catch(() => {});
+    moved++;
+  }
+  return { moved };
 }
 
 /** Throttled trigger for busy pages: at most every 10 minutes per business. */

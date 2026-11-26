@@ -8,6 +8,7 @@ import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
 import { brandedEmailHtml } from '@/lib/email-template';
 import { renterBusinessCard, spacePayAccount } from '@/lib/space-stripe';
 import { stripeRefused } from '@/lib/stripe-said-no';
+import { accessLockOf } from '@/lib/tenant-access';
 
 // ─── /api/cron/autopay-leases/route.ts ─────────────────────────────────────
 // Runs once daily (wire to Vercel Cron / Cloud Scheduler / GitHub Actions —
@@ -108,6 +109,8 @@ export async function POST(req: NextRequest) {
 
   for (const tenantDoc of tenantsSnap.docs) {
     const tenantId = tenantDoc.id;
+    // A paused or cancelled business collects nothing (HQ, lib/tenant-access): no rent taken while it's locked.
+    if (accessLockOf(tenantDoc.data()).locked) continue;
     // Only an account that can take cards (lib/space-stripe): the same check every other space payment makes.
     const stripeAccountId = spacePayAccount(tenantDoc.data());
     if (!stripeAccountId) continue;
@@ -454,6 +457,7 @@ export async function POST(req: NextRequest) {
   // Renters' add-ons (lib/renter-addon-billing): each month that's due is charged to their saved card, once.
   const addOns: any[] = [];
   for (const tenantDoc of tenantsSnap.docs) {
+    if (accessLockOf(tenantDoc.data()).locked) continue;   // (nothing collected while paused)
     try {
       const { billRenterAddOns } = await import('@/lib/renter-addon-billing');
       const r = await billRenterAddOns(db, tenantDoc.id, tenantDoc.data(), { stripe });

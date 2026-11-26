@@ -27,6 +27,7 @@ import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
 import { resolveFromAddress } from '@/lib/notify';
 import { platformAdminEmails } from '@/lib/platform-admin';
 import { linkOrigin } from '@/lib/app-origin';
+import { accessLockOf } from '@/lib/tenant-access';
 
 export const dynamic = 'force-dynamic';
 
@@ -67,6 +68,10 @@ export async function POST(req: NextRequest) {
     else if (sub.status === 'past_due') Object.assign(patch, { subscriptionStatus: 'past_due', gracePeriodEndsAt: t.gracePeriodEndsAt || new Date(Date.now() + GRACE_DAYS * 86400000).toISOString() });
     else if (['canceled', 'unpaid', 'incomplete_expired'].includes(sub.status)) Object.assign(patch, { subscriptionStatus: 'cancelled' });
     await ref.set(patch, { merge: true });
+    // Open again after being locked: an accepted request still waiting on its deposit gets its time to pay again (lib/release-unpaid).
+    if (accessLockOf(t).locked && !accessLockOf({ ...t, ...patch }).locked) {
+      const { reopenHolds } = await import('@/lib/release-unpaid'); await reopenHolds(db, tenantId, { ...t, ...patch }).catch((e: any) => console.error('[billing] reopen holds', e?.message || e));
+    }
   };
 
   // Rent paid online (api/portal/renter): recorded once — safe to receive twice, or at the same moment as the renter's

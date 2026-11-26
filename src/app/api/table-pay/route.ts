@@ -22,6 +22,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { limitPublic } from '@/lib/rate-limit';
 import { toolLocked } from '@/lib/tool-lock';
+import { accessLockOf } from '@/lib/tenant-access';
 import { publicLook } from '@/lib/public-look';
 import { tablePayOf } from '@/lib/table-bill';
 import { checkOf, claimsOf, keepShare, letGoStale, PayStop, payableWhy, PAY_TOKEN, settleShare, startShare, visitByToken } from '@/lib/table-pay-server';
@@ -77,6 +78,9 @@ export async function POST(req: NextRequest) {
     const visitId = found.id;
     const look = { look: publicLook(tenant), business: String(tenant.name || tenant.businessName || '').slice(0, 80) };
 
+    // A paused or cancelled business takes no money (HQ, lib/tenant-access): a guest starting to pay is sent to their
+    // server. (A payment that already went through still goes on the check.)
+    if (action === 'start' && accessLockOf(tenant).locked) return bad('Paying here isn’t open right now. Your server can help.', 403);
     if (action === 'start') {
       const slow = await limitPublic(req, 'table_pay', tenantId, { perHour: 60, perDay: 0 }); if (slow) return slow;
       const choice = b.choice && typeof b.choice === 'object' ? b.choice : null;

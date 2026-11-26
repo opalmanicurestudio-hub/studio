@@ -87,7 +87,7 @@ export function SchoolIdentity({ tenantId, onSaved }: { tenantId: string; onSave
 
       <fieldset disabled={!can} className="grid gap-2 sm:grid-cols-2">
         <label className="text-[12px] font-bold">School name <span className="font-normal text-muted-foreground">(on documents and pages)</span><input className={field} value={form.displayName} onChange={(e) => set('displayName', e.target.value)} /></label>
-        <label className="text-[12px] font-bold">Legal name <span className="font-normal text-muted-foreground">(if different)</span><input className={field} value={form.legalName} onChange={(e) => set('legalName', e.target.value)} placeholder="e.g. Opal Nail Academy LLC" /></label>
+        <label className="text-[12px] font-bold">Legal name <span className="font-normal text-muted-foreground">(if different)</span><input className={field} value={form.legalName} onChange={(e) => set('legalName', e.target.value)} placeholder="e.g. North Loft Academy LLC" /></label>
         <label className="text-[12px] font-bold">State school licence #<input className={field} value={form.licenseNumber} onChange={(e) => set('licenseNumber', e.target.value)} placeholder="As shown on your school licence" /></label>
         <label className="text-[12px] font-bold">Licensing board<input className={field} value={form.licensingBoard} onChange={(e) => set('licensingBoard', e.target.value)} placeholder="e.g. North Carolina Board of Cosmetic Art Examiners" /></label>
         <label className="text-[12px] font-bold sm:col-span-2">Address<input className={field} value={form.address} onChange={(e) => set('address', e.target.value)} /></label>

@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { prepVisit, prepInfo, prepAnswer, prepAgree, prepQuestion, prepTopUpLink, prepDeskKey } from '@/lib/prep-check-server';
 import { linkOrigin } from '@/lib/app-origin';
+import { accessLockOf, CLOSED_FOR_PAYERS } from '@/lib/tenant-access';
 
 export const dynamic = 'force-dynamic';
 const j = (b: any, status = 200) => NextResponse.json(b, { status });
@@ -33,6 +34,6 @@ export async function POST(req: NextRequest) {
   if (action === 'answer') return j(await prepAnswer(db, tenantId, v, b.answers || {}, by));
   if (action === 'agree') return j(await prepAgree(db, tenantId, v, by));
   if (action === 'question') return j(await prepQuestion(db, tenantId, v, String(b.text || '')));
-  if (action === 'topup') { const tenant: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {}; const r: any = await prepTopUpLink(db, tenantId, v, linkOrigin(tenant, '') || req.nextUrl.origin).catch((e: any) => ({ ok: false, error: e?.message || 'That didn’t work.' })); return j(r, r.ok ? 200 : 409); }
+  if (action === 'topup') { const tenant: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {}; if (accessLockOf(tenant).locked) return j({ ok: false, closed: true, error: CLOSED_FOR_PAYERS }, 403); const r: any = await prepTopUpLink(db, tenantId, v, linkOrigin(tenant, '') || req.nextUrl.origin).catch((e: any) => ({ ok: false, error: e?.message || 'That didn’t work.' })); return j(r, r.ok ? 200 : 409); }
   return j({ ok: false, error: 'Unknown action.' }, 400);
 }

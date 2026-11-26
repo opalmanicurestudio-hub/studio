@@ -535,7 +535,7 @@ function SettingsPageImpl() {
                 <span className="min-w-0"><span className="block text-[15px] font-medium">Bring your records from another app</span><span className="block text-[13.5px] cf-muted">Clients, services and products from Square, Vagaro, Fresha, Mindbody, GlossGenius and others — from their CSV export.</span></span>
                 <span className="shrink-0 text-[14px] font-medium">Open →</span></a>
               <Section title="What clients see" help="Shown on your booking page, kiosk, receipts and messages.">
-                <Row label="Business name"><input className={cfInput} style={cfInputStyle} value={tenantData.name || ''} onChange={(e) => setTenantData((prev) => ({ ...prev, name: e.target.value }))} placeholder="e.g. Opal Manicure Studio" autoComplete="organization" /></Row>
+                <Row label="Business name"><input className={cfInput} style={cfInputStyle} value={tenantData.name || ''} onChange={(e) => setTenantData((prev) => ({ ...prev, name: e.target.value }))} placeholder="e.g. North Loft" autoComplete="organization" /></Row>
                 <Row label="Logo" help="A square image works best."><ImageUpload label="Upload your logo" onImageUploaded={(url) => setTenantData((prev) => ({ ...prev, logoUrl: url } as any))} initialImage={(tenantData as any).logoUrl} /></Row>
                 <Row label="Phone" help="So clients can call you.">
                   <input className={cfInput} style={cfInputStyle} type="tel" inputMode="tel" autoComplete="tel" value={(tenantData as any).phone || ''} placeholder="(555) 123-4567"

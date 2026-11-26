@@ -123,6 +123,7 @@ import {
 import { cn } from '@/lib/utils';
 import { useFirebase, useCollection, useMemoFirebase, useUser } from '@/firebase';
 import { loadBusinessForMe, usePortalBusiness } from '@/lib/portal-business-client';
+import { accessLockOf } from '@/lib/tenant-access';
 import { businessLocations, worksAt, atLocation, homeLocation } from '@/lib/business-locations';
 import { useDoc } from '@/firebase/firestore/use-doc';
 import { PortalHousekeeping } from '@/components/staff/MyTurnovers';
@@ -4287,8 +4288,14 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
   const firstName = String(staffMember.name || '').split(' ')[0] || 'there';
   const hello = (() => { const h = bizNow().getHours(); return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'; })();
 
+  // A business paused while this app is open closes it here too: the same card the app shows when it opens (layout).
   return (
     <div className="cf-portal min-h-screen bg-white text-[#16171a] flex flex-col max-w-lg mx-auto pb-28">
+      {portalTenant && accessLockOf(portalTenant).locked && <div role="alertdialog" aria-modal="true" aria-labelledby="closed-h" className="fixed inset-0 z-[100] flex items-center justify-center p-5" style={{ background: '#f5f5f7' }}>
+        <div className="flex w-full max-w-[420px] flex-col gap-2.5 rounded-3xl border px-6 py-7" style={{ borderColor: '#ececee', background: '#ffffff' }}>
+          <h1 id="closed-h" className="text-[22px]" style={{ fontWeight: 700, letterSpacing: '-0.01em' }}>{String((portalTenant as any)?.name || 'The team app')}</h1>
+          <p className="text-[15.5px] leading-normal" style={{ color: '#4a4c52' }}>The team app is closed for now. The business owner can tell you more.</p>
+        </div></div>}
       {!isRenter && <StepReminderView appointments={todaysMine} services={services || []} uid={staffMember.id} tenantId={tenantId} />}
       {splashOn && <PortalSplash name={staffMember.name || ''} business={(portalTenant as any)?.name || ''} logo={brandLogo(portalTenant)} accent={accentColor} visits={todaysMine} loading={apptsLoading} isRenter={isRenter} onDone={() => setSplashOn(false)} />}
 

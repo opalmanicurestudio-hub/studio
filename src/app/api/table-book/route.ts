@@ -13,6 +13,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { limitPublic } from '@/lib/rate-limit';
 import { toolLocked } from '@/lib/tool-lock';
+import { closedReply } from '@/lib/tenant-open-server';
 import { publicLook } from '@/lib/public-look';
 import { BOOKING_ASKS, tableBookingOf } from '@/lib/table-booking';
 import { resolveHostingSettings } from '@/lib/floor-plans';
@@ -70,6 +71,7 @@ export async function POST(req: NextRequest) {
       return ok({ day, size, slots: await slotsOn(db, T, tenant, day, size) });
     }
     if (action === 'book') {
+      { const shut = closedReply(tenant); if (shut) return shut; }
       // A few bookings an hour from one place (as the route sees the caller, which a browser can't set), and each mobile
       // number or email can only have a few to come (lib/table-booking-server).
       if (tooMany(`book|${ip}|${tenantId}`, 4) || tooHourly(`book|${ip}|${tenantId}`, 8)) return bad('That’s a lot of bookings at once. Try again a little later.', 429);

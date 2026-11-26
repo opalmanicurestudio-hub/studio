@@ -60,6 +60,9 @@ export type NotifyInput = {
   essential?: boolean;
   /** Released from the quiet-hours queue (releaseHeldTexts) — already waited, so never held again. */
   afterQuiet?: boolean;
+  /** Only useful now (a spot held for the next 15 minutes): in quiet hours it's not sent at all, rather than held for the
+   *  morning when it would be wrong. The result says so (`quiet`), so the caller can say to call instead. */
+  noHold?: boolean;
   tenantId: string;
   channel: 'email' | 'sms';
   to: string;                    // email address or phone number
@@ -115,6 +118,8 @@ export type NotifyResult = {
   error?: string;
   /** A text held for the shop's quiet hours: it goes out when they end, so the caller counts it as on its way. */
   held?: boolean;
+  /** Not sent because it's the shop's quiet hours and it couldn't wait (`noHold`). */
+  quiet?: boolean;
   /** The message log entry this attempt was written to. */
   logId?: string | null;
 };
@@ -293,6 +298,9 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
     result = { ok: false, status: 'skipped_by_policy', error: 'not sent: this number was reported as not the client’s' };
   } else if (suppressed) {
     result = { ok: false, status: 'skipped_by_policy', error: `${kind} is switched off in message settings` };
+  } else if (quietDeferred && input.noHold) {
+    // Only useful now: not held for the morning, when it would offer something long gone.
+    result = { ok: false, status: 'skipped_by_policy', error: 'not sent: it’s quiet hours, and it couldn’t wait', quiet: true };
   } else if (quietDeferred) {
     // Held, then sent when quiet hours end (releaseHeldTexts, every 5 minutes) — not dropped.
     let queued = false;

@@ -21,6 +21,7 @@
 // is left owing). The money is recorded once, by the card charge itself (api/stripe/charge-card, Membership Sales).
 import { hasRealCard } from '@/lib/card-on-file';
 import { internalHeaders } from '@/lib/message-policy';
+import { accessLockOf } from '@/lib/tenant-access';
 
 const GRACE_PERIOD_DAYS_DEFAULT = 5;
 /** How long one run's claim on a renewal keeps another from charging it. */
@@ -38,6 +39,9 @@ async function tellManagers(db: any, tenantId: string, type: string, message: st
 export async function runRenewals(db: any, tenantId: string, o: { dryRun?: boolean; appUrl?: string } = {}) {
   const dryRun = o.dryRun === true;
   const tenant: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
+  // A paused business collects nothing: no renewal is tried, so no member goes past due, is told their card failed or
+  // lapses while it's paused. Renewals carry on from where they were once it's open again.
+  if (accessLockOf(tenant).locked) return { dryRun, charged: 0, lapsed: 0, waiting: 0, considered: 0, results: [] as any[], paused: true };
   const gracePeriodDays = Number(tenant.membershipGracePeriodDays) || GRACE_PERIOD_DAYS_DEFAULT;
   const appUrl = o.appUrl || process.env.NEXT_PUBLIC_APP_URL || 'https://app.clarityflow.com';
   const now = new Date();

@@ -63,6 +63,41 @@ export async function POST(req: NextRequest) {
       const num = (d.data() as any)?.sms?.fromNumber;
       if (num && digits(num) === toDigits) { tenantId = d.id; break; }
     }
+    // The shared number (a business without its own): the businesses that have texted this person (lib/sms keeps them in
+    // smsSharedRoutes, keyed by the number's digits, country code first, with when). A STOP or START goes to every one of
+    // them, as the carrier applies it to the whole number, and shows on their client record there. Anything else goes to
+    // the one business that texted them in the last 30 days, or the only one that ever has; otherwise it can't be told
+    // whose it is, so it reaches none (never a default business), and they're told once a day to contact the business
+    // directly.
+    if (!tenantId) {
+      try {
+        const k0 = String(from).replace(/\D+/g, ''); const key = k0.length === 10 ? `1${k0}` : k0;
+        const routeRef = db.doc(`smsSharedRoutes/${key}`); const r: any = (await routeRef.get()).data() || {};
+        const by: Record<string, string> = r.by && typeof r.by === 'object' ? r.by : {};
+        const known = Object.keys(by).filter((id) => tenantsSnap.docs.some((d: any) => d.id === id));
+        const live = known.filter((id) => Date.now() - (Date.parse(String(by[id] || '')) || 0) < 30 * 86400e3);
+        const word = body.trim().toLowerCase(); const stop = /^(stop|stopall|unsubscribe|cancel|end|quit)$/.test(word), start = /^(start|unstop)$/.test(word);
+        if (known.length > 1 && (stop || start)) {
+          const { FieldValue } = await import('firebase-admin/firestore'); const at = new Date().toISOString();
+          const { clientByPhone } = await import('@/lib/conversation');
+          for (const id of known) {
+            await db.doc(`tenants/${id}/private/smsOptOuts`).set({ [key]: stop ? at : FieldValue.delete() }, { merge: true }).catch(() => {});
+            const c: any = await clientByPhone(db, id, from).catch(() => null);
+            if (c?.id) await db.doc(`tenants/${id}/clients/${c.id}`).set({ smsOptOut: stop, ...(stop ? { smsOptOutAt: at } : { smsOptInAt: at }) }, { merge: true }).catch(() => {});
+          }
+          if (live.length !== 1) return twimlOk();   // (the one that texted them lately also gets its usual handling below)
+        }
+        if (live.length === 1) tenantId = live[0];
+        else if (known.length === 1) tenantId = known[0];
+        else if (known.length) {
+          if (Date.now() - (Date.parse(String(r.toldAt || '')) || 0) > 86400e3) {
+            await routeRef.set({ toldAt: new Date().toISOString() }, { merge: true }).catch(() => {});
+            try { const { sendSms } = await import('@/lib/sms'); await sendSms(from, 'This number sends texts for more than one business, so replies here aren’t read. Please contact the business directly.'); } catch { /* best-effort */ }
+          }
+          return twimlOk();
+        }
+      } catch { /* the fallbacks below */ }
+    }
     if (!tenantId) tenantId = process.env.DEFAULT_SMS_TENANT_ID || (tenantsSnap.size === 1 ? tenantsSnap.docs[0].id : null);
     if (!tenantId) return twimlOk();   // unroutable — logged nowhere is better than logged wrong
 

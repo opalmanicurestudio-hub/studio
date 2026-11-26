@@ -17,6 +17,7 @@ import { deliveryFrom } from '@/lib/delivery-plan';
 import { canChoose, retryCents, retryPayOpen } from '@/lib/delivery-retry';
 import { cancelRetryPay, chooseRetry, finishRetryPay, retryWindows, switchToPickup } from '@/lib/delivery-retry-server';
 import { linkOrigin } from '@/lib/app-origin';
+import { accessLockOf, CLOSED_FOR_PAYERS } from '@/lib/tenant-access';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -54,6 +55,7 @@ async function handle(req: NextRequest, b: any, tenantId: string, orderId: strin
       return NextResponse.json({ ok: true, open: true, cents, windows: ws.windows.map((w) => ({ key: w.key, label: w.label, few: w.left !== null && w.left <= 2 })) });
     }
     if (action === 'retry') {
+      if (accessLockOf(tenant).locked && retryCents(order, deliveryFrom(tenant.retailSettings)) > 0) return bad(CLOSED_FOR_PAYERS, 403);
       const r = await chooseRetry(db, tenantId, tenant, orderId, String(b.key || '').slice(0, 24), linkOrigin(tenant, req.nextUrl.origin));
       if (!r.ok) return bad(r.error, r.status);
       return NextResponse.json(r);

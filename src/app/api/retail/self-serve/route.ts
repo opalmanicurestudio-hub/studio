@@ -16,6 +16,7 @@ import { canReturnLine } from '@/lib/return-eligibility';
 import { windowOpen } from '@/lib/order-windows';
 import { checkPass } from '@/lib/order-pass';
 import { cleanCollector } from '@/lib/pickup-pass';
+import { accessLockOf, CLOSED_FOR_PAYERS } from '@/lib/tenant-access';
 
 // ─── /api/retail/self-serve/route.ts ──────────────────────────────────────────
 // Customer self-service, gated by possession of the order's qrToken — the
@@ -522,6 +523,7 @@ async function handle(req: NextRequest) {
       if (po.qrToken !== qrToken) return NextResponse.json({ error: 'Not authorized.' }, { status: 403 });
       const tenant: any = (await db.collection('tenants').doc(tenantId).get()).data() || {};
       const { startAddressPay, finishAddressPay, cancelAddressPay } = await import('@/lib/address-pay');
+      if (action === 'address_pay' && accessLockOf(tenant).locked) return NextResponse.json({ ok: false, closed: true, error: CLOSED_FOR_PAYERS }, { status: 403 });
       if (action === 'address_paid') {
         const f = await finishAddressPay(db, tenantId, orderId, String(body.sessionId || '').slice(0, 200), { tenant });
         return NextResponse.json({ ok: f.ok, result: f.result, message: f.message }, { status: f.result === 'not_found' ? 404 : 200 });

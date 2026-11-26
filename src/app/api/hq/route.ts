@@ -197,7 +197,12 @@ ClarityFlow` }) }).catch(() => null);
     }
     if (fix === 'suspend' || fix === 'restore') {
       // The reason goes in HQ's log below, not on the business record (anyone with a booking link can read that).
+      const { accessLockOf } = await import('@/lib/tenant-access'); const before: any = (await tRef.get()).data() || {};
       await tRef.set({ accessLocked: fix === 'suspend', accessLockedAt: fix === 'suspend' ? at : null, accessLockedReason: FieldValue.delete() }, { merge: true });
+      // Open again: an accepted request still waiting on its deposit gets its time to pay again (lib/release-unpaid).
+      if (fix === 'restore' && accessLockOf(before).locked && !accessLockOf({ ...before, accessLocked: false, accessLockedAt: null }).locked) {
+        const { reopenHolds } = await import('@/lib/release-unpaid'); await reopenHolds(db, tenantId, before).catch((e: any) => console.error('[hq] reopen holds', e?.message || e));
+      }
       await audit(db, admin.email, tenantId, fix, fix === 'suspend' ? `Paused access${b.reason ? `: ${b.reason}` : ''}` : 'Restored access');
       return NextResponse.json({ ok: true, message: fix === 'suspend' ? 'Access paused. The business will see the suspended account page.' : 'Access restored.' });
     }

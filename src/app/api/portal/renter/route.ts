@@ -78,6 +78,7 @@ import { uploadTicketPhotoFromDataUrl, uploadPortalImageFromDataUrl, autoAssignT
 import { searchFields } from '@/lib/client-search';
 import { stripeRefused as saidNo } from '@/lib/stripe-said-no';
 import { spacePayAccount, onAccount, renterCardAccount, renterBusinessCard } from '@/lib/space-stripe';
+import { accessLockOf, CLOSED_FOR_PAYERS } from '@/lib/tenant-access';
 import { mintRenterLink, renterFromLink } from '@/lib/renter-link';
 import { saveServiceCost, serviceCosts } from '@/lib/renter-service-costs';
 import { linkOrigin } from '@/lib/app-origin';
@@ -3496,6 +3497,7 @@ export async function POST(req: NextRequest) {
       if (chargeCents > 0) {
         if (!cardOnFile) return NextResponse.json({ ok: false, error: `This send needs ${toBuy} paid text${toBuy === 1 ? '' : 's'} ($${(chargeCents / 100).toFixed(2)}), and there’s no card on file. Save a card in Rent, or send it as an email — emails are free.`, quote }, { status: 402 });
         if (Number(body.confirmChargeCents) !== chargeCents) return NextResponse.json({ ok: false, error: 'The price changed — check it and confirm again.', quote }, { status: 409 });
+        if (c?.textCharge?.status !== 'charging' && accessLockOf(((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {}).locked) return NextResponse.json({ ok: false, closed: true, error: CLOSED_FOR_PAYERS, quote }, { status: 403 });
         // The texts are bought once per tap of Send, however often it's asked: the purchase is claimed on the campaign
         // in one step (a second tap, or a second tab, is told it's under way), charged under one key for this purchase,
         // its amount and card, and recorded once — its line in the books (named after the purchase) and the texts it
@@ -4484,6 +4486,7 @@ Signed by ${signedName}, ${nowIso}. Fingerprint ${record.termsSha256}.` } as any
 
       if (action === 'pay-invoice') {
         if (inv.status === 'paid') return NextResponse.json({ ok: true, alreadyPaid: true });
+        if (accessLockOf(((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {}).locked) return NextResponse.json({ ok: false, closed: true, error: CLOSED_FOR_PAYERS }, { status: 403 });
         // Autopay is taking it right now, or took it and is still saving the record: not paid twice.
         const autopayBusy = !!inv.autopayTriedAt && !inv.autopayDeclined && inv.paidVia !== 'autopay'
           && (!!inv.autopayIntentId || Date.now() - (Date.parse(String(inv.autopayTriedAt)) || 0) < 10 * 60 * 1000);
@@ -4613,6 +4616,7 @@ Signed by ${signedName}, ${nowIso}. Fingerprint ${record.termsSha256}.` } as any
         const led = await db.collection(`tenants/${tenantId}/rentLedger`).where('leaseId', '==', leaseId).get();
         const pos = depositPosition({ id: leaseId, ...lease }, led.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })));
         if (pos.status !== 'not_collected') return NextResponse.json({ ok: true, alreadyPaid: true });
+        if (accessLockOf(tenant).locked) return NextResponse.json({ ok: false, closed: true, error: CLOSED_FOR_PAYERS }, { status: 403 });
         if (lease.status === 'pending_signature') return NextResponse.json({ ok: false, error: 'Sign your lease first, then pay your deposit.' }, { status: 409 });
         if (!['active', 'on_leave'].includes(String(lease.status || ''))) return NextResponse.json({ ok: false, error: 'This lease isn’t active, so its deposit can’t be paid here.' }, { status: 409 });
         const cents = pos.agreedCents;

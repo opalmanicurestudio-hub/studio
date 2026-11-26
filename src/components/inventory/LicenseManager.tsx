@@ -70,7 +70,7 @@ export function LicenseManager({ tenantId, tenant, onClose, onPicked }: { tenant
             </label>
           </fieldset>
           <label className="flex flex-col gap-1.5 text-[13px] font-semibold" style={muted}>Anything else (optional)
-            <textarea value={edit.note} maxLength={600} onChange={(e) => setEdit({ ...edit, note: e.target.value })} rows={3} placeholder="For example, credit Opal Studio when you share work made with it." className="px-3 py-2 text-[15px] font-normal" style={field} />
+            <textarea value={edit.note} maxLength={600} onChange={(e) => setEdit({ ...edit, note: e.target.value })} rows={3} placeholder="For example, credit North Loft when you share work made with it." className="px-3 py-2 text-[15px] font-normal" style={field} />
           </label>
           <div className="rounded-2xl p-4" style={{ background: C.soft }}>
             <p className="m-0 text-[13px] font-semibold" style={muted}>What buyers read</p>

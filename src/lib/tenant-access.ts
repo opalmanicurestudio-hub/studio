@@ -24,3 +24,7 @@ export function accessLockOf(t: any, now = Date.now()): AccessLock {
 
 /** What a client is told when a locked business can't take a booking or an order. Never says why. */
 export const CLOSED_FOR_CLIENTS = 'This business isn’t taking online bookings or orders right now.';
+/** What the team sees when a paused or cancelled business is asked to take money: nothing is charged. */
+export const CLOSED_FOR_TEAM = 'This business is paused, so it can’t take payments right now. The owner can tell you more.';
+/** What a client, guest or renter is told when a paused or cancelled business is asked to take their money. Never says why. */
+export const CLOSED_FOR_PAYERS = 'This business isn’t taking payments right now, so nothing was charged.';

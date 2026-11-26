@@ -9,6 +9,7 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
 import { linkOrigin } from '@/lib/app-origin';
 import { cardChargeRule } from '@/lib/fee-pay';
+import { accessLockOf, CLOSED_FOR_TEAM } from '@/lib/tenant-access';
 export const dynamic = 'force-dynamic';
 const num = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 
@@ -18,6 +19,7 @@ export async function POST(req: NextRequest) {
   if (!auth?.ok) return NextResponse.json({ ok: false, error: 'Please sign in again.' }, { status: 401 });
   const db = getAdminDb(); const tenant: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
   if (!tenant.stripeAccountId) return NextResponse.json({ ok: false, error: 'Card payments aren’t set up for this business yet.' }, { status: 400 });
+  if (accessLockOf(tenant).locked) return NextResponse.json({ ok: false, closed: true, error: CLOSED_FOR_TEAM }, { status: 403 });
   const StripeLib = (await import('stripe')).default; const stripe = new StripeLib(process.env.STRIPE_SECRET_KEY || '', { apiVersion: '2024-06-20' as any });
   const by = auth.actor.name || 'Front desk'; const feeIds: string[] = Array.isArray(b.feeIds) ? b.feeIds.map(String).slice(0, 20) : [];
   const clientId = String(b.clientId || '');

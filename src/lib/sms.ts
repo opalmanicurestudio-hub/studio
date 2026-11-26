@@ -127,6 +127,8 @@ export async function sendSms(to: string, body: string, opts?: { from?: string; 
       body: params.toString(),
     });
     const data: any = await res.json().catch(() => ({}));
+    // They replied STOP to this sending number at some point: the carrier refuses (Twilio 21610), so it's opted out.
+    if (!res.ok && Number(data?.code) === 21610) return { ok: false, optedOut: true, error: 'They replied STOP to this number, so texts to it are off.' };
     if (!res.ok) return { ok: false, error: data?.message || `The text didn’t go out (${res.status}).` };
     return { ok: true, sid: data?.sid };
   } catch (err: any) {
@@ -240,6 +242,17 @@ export async function sendTenantSms(
   const branded = `${studioName ? `${studioName}: ` : ''}${body}${firstContact ? ' Reply STOP to opt out.' : ''}`;
   let result: SmsResult = await sendSms(to, branded, { from, messagingServiceSid });
   if (result.ok) result.via = 'sms';
+  // THE SHARED NUMBER (a business without its own): replies come back to that one number for every business, so which
+  // businesses texted each person, and when, is kept where no browser reads it (smsSharedRoutes). /api/sms/inbound gives
+  // a reply to the business when it's the only one lately, and a STOP or START to every one of them. A STOP the carrier
+  // enforces on it is remembered for this business too, so its texts say why.
+  if (e164 && !from && !messagingServiceSid) {
+    const key = e164.replace(/[^\d]/g, '');
+    try {
+      if (result.ok) await db.doc(`smsSharedRoutes/${key}`).set({ by: { [tenantId]: new Date().toISOString() } }, { merge: true });
+      else if (result.optedOut) await db.doc(`tenants/${tenantId}/private/smsOptOuts`).set({ [key]: new Date().toISOString() }, { merge: true });
+    } catch { /* routing a reply is best-effort; the message itself stands */ }
+  }
 
   // SMS failed → try the secondary method before giving up.
   if (!result.ok && fallback?.email) {
