@@ -59,6 +59,13 @@ const TOK = 'abcdefghijklmnopqrstuv';
   check('vegan, spicy, how it’s cooked: “I can’t tell that from our recipes”', A('Is the burger vegan?').kind === 'cant' && A('is the crudo spicy').kind === 'cant' && A('Is the burger vegan?').text === 'I can’t tell that from our recipes. Your server can check with the kitchen.');
   check('anything else: what she can answer', A('hello').kind === 'help' && A('').kind === 'help');
   const likely = KM.menuFacts([{ id: 'x', name: 'Pesto pasta', onMenu: true, membersOnly: false, soldOut: false, inStock: true, allergens: [], allergensSet: false, recipe: ['Basil', 'Pine nuts'], allergensLikely: ['treenuts'] } as any]);
+  const F3 = [F('Cheeseburger', ['wheat', 'gluten', 'milk'], ['Beef patty', 'Cheddar', 'Mustard', 'Bun']), F('Fries', [], ['Potatoes', 'Oil'])];
+  const there = KM.menuAnswer('Is there mustard in the cheeseburger?', F3).text; const made = KM.menuAnswer('is the cheeseburger made with mustard', F3).text;
+  const part = KM.menuAnswer('Does the burger have mustard in it?', F3).text;
+  check('“is there … in” and “made with” ask about what’s in a named dish, never “did you mean” that same dish; a part of a dish’s name is that dish, never an ingredient',
+    /Cheeseburger’s recipe lists mustard\./.test(there) && !/Did you mean/.test(there) && /Cheeseburger’s recipe lists mustard\./.test(made) && /Did you mean Cheeseburger\?/.test(part) && !/burger mustard/.test(part), { there, made, part });
+  const park = KM.menuAnswer('Is there parking?', F3); const season = KM.menuAnswer('whats in season?', F3);
+  check('…while a question that names no dish and isn’t about what’s in one stays the usual help', park.kind === 'help' && season.kind === 'help', { park, season });
   check('likely allergens from a starter menu are never used: unmarked is unmarked', KM.menuAnswer('does the pesto pasta have nuts', likely).text === 'We haven’t marked the allergens in Pesto pasta here, so I can’t say. Please ask your server.');
   const mf = KM.menuFacts([{ id: 'a', name: 'A', onMenu: true, membersOnly: false, soldOut: false, inStock: false, allergens: ['milk'], allergensSet: true }, { id: 'b', name: 'B', onMenu: false, membersOnly: false, soldOut: false, inStock: true, allergens: [], allergensSet: true }, { id: 'c', name: 'C', onMenu: true, membersOnly: true, soldOut: false, inStock: true, allergens: [], allergensSet: true }] as any);
   check('only what’s on the menu for everyone; out of stock counts as sold out', mf.length === 1 && mf[0].id === 'a' && mf[0].soldOut);

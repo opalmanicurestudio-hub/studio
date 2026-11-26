@@ -14,20 +14,22 @@ const NONE: AutoRefund = { sent: false, cents: 0, cardCents: 0, otherCents: 0 };
 export const autoRefundLimit = (tenant: any): number => c0(tenant?.retailSettings?.policies?.refundAutoBelowCents);
 
 /** Sends what's queued on the order when it's within the shop's automatic amount. `origin` is this app's own address
- *  (the request's, or the configured one). Never throws. */
-export async function autoRefund(db: any, t: string, orderId: string, origin?: string | null): Promise<AutoRefund> {
+ *  (the request's, or the configured one). `told`: the caller's own message to the customer says the refund is on its
+ *  way (what changed, the order closed, ready, the item that ran out), so the refund's own email isn't sent as well.
+ *  Never throws. */
+export async function autoRefund(db: any, t: string, orderId: string, origin?: string | null, o: { told?: boolean } = {}): Promise<AutoRefund> {
   const base = String(origin || process.env.NEXT_PUBLIC_APP_URL || '').trim().replace(/\/+$/, '');
   if (!base || !process.env.CRON_SECRET || !t || !orderId) return NONE;
   try {
     const [tSnap, oSnap] = await Promise.all([db.doc(`tenants/${t}`).get(), db.doc(`tenants/${t}/retailOrders/${orderId}`).get()]);
     const limit = autoRefundLimit(tSnap.data());
-    const o: any = oSnap.data() || {};
-    const pending = c0(o.pendingRefundCents);
-    if (!limit || !pending || pending > limit || o.replacementFor === 'lost_in_transit' || o.isTest) return NONE;
+    const ord: any = oSnap.data() || {};
+    const pending = c0(ord.pendingRefundCents);
+    if (!limit || !pending || pending > limit || ord.replacementFor === 'lost_in_transit' || ord.isTest) return NONE;
     const r = await fetch(`${base}/api/retail/refund`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-internal-key': String(process.env.CRON_SECRET) },
-      body: JSON.stringify({ tenantId: t, orderId, qrToken: o.qrToken || '', reason: 'policy' }),
+      body: JSON.stringify({ tenantId: t, orderId, qrToken: ord.qrToken || '', reason: 'policy', ...(o.told ? { told: true } : {}) }),
     });
     const d: any = await r.json().catch(() => ({}));
     if (!r.ok) return NONE;

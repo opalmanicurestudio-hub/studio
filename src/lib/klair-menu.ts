@@ -32,8 +32,9 @@ export function dishesIn(q: string, facts: MenuFact[]): { full: MenuFact[]; part
 }
 /** "What can I have without nuts?", "Which dishes are gluten-free?": a list. */
 const LISTY = /\b(without|what can i|which|anything|options|free of|safe for)\b/;
-/** Asking about something in a dish (an allergy, an ingredient): "does it have", "allergic to", "free of". */
-const ASKS_IN = /\b(allergic|allergy|allergies|intolerant|intolerance|contain|contains|containing|free|without|avoid|safe|have|has|any)\b/;
+/** Asking about something in a dish (an allergy, an ingredient): "does it have", "allergic to", "free of", "made with".
+ *  ("Is there … in the cheeseburger" is caught when the dish is named: lib/klair-menu onlyThese.) */
+const ASKS_IN = /\b(allergic|allergy|allergies|intolerant|intolerance|contain|contains|containing|free|without|avoid|safe|have|has|any|made with|made of)\b/;
 /** Words that are only the asking. */
 const FILLER = new Set(('is the a an of in it its to i im am are be can could does do did you your we our my me there this that what whats which how much many or and if ' +
   'eat eaten eating please thanks thank hi hello ok okay dish dishes menu food something anything made for on at so just also really would will get order ordering like want ' +
@@ -78,8 +79,11 @@ export function menuAnswer(question: string, facts: MenuFact[], who: Who = 'serv
     const dishes = found.full.slice(0, 3);
     const extra = otherWords(n, dishes.map((d) => d.name));
     const rest = extra.join(' ');
+    // (When the only dishes that could be meant are the ones already named, the other words are what's being asked about:
+    // never "did you mean" the dish they named.)
+    const onlyThese = Array.from(new Set([...dishes, ...found.partial])).every((d) => dishes.includes(d));
     // Asked about something the allergen marks don't cover ("mustard"): only what its recipe says, never a verdict.
-    if (!keys.length && asksIn && extra.length && !ONLY_A_PERSON.test(rest)) {
+    if (!keys.length && (asksIn || onlyThese) && extra.length && !ONLY_A_PERSON.test(rest)) {
       const lists = dishes.flatMap((d) => d.recipe.filter((r) => extra.some((w) => new RegExp(`\\b${w}`, 'i').test(norm(r)))).slice(0, 2).map((r) => `${d.name}’s recipe lists ${r.toLowerCase()}.`));
       return { kind: 'cant', text: `${lists.join(' ')}${lists.length ? ' ' : ''}Our allergen marks cover only ${TRACKED}, so I can’t say about ${extra.slice(0, 2).join(' ')}. ${ASK(who)}`, tell: true };
     }
@@ -107,6 +111,9 @@ export function menuAnswer(question: string, facts: MenuFact[], who: Who = 'serv
   if (found.partial.length && !(keys.length && LISTY.test(n))) return { kind: 'cant', text: didYouMean(found.partial), tell: asksIn };
   if (keys.length) return listAll();
   const extra = otherWords(n, []);
+  // A word that's part of a dish's name ("burger" for the Cheeseburger): that dish, never an ingredient.
+  const near = facts.filter((f) => extra.some((w) => w.length >= 4 && norm(f.name).replace(/ /g, '').includes(w)));
+  if (near.length) return { kind: 'cant', text: didYouMean(near), tell: asksIn };
   if (asksIn && extra.length && !ONLY_A_PERSON.test(n)) return { kind: 'cant', text: `Our allergen marks cover only ${TRACKED}, so I can’t say which dishes have ${extra.slice(0, 2).join(' ')}. ${ASK(who)}`, tell: true };
   if (ONLY_A_PERSON.test(n)) return { kind: 'cant', text: CHECK(who), tell: false };
   return { kind: 'help', text: `I can tell you what’s in a dish and which allergens it lists. Try “Is the soup gluten-free?” For anything else, ${ASK(who).toLowerCase()}`, tell: false };

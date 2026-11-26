@@ -64,7 +64,7 @@ const src = (p: string) => fs.readFileSync(p, 'utf8');
     /if \(\['picking', 'paid'\]\.includes\(String\(pre\.stage\)\) && everyItemOut\(pre\)/.test(ful) && /where\('parentOrderId', '==', orderId\)\.limit\(1\)\.get\(\)\)\.empty/.test(ful)
     && /const closedOut = await F\.cancelOrder\(db, tenantId, orderId, actor, EVERY_ITEM_OUT,/.test(ful) && /out = \{ ok: true, closed: true,/.test(ful));
   check('…closed only if every item is still out as it’s closed (else it’s packed as usual), and the packer’s batch is closed after',
-    /F\.cancelOrder\(db, tenantId, orderId, actor, EVERY_ITEM_OUT, \{ onlyIfEveryItemOut: true \}\)/.test(ful) && /if \(closedOut\?\.ok\) \{[\s\S]{0,400}break;\s*\}\s*\}\s*out = await F\.markPacked\(/.test(ful)
+    /F\.cancelOrder\(db, tenantId, orderId, actor, EVERY_ITEM_OUT, \{ onlyIfEveryItemOut: true \}\)/.test(ful) && /if \(closedOut\?\.ok\) \{[\s\S]{0,1000}break;\s*\}\s*\}\s*out = await F\.markPacked\(/.test(ful)
     && /if \(opts\?\.onlyIfEveryItemOut && !\(\['picking', 'paid'\]\.includes\(order\.stage\) && everyItemOut\(order\)\)\)/.test(src('src/lib/retail-fulfill.ts')) && /if \(out\.ok && hadBatch\) await closeBatchIfDone\(fs, tenantId, hadBatch\)/.test(src('src/lib/retail-fulfill.ts')));
   check('changes carried in a ready message are marked told, so a retried message doesn’t tell them again',
     /if \(\(texted \|\| emailed\) && changed\.short\) await markTold\(ref, o\)/.test(src('src/app/api/retail/ready-notify/route.ts')) && /if \(res\.ok && changed && forChanges\) await db\.doc/.test(src('src/app/api/retail/curbside-notify/route.ts')));

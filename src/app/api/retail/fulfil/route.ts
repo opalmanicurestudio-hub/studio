@@ -5,7 +5,7 @@
 // on the order page or the boards can show a step that didn't happen. Screens call this through lib/fulfil-client.
 //   POST { tenantId, action, ...args } → what the step answers ({ ok, message, … })
 import { autoRefund } from '@/lib/auto-refund';
-import { EVERY_ITEM_OUT, changesKey, everyItemOut, packChanges } from '@/lib/pack-changes';
+import { EVERY_ITEM_OUT, changesBackCents, changesKey, everyItemOut, packChanges } from '@/lib/pack-changes';
 import { canChoose, whenInSentence } from '@/lib/delivery-retry';
 import { NextRequest, NextResponse, after } from 'next/server';
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -218,7 +218,10 @@ async function run(req: NextRequest, b: any, tenantId: string, action: string, a
           const closedOut = await F.cancelOrder(db, tenantId, orderId, actor, EVERY_ITEM_OUT, { onlyIfEveryItemOut: true });
           if (closedOut?.ok) {
             sendMessage('order_changes', { orderId, key: 'closed' });
-            await autoRefund(db, tenantId, orderId, ctx()?.base || '').catch(() => null);
+            // (Its refund's own email is left out only when the closed message has something to say, so it goes: an order
+            // whose items were all told about already gets the refund email, which says it closed and what came back.)
+            const co: any = (await db.doc(`tenants/${tenantId}/retailOrders/${orderId}`).get()).data() || {};
+            await autoRefund(db, tenantId, orderId, ctx()?.base || '', { told: packChanges(co, { all: true }).length > 0 }).catch(() => null);
             out = { ok: true, closed: true, message: 'Every item was out, so the order is closed and everything they paid goes back. They’re told. Nothing goes on the shelf.' };
             break;
           }
@@ -233,7 +236,10 @@ async function run(req: NextRequest, b: any, tenantId: string, action: string, a
           // Queued first, so it goes (and is tried again) even if the refund call below runs long; it's sent after this
           // step answers, by when the refund has gone, so it says so.
           if ((po.method === 'ship' || po.method === 'delivery') && packChanges(po).length) sendMessage('order_changes', { orderId, key: changesKey(packChanges(po)) });
-          if ((Number(po.pendingRefundCents) || 0) > 0) await autoRefund(db, tenantId, orderId, ctx()?.base || '').catch(() => null);
+          // (Its refund's own email is left out only when the next message carries the whole of it: changes not told yet
+          // that come to at least what goes back. An older refund, or one promised by email earlier, still gets its email.)
+          const pcs = packChanges(po); const pending = Number(po.pendingRefundCents) || 0;
+          if (pending > 0) await autoRefund(db, tenantId, orderId, ctx()?.base || '', { told: pcs.length > 0 && changesBackCents(pcs) >= pending }).catch(() => null);
         }
         break;
       }

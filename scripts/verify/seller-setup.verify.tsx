@@ -101,6 +101,7 @@ const ids = (s: { id: string }[]) => s.map((x) => x.id).join(',');
   const mine = [page.split('Do people book time with you?')[0].slice(-800) + page.split('Do people book time with you?')[1].slice(0, 800), card, setup, src('src/lib/setup-guide.ts')].join('\n');
   check('in the app’s own words', !/font-black|call us|contact us/i.test(mine));
 
+  check('a business that switches to “No, they buy” without the shop on its plan is told where to add it (the product steps need it)', /\{!takesBookings\(tenant\) && !moduleEnabled\(tenant, 'retail'\) && <p[^>]*>Setting up leads with your products once the shop is on your plan\. Add it under <Link href=\{ADD_TOOL_HREF\}/.test(card));
   console.log(failures ? `\n${failures} failed` : '\nall passed');
   process.exit(failures ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });

@@ -191,7 +191,8 @@ export async function POST(req: NextRequest) {
         if (!outcome.stillOwed) {
           try { const { restoreNonCardPayment } = await import('@/lib/cancel-restore'); restored = await restoreNonCardPayment(db, tenantId, o.id, 'Pre-order run cancelled'); } catch { /* the nightly check gives it back */ }
         }
-        const sent: AutoRefund = await autoRefund(db, tenantId, o.id, origin);
+        // (Its email below says the refund is on its way, so the refund's own email isn't sent too.)
+        const sent: AutoRefund = await autoRefund(db, tenantId, o.id, origin, { told: true });
         refundCents += restored.giftCents + restored.creditCents;
         sentCents += (sent.sent ? sent.cents : 0) + restored.giftCents + restored.creditCents;
 

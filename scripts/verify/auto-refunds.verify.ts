@@ -11,6 +11,7 @@ let db = makeDb();
 let actor: any = { uid: 'm1', name: 'Rae Moss', role: 'manager', isManager: true, caps: ['checkout.refund'] };
 const stripeCalls: any[] = [];
 const fetches: { url: string; body: any; headers: any }[] = [];
+const emails: any[] = [];
 
 function StripeMock(this: any) {
   return { refunds: {
@@ -29,9 +30,11 @@ M._load = function (request: string, ...rest: any[]) {
   if (request === 'next/server') return { NextResponse: { json: (body: any, init?: any) => ({ status: init?.status || 200, body }) } };
   if (request === '@/lib/email-shell') return { brandedEmail: (_b: any, html: string) => html, emailButton: (link: string) => `<a href="${link}">`, getEmailBrand: async () => ({ shopName: 'Opal' }) };
   if (request === '@/lib/request-forensics') return { requestForensics: () => null };
+  if (request === '@/lib/notify' || /\/src\/lib\/notify(\.ts)?$/.test(request)) { const mock = { sendNotification: async (_db: any, m: any) => { emails.push(m); return { ok: true }; } }; const c = M._cache?.[request]; if (c) { c.exports = mock; c.loaded = true; } return mock; }
   return load.call(this, request, ...rest);
 };
 process.env.STRIPE_SECRET_KEY = 'sk_test'; process.env.CRON_SECRET = 'cron'; process.env.NEXT_PUBLIC_APP_URL = 'https://shop.example';
+process.env.RESEND_API_KEY = 're_test'; process.env.NOTIFY_FROM_EMAIL = 'shop@example.com';
 
 const T = 'tenants/t1';
 const get = async (path: string) => (await db.doc(path).get()).data() || null;
@@ -99,6 +102,18 @@ const order = (x: any = {}) => ({ id: 'o1', tenantId: 't1', orderNumber: 1060, s
   const order1 = fetches.findIndex((f) => /\/api\/retail\/refund$/.test(f.url)); const notice = fetches.findIndex((f) => /short-notify$/.test(f.url));
   check('a swap nobody answered: refunded, sent within the amount, and only then is she told (so the notice can say it went)',
     n === 1 && stripeCalls.length === 1 && stripeCalls[0].amount === 1400 && order1 >= 0 && notice > order1, { n, fetches: fetches.map((f) => f.url) });
+
+  // ── One message, not two: a refund the caller's own message already tells about sends no refund email of its own ──
+  await fresh(5000, { pendingRefundCents: 1400 }); emails.length = 0;
+  const told = await A.autoRefund(db, 't1', 'o1', null, { told: true });
+  const toldEmails = emails.filter((e) => e.kind === 'refund_issued').length;
+  await fresh(5000, { pendingRefundCents: 1400 }); emails.length = 0;
+  const plain = await A.autoRefund(db, 't1', 'o1');
+  check('a refund sent with a message that already says it’s on its way sends no second email; one sent on its own still emails', told.sent && toldEmails === 0 && refundCalls()[0]?.body?.told === undefined && plain.sent && emails.filter((e) => e.kind === 'refund_issued').length === 1, { toldEmails, plainEmails: emails.length });
+  const fr = require('fs').readFileSync('src/app/api/retail/fulfil/route.ts', 'utf8'); const sw = require('fs').readFileSync('src/lib/retail-swap-server.ts', 'utf8'); const pr = require('fs').readFileSync('src/app/api/retail/preorder-run-cancel/route.ts', 'utf8');
+  check('…packing (what changed, or the order closed, only when that message carries the refund), a swap nobody answered, changes sent later and a cancelled pre-order run all say it themselves',
+    /autoRefund\(db, tenantId, orderId, ctx\(\)\?\.base \|\| '', \{ told: packChanges\(co, \{ all: true \}\)\.length > 0 \}\)/.test(fr) && /autoRefund\(db, tenantId, orderId, ctx\(\)\?\.base \|\| '', \{ told: pcs\.length > 0 && changesBackCents\(pcs\) >= pending \}\)/.test(fr) && (sw.match(/autoRefund\(db, t, d\.id, base, \{ told: true \}\)/g) || []).length === 2 && /autoRefund\(db, tenantId, o\.id, origin, \{ told: true \}\)/.test(pr)
+    && /const toldElsewhere = internalKey && policyAsk && body\.told === true;/.test(require('fs').readFileSync('src/app/api/retail/refund/route.ts', 'utf8')));
 
   // ── A claim the shop's rules approve ──
   const { POST: claimPOST } = await import('../../src/app/api/retail/claims/route');

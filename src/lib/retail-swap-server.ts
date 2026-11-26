@@ -256,7 +256,7 @@ export async function expireSwapOffers(db: any, t: string): Promise<number> {
     const r = await refundInstead(db, t, d.id, o.swapOffer.lineId, { id: 'system', name: 'Automatic' }, 'No answer about a swap'); if (!r.ok) continue; n++;
     const base = String(process.env.NEXT_PUBLIC_APP_URL || '').trim().replace(/\/+$/, '');
     // Within the shop's automatic amount it goes back now, before the customer is told, so the notice can say it went.
-    await autoRefund(db, t, d.id, base);
+    await autoRefund(db, t, d.id, base, { told: true });
     // Queued, so it's tried again if it doesn't go (lib/order-outbox).
     await queueAndSend(db, t, 'order_short', { orderId: d.id, lineId: o.swapOffer.lineId }, { base }).catch(() => 'none');
   }
@@ -280,7 +280,7 @@ export async function sweepUntoldChanges(db: any, t: string, base: string): Prom
       const bd: any = bs?.exists ? bs.data() : null;
       if (bd && bd.active === true && !isClaimStale(bd)) continue;
     }
-    if ((Number(o.pendingRefundCents) || 0) > 0) await autoRefund(db, t, d.id, base).catch(() => null);
+    if ((Number(o.pendingRefundCents) || 0) > 0) await autoRefund(db, t, d.id, base, { told: true }).catch(() => null);
     // Named for these changes, so a later message about new ones is its own (lib/order-outbox messageId).
     await queueAndSend(db, t, 'order_changes', { orderId: d.id, key: changesKey(packChanges(o)) }, { base, orderId: d.id }).catch(() => null);
     n++;

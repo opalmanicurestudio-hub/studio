@@ -148,6 +148,9 @@ async function handle(req: NextRequest) {
   // never more than what's owed back that way.
   const feeBackAsk = internalKey && body.reason === 'delivery_fee_back';
   const policyAsk = body.reason === 'policy';
+  // (Sent on its own by the shop's rules for a message that already tells the customer it's on its way, lib/auto-refund:
+  // that message is the one they get, not a second email about the same money.)
+  const toldElsewhere = internalKey && policyAsk && body.told === true;
   const autoBelow = Math.max(0, Number(tenant.retailSettings?.policies?.refundAutoBelowCents) || 0);
   const underAuto = (p: number) => autoBelow > 0 && p > 0 && p <= autoBelow && !lostLink;
   // The automatic amount is for an order and everything made from it, not for each tap: what has gone back that way
@@ -570,7 +573,7 @@ async function handle(req: NextRequest) {
    * best-effort — the refund succeeded regardless. */
   const RESEND_API_KEY = process.env.RESEND_API_KEY;
   const RESEND_FROM = process.env.NOTIFY_FROM_EMAIL || process.env.RESEND_FROM;
-  if (RESEND_API_KEY && RESEND_FROM && order.customerEmail) {
+  if (RESEND_API_KEY && RESEND_FROM && order.customerEmail && !toldElsewhere) {
     try {
       const emailBrand = await getEmailBrand(db, tenantId);
       const num = `#${String(order.orderNumber).padStart(4, '0')}`;

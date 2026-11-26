@@ -15,6 +15,8 @@ import { Section, Row, Toggle, Choice, cfInput, cfInputStyle } from '@/component
 import { NICHES, nicheOf, nicheChosen } from '@/lib/niche';
 import { useBusinessShape } from '@/hooks/use-business-shape';
 import { takesBookings } from '@/lib/business-shape';
+import { moduleEnabled } from '@/lib/modules';
+import { ADD_TOOL_HREF } from '@/lib/nav';
 
 export function BusinessShapeCard({ tenantId, tenant, canEdit }: { tenantId: string; tenant: any; canEdit: boolean }) {
   const { firestore } = useFirebase() as any;
@@ -44,6 +46,7 @@ export function BusinessShapeCard({ tenantId, tenant, canEdit }: { tenantId: str
         {typeof tenant?.shape?.books !== 'boolean' ? worked('Yes until you say otherwise.') : <>{worked('You chose this.')}{reset('shape.books', 'People book time with you')}</>}</>}>
         <span className={lock}><Choice label="People book time with you" value={takesBookings(tenant) ? 'yes' : 'no'} options={[{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No, they buy' }]}
           onChange={(v) => { if (canEdit && !busy) void save('shape.books', v === 'yes', v === 'yes' ? 'Saved: people book time with you.' : 'Saved: people buy from you, without booking.'); }} /></span>
+        {!takesBookings(tenant) && !moduleEnabled(tenant, 'retail') && <p className="mt-2 text-[13px]" style={{ color: '#b45309' }}>Setting up leads with your products once the shop is on your plan. Add it under <Link href={ADD_TOOL_HREF} className="underline underline-offset-4">Add a tool</Link>.</p>}
       </Row>
       <Row inline label="Who sees clients" help={<>{b.solo ? 'Just you: the desk’s jobs come to you too.' : 'A team: work can pass between people.'}
         {b.guessed.solo ? worked(n != null ? `Worked out from your team (${n} ${n === 1 ? 'person' : 'people'} on it).` : 'Worked out from when you signed up.') : <>{worked('You chose this.')}{reset('shape.solo', 'Who sees clients')}</>}</>}>
