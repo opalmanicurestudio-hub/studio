@@ -12,6 +12,7 @@
 
 import { logAuditAdmin } from './audit';
 import { automationOn } from './automation-switches';
+import { appOrdersOf } from './app-orders';
 
 const PLAID_BASE: Record<string, string> = {
   sandbox: 'https://sandbox.plaid.com',
@@ -109,11 +110,26 @@ export function sameVendor(a: string, b: string): boolean {
   return fa.length >= 3 && fa === fb;
 }
 const DAY = 86400000;
+const weekName = (d: string) => new Date(`${String(d).slice(0, 10)}T12:00:00Z`).toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: 'UTC' });
 
 /** Pull new bank transactions for one tenant, auto-match against the
  *  ledger, auto-book vendor-rule hits, and stage the rest for review.
  *  Identical behavior to the original /api/plaid sync action. */
 export async function syncTenantBankFeed(db: any, tenantId: string): Promise<SyncResult> {
+  // One check at a time per business (the nightly run and the Sync button can meet): two at once would both match the
+  // same new lines, so a payout or a deposit could be counted twice. A lock left by a check that died lapses in 5 minutes.
+  const lockRef = db.doc(`tenants/${tenantId}/private/bankSyncLock`);
+  const got = await db.runTransaction(async (tx: any) => {
+    const l: any = (await tx.get(lockRef)).data() || {};
+    if (l.at && Date.now() - Date.parse(String(l.at)) < 5 * 60000) return false;
+    tx.set(lockRef, { at: new Date().toISOString() }); return true;
+  });
+  if (!got) throw new Error('Your bank is being checked already. Try again in a minute.');
+  try { return await syncBody(db, tenantId); }
+  finally { await lockRef.set({ at: null }, { merge: true }).catch(() => {}); }
+}
+
+async function syncBody(db: any, tenantId: string): Promise<SyncResult> {
   const privRef = db.doc(`tenants/${tenantId}/private/plaid`);
 
   // All connected accounts: per-item docs + the legacy single doc
@@ -182,11 +198,53 @@ export async function syncTenantBankFeed(db: any, tenantId: string): Promise<Syn
   // they arrive, so they never wait in the inbox. A payout moves money; it's never income.
   const payouts: any[] = (await db.collection(`tenants/${tenantId}/stripePayouts`).where('arrivalDate', '>=', windowStart).get().catch(() => ({ docs: [] as any[] }))).docs
     .map((d: any) => ({ id: d.id, ref: d.ref, ...(d.data() as any) })).filter((x: any) => !x.bankTransactionId);
+
+  // Delivery app payouts (lib/app-payouts-server bankPayout): the orders are in the books already, so a payout landing in
+  // the bank goes to its week (paid a week at once, a day at a time or early), never booked again.
+  const AP: any = tenantDoc?.appOrders ? await import('./app-payouts-server').catch(() => null) : null;
+  const appRe: Record<string, RegExp> = { doordash: /DOOR ?DASH/, ubereats: /UBER ?\*? ?EATS|UBEREATS/, grubhub: /GRUBHUB|SEAMLESS/ };
+  const otherApp = String(tenantDoc?.appOrders?.otherName || '').toUpperCase().replace(/[^A-Z0-9 ]/g, '').trim();
+  // Only the apps it takes orders from here (Menu, Delivery apps): another app's money isn't in the books yet, so it's
+  // sorted like any other line.
+  const ordersOf = appOrdersOf(tenantDoc); const appsOn = ordersOf.on;
+  const listedApps = new Set(ordersOf.apps.map((a) => String(a.code)));
+  const appOfLine = (name: string): string | null => {
+    if (!AP) return null;
+    const n = String(name || '').toUpperCase();
+    for (const [code, re] of Object.entries(appRe)) if (re.test(n)) return listedApps.has(code) ? code : null;
+    return otherApp.length >= 3 && n.includes(otherApp) && listedApps.has('other') ? 'other' : null;
+  };
+
   const ledgerSnap = await db.collection(`tenants/${tenantId}/transactions`)
     .where('date', '>=', windowStart).get();
   const ledger = ledgerSnap.docs
     .map((d: any) => ({ id: d.id, ...(d.data() as any) }))
     .filter((t: any) => !t.reconciled);
+
+  // Cash (and checks) taken at the business and then deposited: the sales are in the books already, so a deposit is
+  // matched against what was taken in the ten days before it and not deposited yet: each closed drawer's counted cash,
+  // less its opening float and any cash put in (change from the bank, her own money: not sales), plus cash taken to
+  // the safe, and checks taken. Cash not deposited within ten days stops counting (most likely spent), so it can't
+  // hide a deposit of something else later. A deposit bigger than what's left waits for the owner.
+  const since45 = new Date(Date.now() - 45 * DAY).toISOString();
+  const nz = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+  const taken: { day: string; cents: number }[] = (await db.collection(`tenants/${tenantId}/tillSessions`).where('openedAt', '>=', since45).limit(500).get().catch(() => ({ docs: [] as any[] }))).docs
+    .map((d: any) => d.data() || {}).filter((t: any) => t.status === 'closed' && (t.context || 'Business') === 'Business')
+    .map((t: any) => {
+      const counted = t.actualCash !== undefined && t.actualCash !== null ? nz(t.actualCash) : nz(t.expectedCash);
+      return { day: String(t.closedAt || t.openedAt || '').slice(0, 10), cents: Math.max(0, Math.round((counted - nz(t.openingFloat) - nz(t.totalPaidIn) + nz(t.totalDrops)) * 100)) };
+    });
+  for (const t of ledger) if (t.type === 'income' && /\bche(ck|que)/i.test(String(t.paymentMethod || '')) && String(t.date) >= since45) taken.push({ day: String(t.date).slice(0, 10), cents: Math.round(nz(t.amount) * 100) });
+  const depositsMatched: { date: string; cents: number }[] = (await db.collection(`tenants/${tenantId}/bankTransactions`).where('date', '>=', since45.slice(0, 10)).limit(3000).get().catch(() => ({ docs: [] as any[] }))).docs
+    .map((d: any) => d.data() || {}).filter((x: any) => x.status === 'cash_deposit').map((x: any) => ({ date: String(x.date || ''), cents: Math.round(nz(x.amountCents)) }));
+  const cashLeftFor = (day: string) => {
+    const end = dayOf(day), from = end - 10 * DAY;
+    const inWindow = (d: string) => { const t = dayOf(d); return t >= from && t <= end + DAY; };
+    return Math.max(0, taken.filter((x) => inWindow(x.day)).reduce((n, x) => n + x.cents, 0) - depositsMatched.filter((x) => inWindow(x.date)).reduce((n, x) => n + x.cents, 0));
+  };
+  // (A deposit as the bank calls one, or one made at a branch or an ATM by its name: never another company's payout.)
+  const isDeposit = (b: any) => String(b?.personal_finance_category?.detailed || '').toUpperCase() === 'TRANSFER_IN_DEPOSIT'
+    || /\b(BRANCH|ATM|TELLER|COUNTER|CASH|CHECK|CHEQUE) DEPOSIT\b|\bDEPOSIT (CASH|CHECK|AT BRANCH)\b/.test(String(b?.name || '').toUpperCase());
 
   let matched = 0, staged = 0, autoBooked = 0;
   const pendingWrites: { ref: any; data: any }[] = [];
@@ -255,8 +313,23 @@ export async function syncTenantBankFeed(db: any, tenantId: string): Promise<Syn
     const payout = !outflow && !bt.pending && !pairs.has(btId) ? payouts.find((x: any) => !x.__claimed && Math.round(Number(x.amount || 0) * 100) === cents
       && Math.abs(new Date(String(x.arrivalDate).slice(0, 10) + 'T00:00:00Z').getTime() - btDate) <= 3 * DAY) : null;
 
+    // A delivery app's payout: the week it pays off, else the week it's part of (lib/app-payouts-server bankPayout).
+    // (With app orders turned off, only while a week of its orders is still being paid.)
+    const appGuess = !outflow && !bt.pending && !payout && !pairs.has(btId) ? appOfLine(`${bt.merchant_name || ''} ${bt.name || ''}`) : null;
+    const appWeek = appGuess && AP ? await AP.bankPayout(db, tenantId, tenantDoc, appGuess, cents, btId, bt.date, Date.now(), new Set(pendingWrites.map((p) => String(p.data?.id || '')))).catch(() => null) : null;
+    const appCode = appGuess && (appsOn || appWeek) ? appGuess : null;
+    // (A whole payout took back its week: what was on it goes back to her.)
+    if (appWeek?.bumped?.length) for (const id of appWeek.bumped) {
+      const w = pendingWrites.find((p) => p.data?.id === id);
+      if (w && w.data.status === 'app_payout') { Object.assign(w.data, AP.bumpedLine()); matched--; staged++; }
+    }
+    // Cash or checks taken here, deposited: within what's been taken and not deposited yet (a little over, for coins
+    // and rounding).
+    const cashDeposit = !outflow && !bt.pending && !payout && !appCode && !pairs.has(btId) && isDeposit(bt) && (bt.__context || 'Business') === 'Business'
+      && cents <= cashLeftFor(bt.date) + Math.max(500, Math.round(cents * 0.02));
+
     // Auto-match: same amount, right direction, within ±4 days
-    const exact = payout ? null : ledger.find((t: any) => {
+    const exact = payout || appCode || cashDeposit ? null : ledger.find((t: any) => {
       if ((t.context || 'Business') !== (bt.__context || 'Business')) return false;
       const tCents = Math.round((t.amount || 0) * 100);
       if (tCents !== cents) return false;
@@ -271,7 +344,7 @@ export async function syncTenantBankFeed(db: any, tenantId: string): Promise<Syn
     const onAccount = (t: any) => outflow && t.type === 'expense' && /on account/i.test(String(t.paymentMethod || ''))
       && (t.context || 'Business') === (bt.__context || 'Business') && sameVendor(String(t.clientOrVendor || t.description || ''), vendorName)
       && (() => { const tDate = new Date(String(t.date).slice(0, 10) + 'T00:00:00Z').getTime(); return btDate >= tDate - 2 * DAY && btDate <= tDate + 60 * DAY; })();
-    const hit = exact || (payout ? null : ledger.find((t: any) => (onAccount(t) || (outflow && t.source === 'platform_invoice' && t.type === 'expense'
+    const hit = exact || (payout || appCode || cashDeposit ? null : ledger.find((t: any) => (onAccount(t) || (outflow && t.source === 'platform_invoice' && t.type === 'expense'
       && Math.abs(new Date(String(t.date).slice(0, 10) + 'T00:00:00Z').getTime() - btDate) <= 10 * DAY)) && Math.round((t.amount || 0) * 100) === cents));
 
     const record: any = {
@@ -283,6 +356,12 @@ export async function syncTenantBankFeed(db: any, tenantId: string): Promise<Syn
       plaidCategory: bt.personal_finance_category?.primary || null,
       suggestedCategory: sugg.category, suggestedTaxBucket: sugg.taxBucket, suggestedType: sugg.type,
       plaidDetailed: pfc.detailed || null, plaidConfidence: pfc.confidence_level || null, accountId: bt.account_id || null,
+      // (A deposit bigger than the cash and checks taken lately: it may be a sale nobody rang up, or her own money.)
+      ...(!outflow && isDeposit(bt) && !cashDeposit && !payout && !appCode ? { hint: 'More than the cash and checks taken lately. A client’s check nobody rang up, or money you put in?' } : {}),
+      // (An app's payout that fits none of its weeks: its orders are in the books already, so it's never income.)
+      // (Money for a week whose difference she booked already: it makes up that difference.)
+      ...(appWeek?.late ? { hint: `Money from the app for the week of ${weekName(appWeek.week)}, whose difference you booked already. It makes up that difference.`, suggestedCategory: 'Delivery App Adjustments', suggestedTaxBucket: 'adjustment', suggestedType: 'income' } : {}),
+      ...(appCode && !appWeek ? { hint: 'A delivery app payout that doesn’t fit a week’s orders. Its orders are in your books already. If the app paid more than they came to, type what came in for that week on the Money page.', suggestedCategory: 'Transfer', suggestedTaxBucket: 'transfer', suggestedType: 'income' } : {}),
       createdAt: nowIso,
     };
 
@@ -315,6 +394,14 @@ export async function syncTenantBankFeed(db: any, tenantId: string): Promise<Syn
       record.matchedPayoutId = payout.id;
       await payout.ref.set({ bankTransactionId: btId, reconciledAt: nowIso }, { merge: true });
       matched++;
+    } else if (appWeek && !appWeek.late) {
+      record.status = 'app_payout';
+      record.matchedAppWeek = `${appCode}_${appWeek.week}`;
+      matched++;
+    } else if (cashDeposit) {
+      depositsMatched.push({ date: String(bt.date), cents });
+      record.status = 'cash_deposit';
+      matched++;
     } else if (hit) {
       record.status = 'matched';
       record.matchedTxnId = hit.id;
@@ -328,7 +415,7 @@ export async function syncTenantBankFeed(db: any, tenantId: string): Promise<Syn
       // ("logged $38, card charged $38.42 with tax"). Same direction,
       // within ±5% (min $3), within ±5 days → suggest "same as", never
       // auto-book. The reviewer taps Match and the ledger keeps ONE entry.
-      const near = ledger.find((t: any) => {
+      const near = appCode ? null : ledger.find((t: any) => {
         if ((t.context || 'Business') !== (bt.__context || 'Business')) return false;
         const dirOk = outflow ? t.type === 'expense' : t.type === 'income';
         if (!dirOk) return false;
@@ -373,12 +460,13 @@ export async function syncTenantBankFeed(db: any, tenantId: string): Promise<Syn
       // an existing ledger entry was found: auto-booking then would be
       // the exact double-count we're guarding against, so the line goes
       // to review with the "same as" suggestion instead.
+      // (Never a delivery app's money, either way: its orders are in the books already.)
       const rule = vendorRules.get(`${(bt.__context || 'Business').toLowerCase()}:${vendorKey(bt.merchant_name || bt.name)}`);
       // The bank is sure, and the category means the same for everyone: booked as it says, marked as sorted by the app
       // (changing it in the books or the inbox teaches a rule for that vendor). The way the money went decides the
       // side: money back on a cost brings that cost down.
       const sureFits = sugg.sure && (sugg.taxBucket === 'transfer' || sugg.type === (outflow ? 'expense' : 'income') || (!outflow && sugg.type === 'expense'));
-      if (autoSort && !rule && sureFits && !bt.pending && !near) {
+      if (autoSort && !rule && sureFits && !bt.pending && !near && !appCode) {
         const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
         await txnRef.set({
           id: txnRef.id, type: outflow ? 'expense' : 'income',
@@ -398,7 +486,7 @@ export async function syncTenantBankFeed(db: any, tenantId: string): Promise<Syn
           summary: `Sorted ${vendorName} as ${sugg.category} (the bank’s own category)`,
           amount: cents / 100, actor: { type: 'system', name: 'bank-sync' },
         });
-      } else if (autoSort && rule && !bt.pending && !near) {
+      } else if (autoSort && rule && !bt.pending && !near && !appCode) {
         const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
         await txnRef.set({
           id: txnRef.id, type: rule.type || (outflow ? 'expense' : 'income'),
@@ -437,6 +525,8 @@ export async function syncTenantBankFeed(db: any, tenantId: string): Promise<Syn
     for (const w of pendingWrites) batch.set(w.ref, w.data);
     await batch.commit();
   }
+  // (App weeks the bank paid only part of, ten days on: filled in, so the Money page shows them short.)
+  if (AP) await AP.settleBankWeeks(db, tenantId, tenantDoc).catch(() => 0);
   return { pulled: added.length, matched, autoBooked, needsReview: staged };
 }
 

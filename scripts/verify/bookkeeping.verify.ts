@@ -190,6 +190,105 @@ const SRC = path.resolve('src');
   check('the switch is on the Automations page, on unless turned off', SW.AUTOMATION_SWITCHES.some((x: any) => x.id === 'bank-sort' && x.field === 'automations.bankAutoSort' && x.defaultOn === true && x.who === 'you')
     && SW.automationOn({}, 'bank-sort') && !SW.automationOn({ automations: { bankAutoSort: false } }, 'bank-sort'));
 
+  console.log('money already in the books, arriving at the bank');
+  {
+    const AO = await import('../../src/lib/app-orders');
+    await db.doc('tenants/b3').set({ name: 'Corner Cafe', appOrders: { on: true, apps: ['doordash', 'ubereats', 'grubhub'], money: { doordash: { feePct: 20 }, ubereats: { feePct: 25 }, grubhub: { feePct: 20 } } } });
+    await db.doc('tenants/b3/plaidItems/i1').set({ accessToken: 'tok3', label: 'Business' });
+    const lastWeek = AO.payoutWeek(new Date(Date.now() - 8 * 86400e3).toISOString().slice(0, 10));
+    const wk = (app: string) => `tenants/b3/private/${AO.appWeekId(app, lastWeek)}`;
+    await db.doc(wk('doordash')).set({ app: 'doordash', label: 'DoorDash', week: lastWeek, orders: 12, grossCents: 51540, feeCents: 10308, payoutCents: 41232 });
+    await db.doc(wk('ubereats')).set({ app: 'ubereats', label: 'Uber Eats', week: lastWeek, orders: 10, grossCents: 40000, feeCents: 10000, payoutCents: 30000 });
+    const opened = (n: number) => new Date(Date.now() - n * 86400e3).toISOString();
+    await db.doc('tenants/b3/tillSessions/d0').set({ status: 'closed', openedAt: opened(20), closedAt: opened(20), openingFloat: 100, expectedCash: 600, actualCash: 600 });
+    await db.doc('tenants/b3/tillSessions/d1').set({ status: 'closed', openedAt: opened(6), closedAt: opened(6), openingFloat: 100, expectedCash: 542, actualCash: 540, totalPaidIn: 20 });
+    await db.doc('tenants/b3/tillSessions/d2').set({ status: 'closed', openedAt: opened(5), closedAt: opened(5), openingFloat: 100, expectedCash: 300, actualCash: 300, totalDrops: 50 });
+    await db.doc('tenants/b3/tillSessions/d3').set({ status: 'open', openedAt: opened(0), openingFloat: 100, expectedCash: 900 });
+    feed = [{ ...bank('b_dd', { amount: -412.30, name: 'DOORDASH, INC. PAYOUT', personal_finance_category: { primary: 'INCOME', detailed: 'INCOME_OTHER_INCOME', confidence_level: 'HIGH' } }), __tok: 'tok3' },
+      { ...bank('b_ue1', { amount: -180, name: 'UBER EATS PAYOUT', personal_finance_category: { primary: 'INCOME', detailed: 'INCOME_OTHER_INCOME', confidence_level: 'HIGH' } }), __tok: 'tok3' },
+      { ...bank('b_cash', { amount: -600, name: 'DEPOSIT', personal_finance_category: { primary: 'TRANSFER_IN', detailed: 'TRANSFER_IN_DEPOSIT', confidence_level: 'HIGH' } }), __tok: 'tok3' },
+      { ...bank('b_cash2', { amount: -200, name: 'BRANCH DEPOSIT', personal_finance_category: { primary: 'TRANSFER_IN', detailed: 'TRANSFER_IN_DEPOSIT', confidence_level: 'HIGH' } }), __tok: 'tok3' },
+      { ...bank('b_etsy', { amount: -95, name: 'ETSY DEPOSIT', personal_finance_category: { primary: 'INCOME', detailed: 'INCOME_OTHER_INCOME', confidence_level: 'HIGH' } }), __tok: 'tok3' }];
+    const before3 = (await db.collection('tenants/b3/transactions').get()).size;
+    await P.syncTenantBankFeed(db, 'b3');
+    const b3 = async (id: string) => get(`tenants/b3/bankTransactions/${id}`);
+    const dd: any = await get(wk('doordash')), ue1: any = await get(wk('ubereats'));
+    check('a delivery app’s payout is matched to its week, and what it paid is filled in from the bank (the orders are in the books already)',
+      (await b3('b_dd'))?.status === 'app_payout' && (await b3('b_dd'))?.matchedAppWeek === `doordash_${lastWeek}` && dd?.paidCents === 41230 && dd?.paidBy === 'Bank feed', [await b3('b_dd'), dd]);
+    check('a week paid in pieces isn’t filled in partway (it would show short): what’s come in so far is kept on it', (await b3('b_ue1'))?.status === 'app_payout' && ue1?.bankCents === 18000 && ue1?.paidCents === undefined, ue1);
+    check('cash taken at the drawers in the ten days before (less each opening float and any cash put in, plus cash taken to the safe) and then deposited is matched, never booked as income again', (await b3('b_cash'))?.status === 'cash_deposit');
+    check('…a deposit bigger than what’s left of it waits, saying what it may be', (await b3('b_cash2'))?.status === 'unmatched' && /cash and checks taken lately/.test(String((await b3('b_cash2'))?.hint || '')));
+    check('…and another company’s payout with “deposit” in its name is never taken for cash', (await b3('b_etsy'))?.status !== 'cash_deposit' && (await db.collection('tenants/b3/transactions').get()).size === before3);
+    await db.doc(wk('ubereats')).set({ paidCents: 29000, paidBy: 'Dana' }, { merge: true });
+    feed = [{ ...bank('b_ue2', { amount: -120, name: 'UBER EATS PAYOUT', personal_finance_category: { primary: 'INCOME', detailed: 'INCOME_OTHER_INCOME', confidence_level: 'HIGH' } }), __tok: 'tok3' },
+      { ...bank('b_cash3', { amount: -45, name: 'DEPOSIT', personal_finance_category: { primary: 'TRANSFER_IN', detailed: 'TRANSFER_IN_DEPOSIT', confidence_level: 'HIGH' } }), __tok: 'tok3' },
+      { ...bank('b_dd2', { amount: -900, name: 'DOORDASH PAYOUT', personal_finance_category: { primary: 'INCOME', detailed: 'INCOME_OTHER_INCOME', confidence_level: 'HIGH' } }), __tok: 'tok3' }];
+    await P.syncTenantBankFeed(db, 'b3');
+    const ue2: any = await get(wk('ubereats'));
+    check('the rest of a week paid in pieces adds to it; what a manager typed for the week is never replaced', (await b3('b_ue2'))?.status === 'app_payout' && ue2?.bankCents === 30000 && ue2?.paidCents === 29000 && ue2?.paidBy === 'Dana', ue2);
+    check('the rest of the cash, deposited on a later day, is matched (deposits already matched count against it)', (await b3('b_cash3'))?.status === 'cash_deposit');
+    check('an app payout that fits none of its weeks waits, saying its orders are in the books already (never income)', (await b3('b_dd2'))?.status === 'unmatched' && /delivery app payout/.test(String((await b3('b_dd2'))?.hint || '')) && (await b3('b_dd2'))?.suggestedCategory === 'Transfer');
+    const AP = await import('../../src/lib/app-payouts-server');
+    await db.doc(`tenants/b3/private/${AO.appWeekId('doordash', AO.payoutWeek(new Date(Date.now() - 22 * 86400e3).toISOString().slice(0, 10)))}`).set({ app: 'doordash', orders: 5, payoutCents: 20000, bankCents: 15000, bankLines: ['x'] });
+    const settled = await AP.settleBankWeeks(db, 'b3', (await get('tenants/b3')));
+    check('ten days after a week ended, what the bank paid of it is filled in, so the week shows short', settled === 1 && (await get(`tenants/b3/private/${AO.appWeekId('doordash', AO.payoutWeek(new Date(Date.now() - 22 * 86400e3).toISOString().slice(0, 10)))}`))?.paidCents === 15000);
+    // Which week: the one it pays off exactly, else the week of the day before it came in, then older, then newer.
+    const NC = await import('../../src/lib/night-close-server');
+    const thisWk = AO.payoutWeek(NC.tonight(await get('tenants/b3'), new Date()));
+    const gA = NC.addDays(thisWk, -14), gB = NC.addDays(thisWk, -7);
+    const gw = (w: string) => `tenants/b3/private/${AO.appWeekId('grubhub', w)}`;
+    await db.doc(gw(gA)).set({ app: 'grubhub', week: gA, orders: 10, payoutCents: 20000, bankCents: 15000, bankLines: ['g0'] });
+    await db.doc(gw(gB)).set({ app: 'grubhub', week: gB, orders: 6, payoutCents: 10000 });
+    const g1 = await AP.bankPayout(db, 'b3', await get('tenants/b3'), 'grubhub', 4000, 'g1', thisWk);
+    check('a day’s payout goes to the week of the day before it came in, not an older week that came up short', g1?.week === gB && (await get(gw(gA)))?.bankCents === 15000 && (await get(gw(gB)))?.bankCents === 4000, [g1, await get(gw(gA)), await get(gw(gB))]);
+    const g2 = await AP.bankPayout(db, 'b3', await get('tenants/b3'), 'grubhub', 6000, 'g2', NC.addDays(thisWk, 1));
+    check('…and the rest of a week goes to the week it pays off, which is then filled in from the bank', g2?.week === gB && (await get(gw(gB)))?.paidCents === 10000 && (await get(gw(gB)))?.paidBy === 'Bank feed', [g2, await get(gw(gB))]);
+    await db.doc(gw(gA)).set({ paidCents: 15000, paidBy: 'Dana', adjustedAt: new Date().toISOString(), adjustedCents: -5000 }, { merge: true });
+    feed = [{ ...bank('b_gh', { amount: -50, name: 'GRUBHUB INC', personal_finance_category: { primary: 'INCOME', detailed: 'INCOME_OTHER_INCOME', confidence_level: 'HIGH' } }), __tok: 'tok3' }];
+    await db.doc('tenants/b3/vendorRules/business:grubhub inc').set({ category: 'Service Revenue', taxBucket: 'income', type: 'income' });
+    const before4 = (await db.collection('tenants/b3/transactions').get()).size;
+    await P.syncTenantBankFeed(db, 'b3');
+    const gh: any = await b3('b_gh'), gAx: any = await get(gw(gA));
+    check('money for a week whose difference was booked already goes to that week (not the next one), changes nothing, and waits as making up the difference',
+      gh?.status === 'unmatched' && /booked already/.test(String(gh?.hint || '')) && gh?.suggestedCategory === 'Delivery App Adjustments' && gAx?.bankCents === 20000 && gAx?.paidCents === 15000 && (await get(gw(gB)))?.bankCents === 10000, [gh, gAx]);
+    check('…and a payee rule never books an app’s money on its own', (await db.collection('tenants/b3/transactions').get()).size === before4);
+    // Something small from the app taking a week's room before its payout: the payout takes the week back.
+    const gD = NC.addDays(thisWk, -21), gE = NC.addDays(thisWk, -28);
+    await db.doc(gw(gD)).set({ app: 'grubhub', week: gD, orders: 5, payoutCents: 8000 });
+    feed = [{ ...bank('b_s1', { date: NC.addDays(gD, 8), amount: -12, name: 'GRUBHUB INC', personal_finance_category: { primary: 'INCOME', detailed: 'INCOME_OTHER_INCOME', confidence_level: 'HIGH' } }), __tok: 'tok3' },
+      { ...bank('b_s2', { date: NC.addDays(gD, 9), amount: -80, name: 'GRUBHUB INC', personal_finance_category: { primary: 'INCOME', detailed: 'INCOME_OTHER_INCOME', confidence_level: 'HIGH' } }), __tok: 'tok3' }];
+    await P.syncTenantBankFeed(db, 'b3');
+    const gDx: any = await get(gw(gD));
+    check('a payout that pays its week off on its own takes it back from a smaller line from the app that got there first, which goes back to her to sort',
+      (await b3('b_s2'))?.status === 'app_payout' && gDx?.bankCents === 8000 && gDx?.paidCents === 8000 && (await b3('b_s1'))?.status === 'unmatched' && /not part of a payout/.test(String((await b3('b_s1'))?.hint || ''))
+      && (await get(gw(gA)))?.bankCents === 20000, [await b3('b_s1'), await b3('b_s2'), gDx]);
+    // An app line that fits no week is never matched to a sale; with app orders off, it's a line like any other.
+    await db.doc('tenants/b3/transactions/sale33').set({ id: 'sale33', type: 'income', context: 'Business', category: 'Service Revenue', amount: 33, date: `${day(1)}T12:00:00.000Z` });
+    feed = [{ ...bank('b_gx', { amount: -33, name: 'GRUBHUB INC', personal_finance_category: { primary: 'INCOME', detailed: 'INCOME_OTHER_INCOME', confidence_level: 'HIGH' } }), __tok: 'tok3' }];
+    await P.syncTenantBankFeed(db, 'b3');
+    check('an app payout that fits none of its weeks is never matched to a sale of the same amount', (await b3('b_gx'))?.status === 'unmatched' && !(await b3('b_gx'))?.matchedTxnId);
+    await db.doc('tenants/b3').set({ appOrders: { on: false } }, { merge: true });
+    feed = [{ ...bank('b_gy', { amount: -33, name: 'GRUBHUB INC', personal_finance_category: { primary: 'INCOME', detailed: 'INCOME_OTHER_INCOME', confidence_level: 'HIGH' } }), __tok: 'tok3' }];
+    await P.syncTenantBankFeed(db, 'b3');
+    check('…and once app orders are turned off, an app’s money that no week is waiting on is sorted like any other line', (await b3('b_gy'))?.status === 'matched' && (await b3('b_gy'))?.matchedTxnId === 'sale33' && !/delivery app/.test(String((await b3('b_gy'))?.hint || '')), await b3('b_gy'));
+    await db.doc('tenants/b3').set({ appOrders: { on: true } }, { merge: true });
+    // A second line the size of a week's payout never takes the week from the payout already on it.
+    const gF = NC.addDays(thisWk, -35);
+    await db.doc(gw(gF)).set({ app: 'grubhub', week: gF, orders: 5, payoutCents: 8000, bankCents: 8000, bankLines: ['f1'], paidCents: 8000, paidBy: 'Bank feed' });
+    const gF2 = await AP.bankPayout(db, 'b3', await get('tenants/b3'), 'grubhub', 8000, 'f2', NC.addDays(gF, 8));
+    check('a line the size of a week’s payout never takes a week the bank has paid in full', gF2?.week !== gF && JSON.stringify((await get(gw(gF)))?.bankLines) === '["f1"]', [gF2, await get(gw(gF))]);
+    await db.doc(gw(gE)).set({ app: 'grubhub', week: gE, orders: 4, payoutCents: 20000, bankCents: 1000, bankLines: ['e1'] });
+    await AP.settleBankWeeks(db, 'b3', await get('tenants/b3'));
+    check('a week the bank paid under half of isn’t filled in as short (more may come, or it wasn’t the payout): it waits', (await get(gw(gE)))?.paidCents === undefined);
+    feed = [bank('b_dd_other', { amount: -88, name: 'DOORDASH PAYOUT', personal_finance_category: { primary: 'INCOME', detailed: 'INCOME_OTHER_INCOME', confidence_level: 'HIGH' } })];
+    await P.syncTenantBankFeed(db, 'b1');
+    check('a business that doesn’t take app orders here: an app’s money is sorted like any other line (it isn’t in its books yet)', (await bt('b_dd_other'))?.status === 'unmatched' && !/delivery app/.test(String((await bt('b_dd_other'))?.hint || '')) && (await bt('b_dd_other'))?.suggestedCategory !== 'Transfer', await bt('b_dd_other'));
+    await db.doc('tenants/b3/private/bankSyncLock').set({ at: new Date().toISOString() });
+    const locked = await P.syncTenantBankFeed(db, 'b3').then(() => null, (e: any) => String(e?.message || e));
+    check('two checks of the bank at once never run together (the second is told to wait)', /being checked already/.test(String(locked)));
+    await db.doc('tenants/b3/private/bankSyncLock').set({ at: null });
+  }
+
   console.log('what a business pays for ClarityFlow');
   await db.doc('tenants/b2').set({ name: 'Harbor Nails', billing: { customerId: 'cus_9' } });
   process.env.STRIPE_BILLING_WEBHOOK_SECRET = 'whsec'; process.env.STRIPE_SECRET_KEY = 'sk';

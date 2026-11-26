@@ -103,3 +103,93 @@ export async function payoutAdjust(db: any, tenantId: string, tenant: any, app: 
     return { ok: true as const, cents: d, week: view({ ...x, adjustedAt: nowIso, adjustedCents: d }, String(app), label, String(week), thisWeek) };
   });
 }
+
+const dayMs = (d: string) => Date.parse(`${String(d).slice(0, 10)}T00:00:00Z`);
+
+/** A payout from an app landing in the bank (lib/plaid-sync). Its orders are in the books already, so nothing is booked:
+ *  it's added to the oldest of the app's last few weeks it fits in (apps pay a week at once, a day at a time, or early
+ *  with Fast Pay), and that week's paid amount is filled in once the bank's payouts for it add up to what its orders
+ *  came to, so a week paid in pieces never shows short partway. A figure a manager typed is never replaced. The same bank
+ *  line twice changes nothing. Returns the week it went to, or null when it fits none (it then waits for the owner). */
+export async function bankPayout(db: any, tenantId: string, tenant: any, app: string, cents: number, bankLineId: string, bankDay: string, now = Date.now(), unwritten: Set<string> = new Set()): Promise<{ week: string; bankCents: number; payoutCents: number; late?: boolean; bumped?: string[] } | null> {
+  if (!APP_CODES.includes(String(app)) || !(cents > 0)) return null;
+  const thisWeek = payoutWeek(tonight(tenant, new Date(now)));
+  // Weeks it could be for: started by the day it came in, ended no more than three weeks before. The week of the day
+  // before it came in first (an app pays the day after, or the week after), then older weeks, nearest first, then newer.
+  const cands = Array.from({ length: PAYOUT_WEEKS }, (_, i) => addDays(thisWeek, -7 * i))
+    .filter((w) => dayMs(bankDay) >= dayMs(w) && dayMs(bankDay) - dayMs(addDays(w, 6)) <= 21 * 86400000);
+  const anchor = payoutWeek(addDays(String(bankDay).slice(0, 10), -1));
+  const order = [...cands.filter((w) => w === anchor), ...cands.filter((w) => w < anchor), ...cands.filter((w) => w > anchor).reverse()];
+  const nowIso = new Date(now).toISOString();
+  // Room on a week for this line (a week whose difference was booked only takes what makes up that difference exactly).
+  const fitOf = (x: any) => {
+    if (!x || num(x.orders) <= 0) return null;
+    const total = Math.round(num(x.bankCents)) + Math.round(cents); const payoutCents = Math.round(num(x.payoutCents)); const within = matchWithin(num(x.orders));
+    const exact = Math.abs(total - payoutCents) <= within;
+    return total > payoutCents + within || (x.adjustedAt && !exact) ? null : { total, payoutCents, within, exact };
+  };
+  // A week this line pays off on its own while something smaller from the app took part of its room first (a credit,
+  // a refund on her own order): the payout takes the week, and what was on it goes back to her to sort.
+  // (Only while the week is still owed more than what's on it, and what's on it is less than this line: never a payout
+  // already there.)
+  const aloneOf = (x: any) => !!x && num(x.orders) > 0 && !x.adjustedAt && Math.round(num(x.bankCents)) > 0
+    && Math.round(num(x.bankCents)) < Math.round(num(x.payoutCents)) - matchWithin(num(x.orders)) && Math.round(num(x.bankCents)) < Math.round(cents)
+    && Math.abs(Math.round(cents) - Math.round(num(x.payoutCents))) <= matchWithin(num(x.orders));
+  const snaps = await Promise.all(order.map(async (w) => ({ w, x: (await ref(db, tenantId, app, w).get()).data() })));
+  // The same line twice: the week it went to.
+  const seen = snaps.find((s) => Array.isArray(s.x?.bankLines) && s.x.bankLines.includes(bankLineId));
+  if (seen) return { week: seen.w, bankCents: Math.round(num(seen.x.bankCents)), payoutCents: Math.round(num(seen.x.payoutCents)), ...(seen.x.adjustedAt ? { late: true } : {}) };
+  // The week of the day before first, if it pays it off (with what's on it, or on its own); then a week it pays off
+  // exactly (a weekly payout, or the rest of one), then one it pays off on its own, else the first with room (a day's
+  // payout).
+  const first = snaps.find((s) => s.w === anchor && (fitOf(s.x)?.exact || aloneOf(s.x)));
+  const pick = first || snaps.find((s) => fitOf(s.x)?.exact) || snaps.find((s) => aloneOf(s.x)) || snaps.find((s) => fitOf(s.x));
+  if (!pick) return null;
+  const r = ref(db, tenantId, app, pick.w);
+  return db.runTransaction(async (tx: any) => {
+    const x: any = (await tx.get(r)).data();
+    const lines: string[] = Array.isArray(x?.bankLines) ? x.bankLines : [];
+    if (lines.includes(bankLineId)) return { week: pick.w, bankCents: Math.round(num(x.bankCents)), payoutCents: Math.round(num(x.payoutCents)), ...(x.adjustedAt ? { late: true } : {}) };
+    const typed = x && x.paidCents !== undefined && x.paidCents !== null && x.paidBy !== 'Bank feed';
+    const f = fitOf(x);
+    if (!f?.exact && aloneOf(x)) {
+      const bumped = lines.filter((id) => id !== bankLineId);
+      // (Lines this sync hasn't written yet are left to it: it changes them before they're written.)
+      for (const id of bumped) if (!unwritten.has(id)) tx.set(db.doc(`tenants/${tenantId}/bankTransactions/${id}`), bumpedLine(), { merge: true });
+      tx.set(r, { bankCents: Math.round(cents), bankLines: [bankLineId], ...(!typed ? { paidCents: Math.round(cents), paidAt: nowIso, paidBy: 'Bank feed' } : {}) }, { merge: true });
+      return { week: pick.w, bankCents: Math.round(cents), payoutCents: Math.round(num(x.payoutCents)), bumped };
+    }
+    if (!f) return null;
+    // A week whose difference was booked already: what came in is kept on it, and nothing else changes (the line
+    // waits for her, as making up that difference).
+    if (x.adjustedAt) { tx.set(r, { bankCents: f.total, bankLines: [...lines, bankLineId].slice(-60) }, { merge: true }); return { week: pick.w, bankCents: f.total, payoutCents: f.payoutCents, late: true }; }
+    tx.set(r, { bankCents: f.total, bankLines: [...lines, bankLineId].slice(-60), ...(f.exact && !typed ? { paidCents: f.total, paidAt: nowIso, paidBy: 'Bank feed' } : {}) }, { merge: true });
+    return { week: pick.w, bankCents: f.total, payoutCents: f.payoutCents };
+  });
+}
+
+/** A bank line from an app that was on a week until that week's payout came in whole: back to her, to sort (money from
+ *  the app that isn't a payout, such as a credit). */
+export function bumpedLine() {
+  return { status: 'unmatched', matchedAppWeek: null, hint: 'From the delivery app, but not part of a payout (its week was paid in full). A credit or a refund?', suggestedCategory: 'Delivery App Adjustments', suggestedTaxBucket: 'adjustment', suggestedType: 'income' };
+}
+
+/** Weeks the bank paid only part of, ten days after they ended (an app pays within a few days): what came in is filled
+ *  in, so the Money page shows the week short and the difference can be booked. Never over a figure a manager typed. */
+export async function settleBankWeeks(db: any, tenantId: string, tenant: any, now = Date.now()): Promise<number> {
+  const thisWeek = payoutWeek(tonight(tenant, new Date(now)));
+  const today = tonight(tenant, new Date(now)); const nowIso = new Date(now).toISOString(); let n = 0;
+  for (const a of appsOf(tenant)) for (let i = 1; i < PAYOUT_WEEKS; i++) {
+    const w = addDays(thisWeek, -7 * i);
+    if (dayMs(today) - dayMs(addDays(w, 6)) < 10 * 86400000) continue;
+    const r = ref(db, tenantId, a.code, w);
+    const done = await db.runTransaction(async (tx: any) => {
+      const x: any = (await tx.get(r)).data();
+      // (Under half of it: more is likely still to come, or it isn't the payout at all. It waits, never shown short.)
+      if (!x || x.adjustedAt || !(num(x.bankCents) > 0) || (x.paidCents !== undefined && x.paidCents !== null) || num(x.bankCents) * 2 < num(x.payoutCents)) return false;
+      tx.set(r, { paidCents: Math.round(num(x.bankCents)), paidAt: nowIso, paidBy: 'Bank feed' }, { merge: true }); return true;
+    }).catch(() => false);
+    if (done) n++;
+  }
+  return n;
+}
