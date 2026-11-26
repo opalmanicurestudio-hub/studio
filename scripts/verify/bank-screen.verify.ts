@@ -206,6 +206,25 @@ const T = 'tenants/t1';
     const booked = (await db.collection('tenants/t4/transactions').get()).docs.map((d: any) => d.data()).filter((t: any) => t.bankTransactionId === 'f1');
     check('a check stopped before writing its lines, started again: the bank fee is booked once and the Zelle still matches its sale', stopped && booked.length === 1 && (await get('tenants/t4/bankTransactions/f1'))?.status === 'auto_categorized'
       && (await get('tenants/t4/bankTransactions/z70'))?.status === 'matched' && (await get('tenants/t4/bankTransactions/z70'))?.matchedTxnId === 'zs' && (await get('tenants/t4/plaidItems/i1'))?.cursor === 'c4', { stopped, booked: booked.length, f1: (await get('tenants/t4/bankTransactions/f1'))?.status, cur: (await get('tenants/t4/plaidItems/i1'))?.cursor });
+    // Cash from the drawers, deposited and matched by hand to the cash sales: a later deposit isn't matched to the same cash.
+    await db.doc('tenants/t5').set({ name: 'Drawers' }); await db.doc('tenants/t5/plaidItems/i1').set({ accessToken: 'cash5', label: 'Business' });
+    await db.doc('tenants/t5/tillSessions/till1').set({ status: 'closed', openedAt: `${day(2)}T13:00:00.000Z`, closedAt: `${day(2)}T23:00:00.000Z`, actualCash: 300, openingFloat: 0, context: 'Business' });
+    await db.doc('tenants/t5/transactions/cs1').set({ id: 'cs1', type: 'income', category: 'Service Revenue', amount: 100, paymentMethod: 'Cash', checkoutSessionId: 'k1', date: `${day(2)}T16:00:00.000Z` });
+    await db.doc('tenants/t5/bankTransactions/dep1').set({ id: 'dep1', status: 'unmatched', direction: 'in', amountCents: 10000, name: 'BRANCH DEPOSIT', date: day(1), context: 'Business' });
+    const byHand = await call({ tenantId: 't5', action: 'resolve', bankTxnId: 'dep1', mode: 'match', ledgerTxnIds: ['cs1'] });
+    (globalThis as any).fetch = async () => ({ ok: true, json: async () => ({ added: [{ transaction_id: 'dep2', pending: false, amount: -250, name: 'BRANCH DEPOSIT', date: day(1) }], next_cursor: 'c5', has_more: false }) });
+    await P.syncTenantBankFeed(db, 't5');
+    check('a deposit matched by hand to cash sales counts against what the drawers took: a later one isn’t matched to the same cash', byHand.body.ok && (await get('tenants/t5/bankTransactions/dep1'))?.cashCents === 10000
+      && (await get('tenants/t5/bankTransactions/dep2'))?.status === 'unmatched', [byHand.body, await get('tenants/t5/bankTransactions/dep2')]);
+    // The same when the bank feed matches it on its own: a mobile deposit of one cash sale, then the drawer's deposit.
+    await db.doc('tenants/t6').set({ name: 'Drawers too' }); await db.doc('tenants/t6/plaidItems/i1').set({ accessToken: 'cash6', label: 'Business' });
+    await db.doc('tenants/t6/tillSessions/till1').set({ status: 'closed', openedAt: `${day(2)}T13:00:00.000Z`, closedAt: `${day(2)}T23:00:00.000Z`, actualCash: 300, openingFloat: 0, context: 'Business' });
+    await db.doc('tenants/t6/transactions/cs6').set({ id: 'cs6', type: 'income', category: 'Service Revenue', amount: 100, paymentMethod: 'Cash', checkoutSessionId: 'k6', date: `${day(2)}T16:00:00.000Z` });
+    await db.doc('tenants/t6/transactions/hand6').set({ id: 'hand6', type: 'income', category: 'Other Income', amount: 40, paymentMethod: 'Cash', date: `${day(2)}T16:00:00.000Z` });
+    (globalThis as any).fetch = async () => ({ ok: true, json: async () => ({ added: [{ transaction_id: 'm6', pending: false, amount: -100, name: 'MOBILE DEPOSIT', date: day(1) }, { transaction_id: 'b6', pending: false, amount: -300, name: 'BRANCH DEPOSIT', date: day(1) }], next_cursor: 'c6', has_more: false }) });
+    await P.syncTenantBankFeed(db, 't6');
+    check('…and when the bank feed matches a deposit to a cash sale on its own; cash entered by hand was never in a drawer', (await get('tenants/t6/bankTransactions/m6'))?.status === 'matched' && (await get('tenants/t6/bankTransactions/m6'))?.cashCents === 10000
+      && (await get('tenants/t6/bankTransactions/b6'))?.status === 'unmatched' && (await import('../../src/lib/bank-match')).drawerCashCents({ paymentMethod: 'Cash', amount: 40 }) === 0, [await get('tenants/t6/bankTransactions/m6'), await get('tenants/t6/bankTransactions/b6')]);
     const src = fs.readFileSync('src/lib/plaid-sync.ts', 'utf8');
     check('where the bank’s check got to is kept only once its lines are written', /cursors\.push\(\{ ref: item\.ref, cursor \}\)/.test(src) && src.indexOf('for (const c of cursors)') > src.lastIndexOf('await batch.commit()'));
     check('the feed claims each line before matching it: one the owner sorted meanwhile is left as she sorted it', /claimLedger\(hit\.id, btId\)/.test(src) && /claimWaiting\(w\.ref/.test(src) && /type: outflow \? 'expense' : 'income',\n\s+context: rule\.context/.test(src));

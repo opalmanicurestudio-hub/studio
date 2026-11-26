@@ -55,6 +55,10 @@ export function plainCost(t: any): boolean {
   return ['operating_cost', 'expense'].includes(bucketOf(t));
 }
 
+/** Cash taken at the desk (through a checkout or a visit, so it was in a drawer): what a deposit of it takes out of the
+ *  cash the drawers took. Cash entered by hand on the Books page never was. */
+export const drawerCashCents = (t: any): number => (/\bcash\b/i.test(String(t?.paymentMethod || '')) && (t?.checkoutSessionId || t?.appointmentId || t?.tillSessionId) ? lineCents(t) : 0);
+
 /** What a line was paid with: its checkout, else its visit (a deposit taken at booking), else its order. */
 export function saleKeyOf(t: any): { field: string; value: string } | null {
   for (const field of ['checkoutSessionId', 'appointmentId', 'orderId', 'retailOrderId']) if (t?.[field]) return { field, value: String(t[field]) };

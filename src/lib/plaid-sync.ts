@@ -16,7 +16,7 @@ import { appOrdersOf } from './app-orders';
 import { datedFor, inClosedMonth } from './books-close';
 import { FieldValue } from 'firebase-admin/firestore';
 import { findCategory } from './categories';
-import { lineCents, nearOk, notBankMoney, saleOf } from './bank-match';
+import { drawerCashCents, lineCents, nearOk, notBankMoney, saleOf } from './bank-match';
 
 const PLAID_BASE: Record<string, string> = {
   sandbox: 'https://sandbox.plaid.com',
@@ -274,7 +274,9 @@ async function syncBody(db: any, tenantId: string): Promise<SyncResult> {
     });
   for (const t of ledger) if (!t.reconciled && !t.bankTransactionId && t.type === 'income' && /\bche(ck|que)/i.test(String(t.paymentMethod || '')) && String(t.date) >= since45) taken.push({ day: String(t.date).slice(0, 10), cents: Math.round(nz(t.amount) * 100) });
   const depositsMatched: { date: string; cents: number }[] = (await db.collection(`tenants/${tenantId}/bankTransactions`).where('date', '>=', since45.slice(0, 10)).limit(3000).get().catch(() => ({ docs: [] as any[] }))).docs
-    .map((d: any) => d.data() || {}).filter((x: any) => x.status === 'cash_deposit').map((x: any) => ({ date: String(x.date || ''), cents: Math.round(nz(x.amountCents)) }));
+    .map((d: any) => d.data() || {}).filter((x: any) => x.status === 'cash_deposit' || (x.status === 'matched' && nz(x.cashCents) > 0))
+    // (A deposit the owner matched by hand counts its cash part: lib/bank-match-server.)
+    .map((x: any) => ({ date: String(x.date || ''), cents: Math.round(x.status === 'cash_deposit' ? nz(x.amountCents) : nz(x.cashCents)) }));
   const cashLeftFor = (day: string) => {
     const end = dayOf(day), from = end - 10 * DAY;
     const inWindow = (d: string) => { const t = dayOf(d); return t >= from && t <= end + DAY; };
@@ -400,7 +402,7 @@ async function syncBody(db: any, tenantId: string): Promise<SyncResult> {
       pendingWrites.push({ ref: btRef, data: { id: btId, tenantId, context: bt.__context || 'Business', name: bt.name, merchant: bt.merchant_name || null,
         amountCents: Math.round(Math.abs(bt.amount) * 100), direction: bt.amount > 0 ? 'out' : 'in', date: bt.date, pending: false, accountId: bt.account_id || null,
         status: was.status, clearedFrom: was.id, createdAt: nowIso,
-        ...Object.fromEntries(['matchedTxnId', 'matchedTxnIds', 'matchedBy', 'appliedRule', 'pairedWith', 'matchedPayoutId', 'matchedAppWeek', 'diffTxnId'].filter((k) => was[k] !== undefined).map((k) => [k, was[k]])) } });
+        ...Object.fromEntries(['matchedTxnId', 'matchedTxnIds', 'matchedBy', 'appliedRule', 'pairedWith', 'matchedPayoutId', 'matchedAppWeek', 'diffTxnId', 'cashCents'].filter((k) => was[k] !== undefined).map((k) => [k, was[k]])) } });
       await db.doc(`tenants/${tenantId}/bankTransactions/${was.id}`).set({ status: 'cleared', clearedBy: String(btId), statusWas: was.status }, { merge: true });
       // (Its lines in the books now point at the line that cleared, so undoing the match finds them.)
       for (const id of new Set([was.matchedTxnId, ...(Array.isArray(was.matchedTxnIds) ? was.matchedTxnIds : []), was.diffTxnId].filter(Boolean).map(String))) {
@@ -518,6 +520,9 @@ async function syncBody(db: any, tenantId: string): Promise<SyncResult> {
       record.matchedTxnId = hit.id;
       (hit as any).reconciled = true;   // don't double-match
       unpay(hit);
+      // (Cash from a drawer, matched to its deposit: counted against what the drawers took, as a cash deposit is.)
+      const cashC = outflow ? 0 : drawerCashCents(hit);
+      if (cashC > 0) { record.cashCents = cashC; depositsMatched.push({ date: String(bt.date), cents: cashC }); }
       matched++;
     } else if (hit) {
       // (Matched to another bank line meanwhile, on the Bank screen: this one waits for her.)

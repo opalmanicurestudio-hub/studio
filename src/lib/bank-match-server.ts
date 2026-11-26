@@ -12,7 +12,7 @@
 //   tenants/{t}/transactions/bankdiff_{id}  — the difference
 import { FieldValue } from 'firebase-admin/firestore';
 import { closeOf, datedFor, inClosedMonth, monthName } from './books-close';
-import { bucketOf, lineCents, nearOk, notBankMoney, plainCost, saleKeyOf, saleOf } from './bank-match';
+import { bucketOf, drawerCashCents, lineCents, nearOk, notBankMoney, plainCost, saleKeyOf, saleOf } from './bank-match';
 
 type Fail = { ok: false; error: string; status: number; ask?: 'extra' | 'short'; extraCents?: number; tipOk?: boolean };
 const fail = (error: string, status = 409, more: Partial<Fail> = {}): Fail => ({ ok: false, error, status, ...more });
@@ -74,7 +74,10 @@ export async function matchBankLine(db: any, tenantId: string, biz: any, bankTxn
       else if (extra === 'other') diffLine = { type: 'income', category: 'Other Income', taxBucket: 'revenue', description: `More than ${d} came to` };
       else return fail(`${usd(diff)} more than the sale came in. ${staff ? 'Was the extra a tip?' : 'What was the extra?'}`, 409, { ask: 'extra', extraCents: diff, tipOk: !!staff });
     }
-    tx.set(btRef, { status: 'matched', matchedTxnId: ids[0], ...(ids.length > 1 ? { matchedTxnIds: ids } : {}), resolvedAt: nowIso, matchedBy: 'you', ...(diffLine ? { diffTxnId: diffRef.id } : {}) }, { merge: true });
+    // (How much of it was cash taken at the business: the bank feed counts it against what the drawers took, so a later
+    // deposit isn't matched to cash that's in the bank already.)
+    const cashCents = dir === 'in' ? docs.reduce((n: number, d: any) => n + drawerCashCents(d.data()), 0) : 0;
+    tx.set(btRef, { status: 'matched', matchedTxnId: ids[0], ...(ids.length > 1 ? { matchedTxnIds: ids } : {}), resolvedAt: nowIso, matchedBy: 'you', ...(diffLine ? { diffTxnId: diffRef.id } : {}), ...(cashCents > 0 ? { cashCents } : {}) }, { merge: true });
     for (const ref of refs) tx.set(ref, { reconciled: true, reconciledAt: nowIso, bankTransactionId: bankTxnId, ...(rewrite ? { amount: bankC / 100, amountWas: cents / 100, amountFromBank: true } : {}) }, { merge: true });
     if (diffLine) tx.set(diffRef, { id: diffRef.id, tenantId, context: t0.context || b.context || 'Business', amount: Math.abs(diff) / 100, ...diffLine,
       clientOrVendor: t0.clientOrVendor || b.merchant || b.name || '', ...datedFor(biz, `${String(b.date).slice(0, 10)}T12:00:00.000Z`), paymentMethod: 'Bank feed', hasReceipt: false,
@@ -102,7 +105,7 @@ export async function unmatchBankLine(db: any, tenantId: string, biz: any, bankT
         ...(t.amountFromBank ? { amount: Number(t.amountWas) || 0, amountWas: FieldValue.delete(), amountFromBank: FieldValue.delete() } : {}), updatedAt: nowIso }, { merge: true });
     });
     if (dl && diffRef) tx.delete(diffRef);
-    tx.set(btRef, { status: 'unmatched', matchedTxnId: FieldValue.delete(), matchedTxnIds: FieldValue.delete(), matchedBy: FieldValue.delete(), resolvedAt: FieldValue.delete(), diffTxnId: FieldValue.delete(), unmatchedAt: nowIso }, { merge: true });
+    tx.set(btRef, { status: 'unmatched', matchedTxnId: FieldValue.delete(), matchedTxnIds: FieldValue.delete(), matchedBy: FieldValue.delete(), resolvedAt: FieldValue.delete(), diffTxnId: FieldValue.delete(), cashCents: FieldValue.delete(), unmatchedAt: nowIso }, { merge: true });
     return { ok: true as const, lines };
   });
 }
