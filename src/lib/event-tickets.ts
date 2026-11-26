@@ -13,6 +13,7 @@
 // A paused or locked business sells nothing (the route asks lib/tenant-open-server first).
 
 import { anyInUse, MAX_TABLE_SEATS, pickSeats, seatPickingOf, seatsInUse, seatWords, type SeatRef } from '@/lib/event-seats';
+import { datedAt } from './books-close';
 import type { Firestore } from 'firebase-admin/firestore';
 import { createHash } from 'crypto';
 import { createCheckoutSession } from '@/lib/pay-later';
@@ -212,6 +213,8 @@ export async function finishTicketOrder(db: Firestore, stripe: any, tenantId: st
 
   const piId: string | null = typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id || null;
   const paidAt = Number(session.created) > 0 ? new Date(Number(session.created) * 1000).toISOString() : new Date().toISOString();
+  // (Its books line: on the day it was paid; in a closed month, today: lib/books-close.)
+  const lineDate = await datedAt(db, tenantId, paidAt);
   const charged = Number(session.amount_total) || Number(o.totalCents) || 0;
   const evRef = db.doc(`${T}/studioEvents/${o.eventId}`);
   const orderSeats: SeatRef[] = Array.isArray(o.seats) ? o.seats : [];
@@ -252,7 +255,7 @@ export async function finishTicketOrder(db: Firestore, stripe: any, tenantId: st
         source: 'ticket', ticketOrderId: orderId, paidCents: Number(o.unitCents) || Math.round(charged / qty), submittedAt: now, partyId: ticketParty(orderId), partyLead: i === 0 });
     });
     if (added) tx.set(evRef, { rsvpCount: (Number(ev.rsvpCount) || 0) + added, ticketsSold: (Number(ev.ticketsSold) || 0) + added }, { merge: true });
-    if (!line.exists) tx.set(lineRef, { id: lineRef.id, tenantId, date: paidAt, description: `Tickets: ${o.eventTitle || 'event'} (${qty})`, clientOrVendor: o.name || 'Guest',
+    if (!line.exists) tx.set(lineRef, { id: lineRef.id, tenantId, ...lineDate, description: `Tickets: ${o.eventTitle || 'event'} (${qty})`, clientOrVendor: o.name || 'Guest',
       type: 'income', context: 'Business', category: 'Event Tickets', amount: charged / 100, paymentMethod: 'Card (Stripe)', taxBucket: 'revenue',
       stripePaymentIntentId: piId, checkoutSessionId: sessionId, eventId: o.eventId, ticketOrderId: orderId, stripeConnectedAccountId: o.account || null, hasReceipt: true });
     tx.set(ref, { status: 'paid', paidAt, paymentIntentId: piId, paidCents: charged, guestIds: guestRefs.map((g) => g.id), transactionId: lineRef.id, holdUntil: null }, { merge: true });

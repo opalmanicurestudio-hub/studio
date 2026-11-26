@@ -1,6 +1,7 @@
 'use client';
 
 import { KitsManager } from '@/components/pos/desk/Kits';
+import { datedFor } from '@/lib/books-close';
 import { ProductsList, shopStatus, type ProductFilter } from '@/components/products/ProductsList';
 import { productFeatures } from '@/lib/product-features';
 import { AddProductSheet } from '@/components/products/AddProductSheet';
@@ -433,7 +434,7 @@ const OrdersTab = ({ inventory, locations }: { inventory: InventoryItem[]; locat
                 relatedOrderId: newOrder.id,
             };
             const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
-            addDocumentNonBlocking(transactionsRef, { ...newTransaction, date: newOrder.orderDate });
+            addDocumentNonBlocking(transactionsRef, { ...newTransaction, ...datedFor(selectedTenant, String(newOrder.orderDate || new Date().toISOString())) });   // (in a closed month, today: lib/books-close)
         }
 
         toast({
@@ -1029,7 +1030,7 @@ export default function InventoryPage() {
             relatedOrderId: newOrder.id,
         };
         const transactionsRef = collection(firestore, 'tenants', tenantId, 'transactions');
-        addDocumentNonBlocking(transactionsRef, { ...newTransaction, date: newOrder.orderDate });
+        addDocumentNonBlocking(transactionsRef, { ...newTransaction, ...datedFor(selectedTenant, String(newOrder.orderDate || new Date().toISOString())) });   // (in a closed month, today: lib/books-close)
     }
 
     toast({

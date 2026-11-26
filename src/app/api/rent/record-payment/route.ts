@@ -5,6 +5,7 @@
 // payment has just paid is never paid twice, and a bill autopay is still working on is left for autopay to settle. The renter is then sent a receipt (lib/account-receipts), unless the
 // business has rent receipts switched off.
 import { NextRequest, NextResponse } from 'next/server';
+import { datedFor } from '@/lib/books-close';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { requireRole } from '@/lib/route-guard';
 import { planRentPayment, accountPosition } from '@/lib/rent-payment-plan';
@@ -82,7 +83,7 @@ export async function POST(req: NextRequest) {
     const entry = buildLedgerEntry({
       source: 'booth_rent', sourceId: payRef.id, amountCents, category: 'Booth Rent',
       description: `Rent — ${booth?.name || 'space'} — ${name}${note ? ` · ${note}` : ''}`,
-      clientOrVendor: name, date, paymentMethod: methodLabel,
+      clientOrVendor: name, ...datedFor(tenant, date), paymentMethod: methodLabel,
     } as any);
     tx.set(txnRef, { ...entry, id: txnRef.id, tenantId, renterId, leaseId: lease?.id || null });
     for (const bill of plan.bills) {

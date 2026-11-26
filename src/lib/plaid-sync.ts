@@ -13,6 +13,7 @@
 import { logAuditAdmin } from './audit';
 import { automationOn } from './automation-switches';
 import { appOrdersOf } from './app-orders';
+import { datedFor } from './books-close';
 
 const PLAID_BASE: Record<string, string> = {
   sandbox: 'https://sandbox.plaid.com',
@@ -287,7 +288,7 @@ async function syncBody(db: any, tenantId: string): Promise<SyncResult> {
         const ref = db.doc(`tenants/${tenantId}/transactions/owner_${String(w.id).replace(/[^A-Za-z0-9_]/g, '')}`);
         await ref.set({ id: ref.id, type: wOut ? 'expense' : 'income', context: 'Business', taxBucket: 'transfer', category: wOut ? 'Distribution' : 'Owner Contribution', amount: ac / 100,
           description: wOut ? 'Owner draw (to your personal account)' : 'Owner contribution (from your personal account)', clientOrVendor: 'You',
-          date: String(w.date).slice(0, 10) + 'T12:00:00.000Z', paymentMethod: 'Bank feed', hasReceipt: false, reconciled: true, reconciledAt: nowIso,
+          ...datedFor(tenantDoc, String(w.date).slice(0, 10) + 'T12:00:00.000Z'), paymentMethod: 'Bank feed', hasReceipt: false, reconciled: true, reconciledAt: nowIso,
           bankTransactionId: w.id, autoCategorized: true, sortedBy: 'bank', tenantId, createdAt: nowIso });
         ownerLine = ref.id;
         }
@@ -385,7 +386,7 @@ async function syncBody(db: any, tenantId: string): Promise<SyncResult> {
           id: txnRef.id, type: outflow ? 'expense' : 'income', context: 'Business', taxBucket: 'transfer',
           category: outflow ? 'Distribution' : 'Owner Contribution', amount: cents / 100,
           description: outflow ? 'Owner draw (to your personal account)' : 'Owner contribution (from your personal account)', clientOrVendor: 'You',
-          date: bt.date + 'T12:00:00.000Z', paymentMethod: 'Bank feed', hasReceipt: false, reconciled: true, reconciledAt: nowIso,
+          ...datedFor(tenantDoc, bt.date + 'T12:00:00.000Z'), paymentMethod: 'Bank feed', hasReceipt: false, reconciled: true, reconciledAt: nowIso,
           bankTransactionId: btId, autoCategorized: true, sortedBy: 'bank', tenantId, createdAt: nowIso,
         });
         record.matchedTxnId = txnRef.id;
@@ -476,7 +477,7 @@ async function syncBody(db: any, tenantId: string): Promise<SyncResult> {
           context: bt.__context || 'Business', taxBucket: sugg.taxBucket,
           amount: cents / 100, category: sugg.category,
           description: vendorName, clientOrVendor: vendorName,
-          date: bt.date + 'T12:00:00.000Z', paymentMethod: 'Bank feed',
+          ...datedFor(tenantDoc, bt.date + 'T12:00:00.000Z'), paymentMethod: 'Bank feed',
           hasReceipt: false, reconciled: true, reconciledAt: nowIso,
           bankTransactionId: btId, autoCategorized: true, sortedBy: 'bank', tenantId, createdAt: nowIso,
         });
@@ -497,7 +498,7 @@ async function syncBody(db: any, tenantId: string): Promise<SyncResult> {
           amount: cents / 100, category: rule.category,
           description: bt.merchant_name || bt.name,
           clientOrVendor: bt.merchant_name || bt.name,
-          date: bt.date + 'T12:00:00.000Z', paymentMethod: 'Bank feed',
+          ...datedFor(tenantDoc, bt.date + 'T12:00:00.000Z'), paymentMethod: 'Bank feed',
           hasReceipt: false, reconciled: true, reconciledAt: nowIso,
           bankTransactionId: btId, autoCategorized: true, tenantId, createdAt: nowIso,
         });

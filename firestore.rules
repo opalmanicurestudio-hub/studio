@@ -31,6 +31,16 @@ service cloud.firestore {
         (inDirectory(tenantId) && dirEntry().data.role == 'owner')
       );
     }
+    // Whether a books line is dated after the last closed month (lib/books-close): by day ('2026-11-01') from the first
+    // open day, by the moment (an ISO time, or a stored time) from that day's first moment where the business is. No
+    // closed month, or no date on the line: open.
+    function lineOpen(tenantId, d) {
+      let bc = get(/databases/$(database)/documents/tenants/$(tenantId)).data.get('booksClose', null);
+      let day = d.get('date', '');
+      return bc == null || !(bc is map) || !('openDay' in bc) || !('openFrom' in bc)
+        || (day is string && (day == '' || (day.size() <= 10 && day >= bc.openDay) || (day.size() > 10 && day >= bc.openFrom)))
+        || (day is timestamp && 'openFromMs' in bc && day.toMillis() >= bc.openFromMs);
+    }
     function isStaff(tenantId) {
       return isSignedIn() && (
         request.auth.uid == tenantDoc(tenantId).data.userId ||
@@ -89,7 +99,7 @@ service cloud.firestore {
       allow update: if isOwner(tenantId)
         && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
              'userId', 'subscriptionStatus', 'subscriptionTier', 'accessLocked',
-             'inviteCode', 'activatedAt', 'suspended', 'platformNotes', 'plan', 'billing', 'addons'
+             'inviteCode', 'activatedAt', 'suspended', 'platformNotes', 'plan', 'billing', 'addons', 'booksClose'
            ]);
     }
     match /tenants/{tenantId}/services/{serviceId} {
@@ -418,7 +428,13 @@ service cloud.firestore {
     match /tenants/{tenantId}/transactions/{txnId} {
       // A portal sign-in reads only its own sales (their earnings).
       allow read: if isStaff(tenantId) || (isPortalMember(tenantId) && resource.data.get('staffId', '') == portalStaffId());
-      allow create, update: if isStaff(tenantId);
+      // A closed month (lib/books-close, tenants/{t}.booksClose, set by the server) keeps its lines as they are: none dated
+      // in it is added, and one in it changes only its matches, receipts, notes and refund marks (a refund itself goes in
+      // on the day it's made).
+      allow create: if isStaff(tenantId) && lineOpen(tenantId, request.resource.data);
+      allow update: if isStaff(tenantId) && ((lineOpen(tenantId, resource.data) && lineOpen(tenantId, request.resource.data))
+        || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['refundedAt', 'refundTransactionId', 'refundedCents', 'reconciled',
+             'reconciledAt', 'bankTransactionId', 'receiptUrl', 'receiptPath', 'receiptName', 'hasReceipt', 'notes', 'updatedAt']));
       allow delete: if false;
     }
     match /tenants/{tenantId}/rentInvoices/{invId} {

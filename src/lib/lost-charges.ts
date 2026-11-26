@@ -22,6 +22,7 @@
 // when the booking was paid another way meanwhile, for the desk to refund one), and a fee whose change wasn't saved is
 // told to the owners.
 import Stripe from 'stripe';
+import { datedAt } from './books-close';
 
 const SETTLE_AFTER_MS = 20 * 60000;     // an attempt still open this long has lost its answer
 const NOTHING_AFTER_MS = 2 * 3600000;   // no payment under the key by then: it never reached Stripe
@@ -65,7 +66,8 @@ async function recordIncome(db: any, tenantId: string, a: any, pi: any, client: 
   const lc: any = pi.latest_charge; const chargeId = lc ? (typeof lc === 'string' ? lc : lc.id || null) : null;
   const cents = c0(pi.amount_received ?? pi.amount ?? a.amountCents); const sur = Math.min(cents, c0(a.surchargeCents));
   const at = new Date(((Number(pi.created) || 0) * 1000) || Date.now()).toISOString();
-  const base = { date: at, clientOrVendor: client?.name || 'Client', clientId: a.clientId || null, type: 'income', context: 'Business', paymentMethod: 'Card on file (Stripe)',
+  // (On the charge's day; in a closed month, today: lib/books-close.)
+  const base = { ...(await datedAt(db, tenantId, at)), clientOrVendor: client?.name || 'Client', clientId: a.clientId || null, type: 'income', context: 'Business', paymentMethod: 'Card on file (Stripe)',
     appointmentId: a.appointmentId || null, stripePaymentIntentId: pi.id, stripeChargeId: chargeId, checkoutSessionId: a.checkoutSessionId || null, tenantId,
     notes: 'The charge went through after its answer was lost; recorded by the five-minute check.' };
   const lineRef = db.doc(`${T}/transactions/${id}`);
@@ -117,7 +119,7 @@ async function asDeposit(db: any, tenantId: string, a: any, pi: any, ap: any, cl
       ...(split ? { cents: received, received, balance: { id: `${incomeId}__balance`, method: 'Card on file (Stripe)' } } : { cents: depCents }),
       paymentIntentId: String(pi.id), chargeId, via: 'card_on_file', clientEmail: ap.clientEmail || client.email || null, keepFirst: ap.depositStatus === 'paid',
       extra: { depositChargeUnconfirmed: null, depositPaidVia: 'card_on_file' },
-      income: { id: incomeId, data: { id: incomeId, date: new Date(((Number(pi.created) || 0) * 1000) || now).toISOString(), description: a.description || 'Deposit',
+      income: { id: incomeId, data: { id: incomeId, ...(await datedAt(db, tenantId, new Date(((Number(pi.created) || 0) * 1000) || now).toISOString(), now)), description: a.description || 'Deposit',
         clientOrVendor: ap.clientName || client.name || 'Client', clientId: a.clientId || null, type: 'income', context: 'Business', category: a.category || 'Retainers', taxBucket: 'revenue',
         paymentMethod: 'Card on file (Stripe)', appointmentId: a.appointmentId, stripePaymentIntentId: pi.id, stripeChargeId: chargeId, hasReceipt: true, tenantId,
         notes: 'The deposit charge went through but its answer was lost; recorded by the five-minute check.' } },

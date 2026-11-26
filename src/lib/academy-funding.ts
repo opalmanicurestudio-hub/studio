@@ -19,6 +19,7 @@
 // organisation is a tax-exempt nonprofit AND gives its EIN.
 
 import Stripe from 'stripe';
+import { datedAt } from '@/lib/books-close';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { appendAudit } from '@/lib/academy-compliance';
 import { ledger } from '@/lib/academy-admissions';
@@ -71,6 +72,8 @@ export async function donationSession(tenantId: string, g: GiftInput, origin: st
 export async function completeDonation(tenantId: string, session: any) {
   if (session?.metadata?.type !== 'academy_donation' || session.payment_status !== 'paid') return null;
   const db = getAdminDb(); const ref = db.doc(`tenants/${tenantId}/donations/${session.id}`);
+  // (Its books line: dated now; in a closed month, today all the same: lib/books-close.)
+  const lineDate = await datedAt(db, tenantId, new Date().toISOString());
   const made = await db.runTransaction(async (tx: any) => { const s = await tx.get(ref); if (s.exists) return null; const m = session.metadata || {};
     const rec = { id: session.id, amountCents: Number(session.amount_total) || 0, fund: m.fund || GENERAL, name: m.name || session.customer_details?.name || '', email: String(session.customer_details?.email || session.customer_email || '').toLowerCase() || null,
       anonymous: !!m.anonymous, business: m.business || null, showName: !!m.showName, message: m.message || null, status: 'paid', createdAt: new Date().toISOString(), paymentIntent: typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id || null,
@@ -80,7 +83,7 @@ export async function completeDonation(tenantId: string, session: any) {
     // company's own notice, as every payment's is (lib/stripe-fee).
     if (rec.amountCents > 0) {
       const line = db.doc(`tenants/${tenantId}/transactions/donation_${String(session.id).replace(/[^A-Za-z0-9_]/g, '')}`);
-      tx.set(line, { id: line.id, date: rec.createdAt, description: `Gift to ${rec.fund}${rec.business ? ` from ${rec.business}` : ''}`, clientOrVendor: rec.anonymous ? 'Anonymous' : (rec.business || rec.name || 'A donor'),
+      tx.set(line, { id: line.id, ...lineDate, description: `Gift to ${rec.fund}${rec.business ? ` from ${rec.business}` : ''}`, clientOrVendor: rec.anonymous ? 'Anonymous' : (rec.business || rec.name || 'A donor'),
         type: 'income', context: 'Business', category: 'Donations', taxBucket: 'income', amount: rec.amountCents / 100, paymentMethod: 'Card (Stripe)', hasReceipt: false,
         source: 'academy_donation', sourceId: session.id, ...(rec.paymentIntent ? { stripePaymentIntentId: rec.paymentIntent } : {}), tenantId, createdAt: rec.createdAt });
     }

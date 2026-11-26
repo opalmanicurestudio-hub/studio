@@ -5,6 +5,8 @@
 // approval notice alone never recorded one: every card reader sale was missing its processing fee.
 // The revenue line it belongs to is given the fee and the net amount, for reports.
 
+import { datedFor } from './books-close';
+
 /** Record the fee for a charge that has been captured. Returns the fee in cents, or 0 when there's none (yet). */
 export async function recordChargeFee(db: any, stripe: any, tenantId: string, connAcct: string, charge: any): Promise<number> {
   const balTxnId = typeof charge?.balance_transaction === 'string' ? charge.balance_transaction : charge?.balance_transaction?.id;
@@ -31,7 +33,8 @@ export async function recordChargeFee(db: any, stripe: any, tenantId: string, co
   try {
     await feeRef.create({
       id: feeRef.id,
-      date: new Date((Number(charge.created) || Math.floor(Date.now() / 1000)) * 1000).toISOString(),
+      // (On the charge's day; in a closed month, today: lib/books-close.)
+      ...datedFor((await db.doc(T).get().catch(() => null))?.data() || {}, new Date((Number(charge.created) || Math.floor(Date.now() / 1000)) * 1000).toISOString()),
       description: `Stripe fee — ${paymentLabel}`,
       clientOrVendor: 'Stripe',
       clientId: charge.metadata?.clientId || null,

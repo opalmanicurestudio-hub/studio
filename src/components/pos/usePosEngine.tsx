@@ -9,6 +9,7 @@
 
 
 import { hourlyRate } from '@/lib/product-cost';
+import { closeOf, inClosedMonth, monthName } from '@/lib/books-close';
 import { useToday, useTransactionsInRange } from '@/hooks/use-transactions';
 import { useAppointmentWindow, useClientVisits } from '@/hooks/use-appointments';
 import { useClientsByIds } from '@/hooks/use-clients';
@@ -1684,6 +1685,8 @@ export function usePosEngine() {
     let originalTx: any = transactions?.find(t => t.id === txId);
     if (!originalTx) { try { const snap = await getDoc(txRef); if (snap.exists()) originalTx = { id: snap.id, ...(snap.data() as any) }; } catch { /* reversal needs the original */ } }
     if (originalTx) batch.set(reversalRef, sanitizeForFirestore({ id: reversalRef.id, date: new Date().toISOString(), description: `VOID: ${originalTx.description}`, clientOrVendor: originalTx.clientOrVendor, clientId: originalTx.clientId, type: originalTx.type === 'income' ? 'expense' : 'income', context: 'Business', category: 'Void', taxBucket: 'refund', amount: originalTx.amount, paymentMethod: originalTx.paymentMethod, voidOf: txId, voidType: originalTx.type || null, voidCategory: originalTx.category || null, voidTaxBucket: (originalTx as any).taxBucket || null, notes: reason, hasReceipt: false, tenantId }));
+    // (A sale in a closed month keeps its lines as they are: it's refunded instead, on today's date. lib/books-close.)
+    if (originalTx && inClosedMonth(selectedTenant, originalTx.date)) { const c = closeOf(selectedTenant); toast({ variant: 'destructive', title: `${c ? monthName(c.through, false) : 'Its month'} is closed`, description: 'A sale from a closed month can’t be voided. Refund it instead: the refund goes in today.' }); return; }
     await batch.commit();
     toast({ title: 'Transaction Voided', description: `Reversal recorded. Authorized by ${authorizer.data().name}.` });
     setIsVoidDialogOpen(false); setVoidTransactionId(null);

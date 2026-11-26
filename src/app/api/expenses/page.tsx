@@ -20,6 +20,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { collection, doc, onSnapshot, query, where, setDoc, deleteDoc } from 'firebase/firestore';
 import { useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
+import { closeOf, inClosedMonth, monthName } from '@/lib/books-close';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -54,6 +55,7 @@ export default function ExpensesPage() {
 
   const [expenses, setExpenses] = useState<any[] | null>(null);
   const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
   const [form, setForm] = useState({
     amount: '', category: EXPENSE_CATEGORIES[0].label, description: '',
     vendor: '', date: new Date().toISOString().slice(0, 10), method: 'Card',
@@ -82,7 +84,9 @@ export default function ExpensesPage() {
 
   const save = async () => {
     if (!canSave || !firestore || !tenantId) return;
-    setSaving(true);
+    // A closed month keeps its lines as they are (lib/books-close): dated in one, it goes in today as a correction.
+    if (inClosedMonth(selectedTenant, `${form.date}T12:00:00.000Z`)) { const c = closeOf(selectedTenant); setErr(`${c ? monthName(c.through, false) : 'That month'} is closed. Date it today: it goes in as a correction, and the closed month stays as it was.`); return; }
+    setErr(null); setSaving(true);
     try {
       const cat = EXPENSE_CATEGORIES.find(c => c.label === form.category) ?? EXPENSE_CATEGORIES[EXPENSE_CATEGORIES.length - 1];
       const ref = doc(collection(firestore, 'tenants', tenantId, 'transactions'));
@@ -103,7 +107,7 @@ export default function ExpensesPage() {
         createdAt: nowIso,
       });
       setForm(f => ({ ...f, amount: '', description: '', vendor: '' }));
-    } finally {
+    } catch { setErr('That didn’t save. Try again.'); } finally {
       setSaving(false);
     }
   };
@@ -180,6 +184,7 @@ export default function ExpensesPage() {
             <Plus className="h-4 w-4 mr-1.5" />
             {saving ? 'Saving…' : 'Log expense'}
           </Button>
+          {err && <p role="alert" className="text-sm font-medium text-amber-700">{err}</p>}
         </div>
 
         {expenses === null ? (

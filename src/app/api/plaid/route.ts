@@ -34,6 +34,7 @@ import { bucketFor } from '@/lib/categories';
 // cron (/api/cron/nightly) runs the exact same logic as the Sync button.
 import { plaid, vendorKey, syncTenantBankFeed } from '@/lib/plaid-sync';
 import { logAuditAdmin } from '@/lib/audit';
+import { datedFor } from '@/lib/books-close';
 
 export async function POST(req: NextRequest) {
   try {
@@ -48,6 +49,8 @@ export async function POST(req: NextRequest) {
       console.error('[plaid] PLAID_CLIENT_ID / PLAID_SECRET are not set'); return NextResponse.json({ ok: false, error: 'Bank connections aren’t available yet.' }, { status: 500 });
     }
     const db = getAdminDb();
+    // (A line booked for a month that's closed goes in today, saying the day it was for: lib/books-close.)
+    const biz: any = ['resolve', 'accept-all'].includes(String(action)) ? (await db.doc(`tenants/${tenantId}`).get()).data() || {} : {};
 
     // Acting team member, forwarded by the client for audit attribution.
     // TODO(hardening): verify a Firebase Auth ID token here instead of
@@ -156,7 +159,7 @@ export async function POST(req: NextRequest) {
           category: finalCategory,
           description: bt.merchant || bt.name,
           clientOrVendor: bt.merchant || bt.name,
-          date: bt.date + 'T12:00:00.000Z',
+          ...datedFor(biz, bt.date + 'T12:00:00.000Z'),
           paymentMethod: 'Bank feed',
           hasReceipt: !!receiptUrl,
           ...(receiptUrl ? { receiptUrl } : {}),
@@ -215,7 +218,7 @@ export async function POST(req: NextRequest) {
           context: bt.context || 'Business', taxBucket: bt.suggestedTaxBucket || 'operating_cost',
           amount: bt.amountCents / 100, category: bt.suggestedCategory || 'Uncategorized',
           description: bt.merchant || bt.name, clientOrVendor: bt.merchant || bt.name,
-          date: bt.date + 'T12:00:00.000Z', paymentMethod: 'Bank feed', hasReceipt: false,
+          ...datedFor(biz, bt.date + 'T12:00:00.000Z'), paymentMethod: 'Bank feed', hasReceipt: false,
           ...(bt.suggestedBillInstanceId ? { relatedBillInstanceId: bt.suggestedBillInstanceId } : {}),
           reconciled: true, reconciledAt: nowIso, bankTransactionId: d.id, tenantId, createdAt: nowIso,
         });

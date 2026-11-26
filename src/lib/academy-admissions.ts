@@ -35,6 +35,7 @@
 //   - the plan moves on once per payment, in one step read fresh.
 
 import { createHash, randomBytes } from 'crypto';
+import { datedAt } from '@/lib/books-close';
 import Stripe from 'stripe';
 import { FieldValue } from 'firebase-admin/firestore';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -167,7 +168,8 @@ export async function tuitionToBooks(tenantId: string, entryId: string, e: { pla
   const entry = buildLedgerEntry({ source: 'academy_tuition', sourceId: entryId, amountCents: Math.abs(Math.round(e.amountCents)), category: pay ? 'Tuition' : 'Tuition Refunds', type: pay ? 'income' : 'expense',
     description: `${pay ? 'Tuition' : 'Tuition refund'} — ${p.name || 'Student'} — ${e.desc}`, clientOrVendor: p.name || undefined, date: e.at,
     paymentMethod: ['autopay', 'student'].includes(e.by) || /online|autopay/i.test(e.desc) ? 'Card (Stripe)' : 'Other', stripePaymentIntentId: e.ref && /^(pi_|cs_)/.test(e.ref) ? e.ref : null } as any);
-  await ref.set({ ...entry, id, tuitionEntryId: entryId, planId: e.planId });
+  // (On the entry's day; in a closed month, today: lib/books-close.)
+  await ref.set({ ...entry, ...(await datedAt(db, tenantId, String((entry as any).date || e.at))), id, tuitionEntryId: entryId, planId: e.planId });
   return true;
 }
 export async function planBalance(tenantId: string, planId: string) {

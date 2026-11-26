@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { handleRetailOrderPaid, handleRetailCheckoutExpired } from '@/lib/retail-webhook';
+import { datedAt } from '@/lib/books-close';
 import { tenantTimeZone } from '@/lib/tenant-time';
 import { logAuditAdmin } from '@/lib/audit';
 import { completeDonation } from '@/lib/academy-funding';
@@ -842,7 +843,7 @@ export async function handleConnectWebhook(req: NextRequest) {
           if (feeReturn <= 0) continue;
           try {
             await retRef.create({
-              id: retRef.id, date: new Date((Number(rf.created) || Math.floor(Date.now() / 1000)) * 1000).toISOString(), description: 'Stripe fee return — refund credit', clientOrVendor: 'Stripe',
+              id: retRef.id, ...(await datedAt(db, tenant.id, new Date((Number(rf.created) || Math.floor(Date.now() / 1000)) * 1000).toISOString())), description: 'Stripe fee return — refund credit', clientOrVendor: 'Stripe',
               type: 'income', context: 'Business', category: 'Processing Fee', taxBucket: 'processing_fee', amount: feeReturn, paymentMethod: 'Stripe', hasReceipt: false,
               stripeChargeId: charge.id, stripeRefundId: rf.id, stripeBalanceTxnId: refundBalTxnId, stripeConnectedAccountId: connAcct, tenantId: tenant.id,
             });
@@ -886,8 +887,10 @@ export async function handleConnectWebhook(req: NextRequest) {
         const feeCents = (Array.isArray((dispute as any).balance_transactions) ? (dispute as any).balance_transactions : [])
           .reduce((sum: number, b: any) => sum + Math.max(0, Number(b?.fee) || 0), 0);
         const feeRef = db.doc(`tenants/${tenant.id}/transactions/disputefee_${dKey}`);
+        // (On the dispute's day; in a closed month, today: lib/books-close.)
+        const feeDate = await datedAt(db, tenant.id, new Date(dispute.created * 1000).toISOString());
         const feeLine = (clientId: string | null) => ({
-          id: feeRef.id, date: new Date(dispute.created * 1000).toISOString(), description: `Dispute fee — ${dispute.reason}`, clientOrVendor: 'Stripe', clientId,
+          id: feeRef.id, ...feeDate, description: `Dispute fee — ${dispute.reason}`, clientOrVendor: 'Stripe', clientId,
           type: 'expense', context: 'Business', category: 'Processing Fee', taxBucket: 'processing_fee', amount: feeCents / 100, paymentMethod: 'Stripe', hasReceipt: false,
           stripeDisputeId: dispute.id, stripeChargeId: chargeId || null, stripeConnectedAccountId: connAcct,
           notes: `Reason: ${dispute.reason}. Disputed: $${(dispute.amount / 100).toFixed(2)}`, tenantId: tenant.id,

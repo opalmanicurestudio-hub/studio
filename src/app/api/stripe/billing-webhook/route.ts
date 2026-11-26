@@ -22,6 +22,7 @@
 //     their return or a later tap on Pay (lib/rent-online-pay)
 
 import { NextRequest, NextResponse } from 'next/server';
+import { datedFor } from '@/lib/books-close';
 import Stripe from 'stripe';
 import { getAdminDb, getAdminAuth } from '@/lib/firebase-admin';
 import { resolveFromAddress } from '@/lib/notify';
@@ -42,10 +43,12 @@ async function email(to: string, subject: string, text: string) {
 async function recordPlanExpense(db: any, tenantId: string, inv: Stripe.Invoice, paidAt: Date) {
   const ref = db.doc(`tenants/${tenantId}/transactions/clarityflow_${String(inv.id).replace(/[^A-Za-z0-9_]/g, '')}`);
   const url = inv.hosted_invoice_url || null;
+  // (On the day it was paid; in a closed month, today: lib/books-close.)
+  const biz = (await db.doc(`tenants/${tenantId}`).get().catch(() => null))?.data() || {};
   await db.runTransaction(async (tx: any) => {
     if ((await tx.get(ref)).exists) return;
     tx.set(ref, {
-      id: ref.id, date: paidAt.toISOString(), description: `ClarityFlow${inv.number ? `, invoice ${inv.number}` : ''}`, clientOrVendor: 'ClarityFlow',
+      id: ref.id, ...datedFor(biz, paidAt.toISOString()), description: `ClarityFlow${inv.number ? `, invoice ${inv.number}` : ''}`, clientOrVendor: 'ClarityFlow',
       type: 'expense', context: 'Business', category: 'Software & Subscriptions', taxBucket: 'operating_cost',
       amount: Math.round(Number(inv.amount_paid)) / 100, paymentMethod: 'Card', hasReceipt: !!url, ...(url ? { receiptUrl: url } : {}),
       source: 'platform_invoice', sourceId: String(inv.id), platformInvoiceId: String(inv.id), tenantId, createdAt: new Date().toISOString(),

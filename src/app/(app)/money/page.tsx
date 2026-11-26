@@ -12,6 +12,8 @@ import { useAppointmentsByIds } from '@/hooks/use-appointments';
 import { RestockingFundCard } from '@/components/money/RestockingFundCard';
 import { AppPayoutsCard } from '@/components/money/AppPayoutsCard';
 import { SalesTaxDueCard } from '@/components/money/SalesTaxDueCard';
+import { MonthCloseCard } from '@/components/money/MonthCloseCard';
+import { closeOf, inClosedMonth, monthName } from '@/lib/books-close';
 import { MilesCard } from '@/components/money/MilesCard';
 import { TipShareCard } from '@/components/money/TipShareCard';
 import { OwedToClientsCard } from '@/components/money/OwedToClientsCard';
@@ -1065,6 +1067,12 @@ const LedgerTab = () => {
 
   const handleAddTransaction = (data: Omit<Transaction, 'id'>) => {
     if (!firestore || !tenantId) return;
+    // A closed month keeps its lines as they are (lib/books-close): a line for it goes in today, as a correction.
+    if (inClosedMonth(selectedTenant, (data as any).date)) {
+      const c = closeOf(selectedTenant);
+      toast({ variant: 'destructive', title: `${c ? monthName(c.through, false) : 'That month'} is closed`, description: 'Date it today instead: it goes in as a correction, and the closed month stays as it was.' });
+      return;
+    }
     addDocumentNonBlocking(collection(firestore, 'tenants', tenantId, 'transactions'), data);
     if (data.type !== 'reversal') {
       writeAudit(firestore, tenantId, {
@@ -2608,6 +2616,7 @@ const OverviewTab = ({ onNavigate }: { onNavigate: (tab: HubTab) => void }) => {
         </div>
 
         {tenantId && <SalesTaxDueCard tenantId={tenantId} />}
+        {tenantId && <MonthCloseCard tenantId={tenantId} />}
         {tenantId && <AppPayoutsCard tenantId={tenantId} />}
         {tenantId && <MilesCard tenantId={tenantId} />}
         {tenantId && <RestockingFundCard tenantId={tenantId} />}

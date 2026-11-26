@@ -112,7 +112,7 @@ process.env.RESEND_API_KEY = 're_test'; process.env.NOTIFY_FROM_EMAIL = 'shop@ex
   r = await billing.POST(breq({ tenantId: 't1', action: 'addon', addon: 'digitalProtection', on: true }));
   check('and on again', r.body.ok && (await get(T)).addons.digitalProtection.active === true);
   const rules = fs.readFileSync('firestore.rules', 'utf8');
-  check('the browser can’t switch an add-on on for free (rules lock tenant.addons)', /'plan', 'billing', 'addons'\s*\]\);/.test(rules));
+  check('the browser can’t switch an add-on on for free (rules lock tenant.addons)', /'plan', 'billing', 'addons'(, '[A-Za-z]+')*\s*\]\);/.test(rules));
 
   // ── The rules for devices (pure)
   console.log('device rules');

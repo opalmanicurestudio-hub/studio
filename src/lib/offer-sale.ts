@@ -12,6 +12,7 @@
 // marks the sale so the next try (Stripe retries its notice; a daily sweep runs too) picks it straight back up.
 
 import type { Firestore } from 'firebase-admin/firestore';
+import { datedAt } from './books-close';
 import { enrollMembership, enrollPackage } from '@/lib/memberships/enroll-membership';
 import { payLaterCheckoutParams, createCheckoutSession } from '@/lib/pay-later';
 import { hasUsableCard } from '@/lib/payments/has-usable-card';
@@ -235,7 +236,7 @@ export async function finishOfferSale(db: Firestore, stripe: any, tenantId: stri
       const charged = (Number(session.amount_total) || 0) / 100;
       const paidAt = Number(session.created) > 0 ? new Date(Number(session.created) * 1000).toISOString() : nowIso;
       const lineRef = db.doc(`tenants/${tenantId}/transactions/${kind === 'membership' ? 'membership' : 'package'}_${safeId(piId || sessionId)}`);
-      await lineRef.set({ id: lineRef.id, tenantId, date: paidAt, description: `${kind === 'membership' ? 'Membership' : 'Package'}: ${itemName} (bought online)`, clientOrVendor: client.name || name, clientId: clientRef.id,
+      await lineRef.set({ id: lineRef.id, tenantId, ...(await datedAt(db, tenantId, paidAt)), description: `${kind === 'membership' ? 'Membership' : 'Package'}: ${itemName} (bought online)`, clientOrVendor: client.name || name, clientId: clientRef.id,
         type: 'income', context: 'Business', category: kind === 'membership' ? 'Membership Sales' : 'Package Sales', amount: charged, paymentMethod: 'Card (Stripe)', taxBucket: 'revenue',
         stripePaymentIntentId: piId, stripeChargeId: typeof pi?.latest_charge === 'string' ? pi.latest_charge : pi?.latest_charge?.id || null, checkoutSessionId: sessionId, hasReceipt: true });
       // A membership renews on the card it was paid with: saved when the profile has none (or it's the same card).
