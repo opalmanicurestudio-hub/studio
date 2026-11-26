@@ -270,3 +270,10 @@ export function netSalesOf(t: any, byId?: Map<string, any>): number {
   if (e.side === 'discounts') return -e.amount;
   return 0;
 }
+
+/** A line as every screen and report reads it: dollars in `amount` (older lines kept cents), income when it never said,
+ *  Business unless it says Personal, and a category to show. Its tax bucket is left as it is: without one, the category
+ *  says where it goes (lib/categories), the same on the Money page and on paper. */
+export function normalizeLine<T extends Record<string, any>>(t: T): T & { amount: number; type: string; context: string; category: string } {
+  return { ...t, amount: typeof t?.amount === 'number' ? t.amount : (Number(t?.amountCents) || 0) / 100, type: t?.type || 'income', context: t?.context || 'Business', category: t?.category || 'Uncategorized' };
+}

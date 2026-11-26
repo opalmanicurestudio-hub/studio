@@ -11,8 +11,8 @@ import { useTransactionsInRange, usePunchesInRange } from '@/hooks/use-transacti
 import { useAppointmentsByIds } from '@/hooks/use-appointments';
 import { RestockingFundCard } from '@/components/money/RestockingFundCard';
 import { AppPayoutsCard } from '@/components/money/AppPayoutsCard';
-import { SalesTaxDueCard } from '@/components/money/SalesTaxDueCard';
 import { MonthCloseCard } from '@/components/money/MonthCloseCard';
+import { MoneyOverview } from '@/components/money/MoneyOverview';
 import { closeOf, inClosedMonth, monthName } from '@/lib/books-close';
 import { MilesCard } from '@/components/money/MilesCard';
 import { TipShareCard } from '@/components/money/TipShareCard';
@@ -59,7 +59,7 @@ import {
 } from '@/lib/state-tax-profiles';
 import { COUNTRY_OPTIONS, getCountryOption } from '@/lib/tax-jurisdictions';
 import { auditEntry } from '@/lib/audit';
-import { booksSummary, effectOf, lookupOf, netSalesOf, type BooksSummary } from '@/lib/books-summary';
+import { booksSummary, effectOf, lookupOf, netSalesOf, normalizeLine, type BooksSummary } from '@/lib/books-summary';
 import { esc, printLine, printMoney, printPage } from '@/lib/print-style';
 import {
   buildPnlHtml, buildTaxSummaryHtml, buildPayrollRegisterHtml, buildAuditTrailHtml,
@@ -86,7 +86,7 @@ import { BankFeedSection } from '@/components/shared/BankFeedSection';
 import { useInventory } from '@/context/InventoryContext';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { collection, doc, writeBatch, increment, arrayUnion, getDoc, getDocs, query, where, onSnapshot, orderBy, limit, runTransaction } from 'firebase/firestore';
+import { collection, doc, writeBatch, increment, arrayUnion, getDoc, getDocs, getCountFromServer, query, where, onSnapshot, orderBy, limit, runTransaction } from 'firebase/firestore';
 import { Separator } from '@/components/ui/separator';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Switch } from '@/components/ui/switch';
@@ -940,15 +940,12 @@ const LedgerTab = () => {
   // (dollars) and `type` exist. Entries written with amountCents or a
   // missing type (early day-rental payments) are healed here instead of
   // crashing the page.
+  // (The same reading as the overview and the printed reports: lib/books-summary normalizeLine. A line with no tax bucket
+  // goes where its category says.)
   const transactions = useMemo(() => (rawTransactions || []).map((t: any) => ({
-    ...t,
-    amount:        typeof t.amount === 'number' ? t.amount : (Number(t.amountCents) || 0) / 100,
-    type:          t.type || 'income',
-    context:       t.context || 'Business',
-    category:      t.category || 'Uncategorized',
+    ...normalizeLine(t),
     description:   t.description || '',
     clientOrVendor: t.clientOrVendor || '',
-    taxBucket:     t.taxBucket || 'revenue',
   })), [rawTransactions]);
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -1251,11 +1248,6 @@ const LedgerTab = () => {
           </div>
         </div>
 
-        {tenantId && firestore && (
-          <div className="mb-8">
-            <BankFeedSection tenantId={tenantId} firestore={firestore} actor={auditActor} />
-          </div>
-        )}
 
         <div className="flex md:grid md:grid-cols-4 gap-3 md:gap-4 mb-5 md:mb-8 overflow-x-auto md:overflow-visible snap-x snap-mandatory -mx-4 px-4 md:mx-0 md:px-0 pb-1 md:pb-0 [&>*]:min-w-[190px] [&>*]:snap-start [&>*]:shrink-0 md:[&>*]:min-w-0 md:[&>*]:shrink">
           <StatCard
@@ -1448,6 +1440,21 @@ const LedgerTab = () => {
 };
 
 // ─── PaydayTab (formerly PaydayPage) ──────────────────────────────────────────
+
+/** The Bank tab: lines from the connected bank to sort, sorted for you, and matched (components/shared/BankFeedSection). */
+const BankTab = () => {
+  const { firestore } = useFirebase();
+  const { selectedTenant } = useTenant();
+  const auditActor = useAuditActor();
+  const tenantId = selectedTenant?.id;
+  return (
+    <div className="mx-auto w-full max-w-[1180px] px-4 py-5 md:px-6" style={{ color: '#16171a' }}>
+      <h1 className="px-1 text-[30px] font-semibold leading-tight md:text-[34px]" style={{ letterSpacing: '-0.02em' }}>Bank</h1>
+      <p className="mt-1 px-1 text-[14px]" style={{ color: '#6d7075' }}>Each line from your connected bank: sorted for you when it’s plain what it is, matched when it’s money already in your books, and the rest waiting for you with a category picked.</p>
+      <div className="mt-5">{tenantId && firestore && <BankFeedSection tenantId={tenantId} firestore={firestore} actor={auditActor} />}</div>
+    </div>
+  );
+};
 
 const AllocationItem = ({ label, percentage, amount, color }: { label: string, percentage: number, amount: number, color: string }) => (
     <div className="flex items-center justify-between p-3 rounded-xl bg-muted/30 border shadow-sm">
@@ -2494,289 +2501,7 @@ const BillsTab = () => {
 
 // ─── OverviewTab (new) ────────────────────────────────────────────────────────
 
-type HubTab = 'overview' | 'ledger' | 'payday' | 'bills' | 'activity';
-
-type OverviewPreset = '7days' | '30days' | 'thisMonth';
-
-const OverviewTab = ({ onNavigate }: { onNavigate: (tab: HubTab) => void }) => {
-  const { billDefinitions, billInstances, staff, isLoading: ctxLoading, services } = useInventory();
-  const { firestore } = useFirebase();
-  const { selectedTenant } = useTenant();
-  const tenantId = selectedTenant?.id;
-
-  // Latest audit entries for the "what just happened" card
-  const [recentActivity, setRecentActivity] = useState<any[]>([]);
-  useEffect(() => {
-    if (!firestore || !tenantId) return;
-    const q = query(collection(firestore, `tenants/${tenantId}/auditLogs`), orderBy('at', 'desc'), limit(3));
-    const unsub = onSnapshot(q, snap => setRecentActivity(snap.docs.map(d => d.data() as any)), () => setRecentActivity([]));
-    return () => unsub();
-  }, [firestore, tenantId]);
-
-
-  const [preset, setPreset] = useState<OverviewPreset>('thisMonth');
-
-  const range = useMemo(() => {
-    const now = new Date();
-    if (preset === '7days')  return { from: startOfDay(subDays(now, 6)),  to: endOfDay(now) };
-    if (preset === '30days') return { from: startOfDay(subDays(now, 29)), to: endOfDay(now) };
-    return { from: startOfMonth(now), to: endOfMonth(now) };
-  }, [preset]);
-  // Only the period on screen is read.
-  const ovFrom = useMemo(() => new Date(range.from.getTime()), [range]);
-  const ovTo = useMemo(() => new Date(range.to.getTime() + 1), [range]);
-  const { transactions: rawTransactions, isLoading: txLoading } = useTransactionsInRange(ovFrom, ovTo);
-  const { activityLogs, isLoading: punchLoading } = usePunchesInRange(ovFrom, ovTo);
-  const isLoading = ctxLoading || txLoading || punchLoading;
-  const transactions = useMemo(() => (rawTransactions || []).map((t: any) => ({
-    ...t,
-    amount:   typeof t.amount === 'number' ? t.amount : (Number(t.amountCents) || 0) / 100,
-    type:     t.type || 'income',
-    context:  t.context || 'Business',
-    category: t.category || 'Uncategorized',
-  })), [rawTransactions]);
-
-  const periodTxns = useMemo(() => transactions.filter((t: any) => {
-    const d = safeDate(t.date);
-    return d >= range.from && d <= range.to;
-  }), [transactions, range]);
-
-  // The same reading of the ledger as the Ledger tab and the printed reports (lib/books-summary). Money in is what the
-  // shop earned (net sales, the team's tips, other income); money out is what it cost; tax and gift cards are held.
-  const periodById = useMemo(() => lookupOf(transactions), [transactions]);
-  const summary = useMemo(() => {
-    const b = booksSummary(periodTxns, { lookup: transactions });
-    return { revenue: b.income, expenses: b.cogs + b.netFees + b.operatingExpenses, net: b.net, taxLiability: b.taxOwed, tips: b.tips };
-  }, [periodTxns, transactions]);
-
-  const dailyRevenueData = useMemo(() => {
-    const days = eachDayOfInterval({ start: range.from, end: range.to });
-    if (days.length > 60) return [];
-    return days.map(day =>
-      periodTxns
-        .filter((t: any) => isSameDay(safeDate(t.date), day))
-        .reduce((s: number, t: any) => s + netSalesOf(t, periodById), 0)
-    );
-  }, [periodTxns, range, periodById]);
-
-  // ── Staff owed this period (same math as Payday tab) ──
-  // The visits this period's payments belong to, read by id (who did the work), not every visit ever.
-  const periodVisitIds = useMemo(() => (periodTxns || []).map((t: any) => String(t.appointmentId || '')).filter(Boolean), [periodTxns]);
-  const { appointments } = useAppointmentsByIds(periodVisitIds);
-  const apptStaff = useMemo(() => Object.fromEntries((appointments || []).filter((a: any) => a?.id && a.staffId).map((a: any) => [a.id, String(a.staffId)])) as Record<string, string>, [appointments]);
-  const staffTotalOwed = useMemo(() => {
-    if (!staff) return 0;
-    const sessions = sessionsFrom((activityLogs || []) as any, clockPolicy(selectedTenant));
-    return staff.filter((m: any) => m.isRenter !== true).reduce((total: number, member: any) =>
-      total + periodPay({ member, from: range.from, to: range.to, incomeTxns: periodTxns, services: services || [], tenant: selectedTenant, sessions, apptStaff }).total, 0);
-  }, [staff, periodTxns, activityLogs, range, services, apptStaff, selectedTenant]);
-
-  // ── Bills snapshot (all unpaid, not just this period) ──
-  const billsSnapshot = useMemo(() => {
-    const today = startOfDay(new Date());
-    const unpaid = (billInstances || [])
-      .filter((i: any) => i.status !== 'paid')
-      .map((i: any) => ({ i, def: (billDefinitions || []).find((d: any) => d.id === i.billDefinitionId), due: safeDate(i.dueDate) }))
-      .filter((x: any) => x.def);
-    const total   = unpaid.reduce((s: number, x: any) => s + (x.def.amount || 0), 0);
-    const overdue = unpaid.filter((x: any) => x.due < today);
-    const overdueTotal = overdue.reduce((s: number, x: any) => s + (x.def.amount || 0), 0);
-    const business = unpaid.filter((x: any) => x.def.context === 'Business').reduce((s: number, x: any) => s + (x.def.amount || 0), 0);
-    const personal = unpaid.filter((x: any) => x.def.context === 'Personal').reduce((s: number, x: any) => s + (x.def.amount || 0), 0);
-    return { count: unpaid.length, total, overdueCount: overdue.length, overdueTotal, business, personal };
-  }, [billInstances, billDefinitions]);
-
-  const totalObligations = staffTotalOwed + billsSnapshot.total;
-  const safeToAllocate = Math.max(0, summary.net - totalObligations);
-
-  if (isLoading) {
-    return (
-      <div className="p-4 md:p-8 flex items-center justify-center min-h-[50vh]">
-        <Loader className="w-8 h-8 animate-spin text-primary" />
-      </div>
-    );
-  }
-
-  return (
-    <div className="p-4 md:p-8">
-      <div className="max-w-4xl mx-auto space-y-8">
-
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-foreground leading-none">Money Overview</h1>
-            <p className="text-[10px] md:text-sm text-muted-foreground font-medium uppercase tracking-widest opacity-70 mt-1">
-              {format(range.from, 'MMM d')} – {format(range.to, 'MMM d, yyyy')}
-            </p>
-          </div>
-          <div className="flex gap-1.5 p-1.5 bg-muted border-2 border-muted rounded-2xl shadow-inner">
-            {([['7days', '7 Days'], ['30days', '30 Days'], ['thisMonth', 'This Month']] as [OverviewPreset, string][]).map(([v, l]) => (
-              <Button key={v} variant="ghost" size="sm" onClick={() => setPreset(v)} className={cn('text-[9px] font-black uppercase h-8 px-3 rounded-xl transition-all', preset === v ? 'bg-card shadow-sm border border-border/50' : 'hover:bg-card/50')}>{l}</Button>
-            ))}
-          </div>
-        </div>
-
-        {tenantId && <SalesTaxDueCard tenantId={tenantId} />}
-        {tenantId && <MonthCloseCard tenantId={tenantId} />}
-        {tenantId && <AppPayoutsCard tenantId={tenantId} />}
-        {tenantId && <MilesCard tenantId={tenantId} />}
-        {tenantId && <RestockingFundCard tenantId={tenantId} />}
-        {tenantId && <TipShareCard tenantId={tenantId} mode={String((selectedTenant as any)?.tipSharing?.mode || 'direct')} period={(selectedTenant as any)?.tipSharing?.period === 'week' ? 'week' : 'day'} />}
-
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <StatCard
-            label="Money In"
-            value={fmtCurrency(summary.revenue)}
-            icon={TrendingUp}
-            accent="bg-green-100 text-green-700"
-            sparkData={dailyRevenueData}
-            trend="up"
-            trendLabel="Net sales and tips"
-          />
-          <StatCard
-            label="Money Out"
-            value={fmtCurrency(summary.expenses)}
-            icon={TrendingDown}
-            accent="bg-red-100 text-red-600"
-            sub="Costs, fees and bills"
-          />
-          <StatCard
-            label="Net Income"
-            value={fmtCurrency(summary.net)}
-            icon={DollarSign}
-            accent={summary.net >= 0 ? 'bg-primary/10 text-primary' : 'bg-destructive/10 text-destructive'}
-            trend={summary.net >= 0 ? 'up' : 'down'}
-            trendLabel={summary.net >= 0 ? 'Profitable' : 'Net loss'}
-          />
-          <StatCard
-            label="Tax Held"
-            value={fmtCurrency(summary.taxLiability)}
-            icon={AlertCircle}
-            accent="bg-muted text-muted-foreground"
-            sub="Not your income"
-          />
-        </div>
-
-        <Card className={cn('border-2 shadow-xl overflow-hidden', safeToAllocate > 0 ? 'bg-primary/5 border-primary/20' : 'bg-destructive/5 border-destructive/20')}>
-          <CardContent className="p-6 md:p-8 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <div className={cn('p-3.5 rounded-2xl', safeToAllocate > 0 ? 'bg-primary/10' : 'bg-destructive/10')}>
-                <PiggyBank className={cn('w-6 h-6', safeToAllocate > 0 ? 'text-primary' : 'text-destructive')} />
-              </div>
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Safe to Allocate</p>
-                <p className={cn('text-3xl md:text-4xl font-black font-mono tracking-tighter', safeToAllocate > 0 ? 'text-primary' : 'text-destructive')}>
-                  {fmtCurrency(safeToAllocate)}
-                </p>
-                <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground opacity-60 mt-1">
-                  Period net {fmtCurrency(summary.net)} − obligations {fmtCurrency(totalObligations)}
-                </p>
-              </div>
-            </div>
-            <Button onClick={() => onNavigate('payday')} className="h-12 px-6 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20 w-full md:w-auto">
-              Run Payday <ArrowRight className="w-4 h-4 ml-2" />
-            </Button>
-          </CardContent>
-        </Card>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Card className="border-2 shadow-sm rounded-3xl overflow-hidden">
-            <CardHeader className="p-5 border-b bg-muted/5">
-              <CardTitle className="text-xs font-black uppercase tracking-widest flex items-center gap-2">
-                <Users className="w-4 h-4 text-primary" /> Obligations
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-5 space-y-3">
-              {[
-                ['Staff earnings owed', staffTotalOwed, 'text-primary'],
-                ['Business bills', billsSnapshot.business, 'text-blue-600'],
-                ['Personal needs', billsSnapshot.personal, 'text-purple-600'],
-              ].map(([label, val, cls]) => (
-                <div key={label as string} className="flex justify-between items-center text-xs font-bold">
-                  <span className="uppercase tracking-widest text-muted-foreground opacity-70 text-[10px]">{label as string}</span>
-                  <span className={cn('font-mono font-black', cls as string)}>{fmtCurrency(val as number)}</span>
-                </div>
-              ))}
-              <div className="flex justify-between items-center pt-3 border-t-2 border-dashed">
-                <span className="font-black uppercase text-[10px] tracking-widest">Total</span>
-                <span className="font-mono font-black text-lg tracking-tighter">{fmtCurrency(totalObligations)}</span>
-              </div>
-            </CardContent>
-            <CardFooter className="p-5 pt-0">
-              <Button variant="outline" onClick={() => onNavigate('payday')} className="w-full h-11 rounded-2xl border-2 font-black uppercase text-[9px] tracking-widest">
-                <Banknote className="w-4 h-4 mr-2 text-primary" /> Reconcile & Pay Out
-              </Button>
-            </CardFooter>
-          </Card>
-
-          <Card className={cn('border-2 shadow-sm rounded-3xl overflow-hidden', billsSnapshot.overdueCount > 0 && 'border-destructive/30')}>
-            <CardHeader className="p-5 border-b bg-muted/5">
-              <CardTitle className="text-xs font-black uppercase tracking-widest flex items-center gap-2">
-                <Landmark className="w-4 h-4 text-primary" /> Bills
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-5 space-y-3">
-              {billsSnapshot.overdueCount > 0 ? (
-                <div className="flex items-center justify-between px-4 py-3 rounded-2xl bg-destructive/5 border-2 border-destructive/20">
-                  <div className="flex items-center gap-2 text-destructive">
-                    <AlertCircle className="w-4 h-4" />
-                    <span className="text-[10px] font-black uppercase tracking-widest">{billsSnapshot.overdueCount} overdue</span>
-                  </div>
-                  <span className="font-mono font-black text-destructive">{fmtCurrency(billsSnapshot.overdueTotal)}</span>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2 px-4 py-3 rounded-2xl bg-green-50 border-2 border-green-200 text-green-700">
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span className="text-[10px] font-black uppercase tracking-widest">Nothing overdue</span>
-                </div>
-              )}
-              <div className="flex justify-between items-center pt-3 border-t-2 border-dashed">
-                <span className="font-black uppercase text-[10px] tracking-widest">{billsSnapshot.count} unpaid</span>
-                <span className="font-mono font-black text-lg tracking-tighter">{fmtCurrency(billsSnapshot.total)}</span>
-              </div>
-            </CardContent>
-            <CardFooter className="p-5 pt-0">
-              <Button variant="outline" onClick={() => onNavigate('bills')} className="w-full h-11 rounded-2xl border-2 font-black uppercase text-[9px] tracking-widest">
-                <Landmark className="w-4 h-4 mr-2 text-primary" /> View All Bills
-              </Button>
-            </CardFooter>
-          </Card>
-        </div>
-
-        {summary.tips > 0 && (
-          <div className="flex items-center justify-between px-5 py-3.5 rounded-2xl bg-amber-50 border-2 border-amber-200">
-            <div className="flex items-center gap-2 text-amber-800">
-              <DollarSign className="w-4 h-4" />
-              <span className="text-xs font-black uppercase tracking-widest">Tips this period</span>
-            </div>
-            <span className="font-mono font-black text-lg text-amber-800">{fmtCurrency(summary.tips)}</span>
-          </div>
-        )}
-
-        {recentActivity.length > 0 && (
-          <Card className="border-2 shadow-sm rounded-3xl overflow-hidden">
-            <CardHeader className="p-5 border-b bg-muted/5">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-xs font-black uppercase tracking-widest flex items-center gap-2">
-                  <History className="w-4 h-4 text-primary" /> Latest Activity
-                </CardTitle>
-                <Button variant="link" onClick={() => onNavigate('activity')} className="h-auto p-0 text-[9px] font-black uppercase text-primary underline underline-offset-4">
-                  View All
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent className="p-4 space-y-2">
-              {recentActivity.map((e, i) => <ActivityRow key={e.id || i} e={e} />)}
-            </CardContent>
-          </Card>
-        )}
-
-        <Button variant="ghost" onClick={() => onNavigate('ledger')} className="w-full h-14 rounded-2xl border-2 border-dashed font-black uppercase text-[10px] tracking-widest text-muted-foreground hover:text-primary hover:border-primary/30">
-          <BookOpen className="w-4 h-4 mr-2" /> Open the Full Ledger <ArrowRight className="w-4 h-4 ml-2" />
-        </Button>
-      </div>
-    </div>
-  );
-};
+type HubTab = 'overview' | 'ledger' | 'bank' | 'payday' | 'bills' | 'activity';
 
 // ─── ActivityTab — live audit feed for the whole business ────────────────────
 
@@ -2949,15 +2674,16 @@ const ActivityTab = () => {
 
 // ─── MoneyHubPage ─────────────────────────────────────────────────────────────
 
-const HUB_TABS: { key: HubTab; label: string; icon: React.ElementType }[] = [
-  { key: 'overview', label: 'Overview', icon: LayoutDashboard },
-  { key: 'ledger',   label: 'Ledger',   icon: BookOpen },
-  { key: 'payday',   label: 'Payday',   icon: Banknote },
-  { key: 'bills',    label: 'Bills',    icon: Landmark },
-  { key: 'activity', label: 'Activity', icon: History },
+const HUB_TABS: { key: HubTab; label: string }[] = [
+  { key: 'overview', label: 'Overview' },
+  { key: 'ledger',   label: 'Books' },
+  { key: 'bank',     label: 'Bank' },
+  { key: 'payday',   label: 'Payday' },
+  { key: 'bills',    label: 'Bills' },
+  { key: 'activity', label: 'Activity' },
 ];
 
-const VALID_TABS: HubTab[] = ['overview', 'ledger', 'payday', 'bills', 'activity'];
+const VALID_TABS: HubTab[] = ['overview', 'ledger', 'bank', 'payday', 'bills', 'activity'];
 
 function MoneyHubContent() {
   // Deep-linking: /money?tab=payday opens the Payday tab directly, so old
@@ -3006,36 +2732,49 @@ function MoneyHubContent() {
     }
   };
 
-  return (
-    <div className="flex min-h-screen w-full flex-col overflow-x-hidden bg-background">
-      <AppHeader title="Money Hub" />
+  // (How many of the bank's lines wait to be sorted, on the Bank tab and the overview: counted, never read, again when
+  // the tab changes or the page is looked at again. The owner's to read, so for anyone else it isn't shown.)
+  const [bankWaiting, setBankWaiting] = useState<number | null>(null);
+  useEffect(() => {
+    if (!hubFirestore || !hubTenantId) return; let on = true;
+    const count = () => getCountFromServer(query(collection(hubFirestore, `tenants/${hubTenantId}/bankTransactions`), where('status', '==', 'unmatched')))
+      .then((x: any) => { if (on) setBankWaiting(x.data().count); }).catch(() => {});
+    count(); const vis = () => { if (document.visibilityState === 'visible') count(); };
+    document.addEventListener('visibilitychange', vis);
+    return () => { on = false; document.removeEventListener('visibilitychange', vis); };
+  }, [hubFirestore, hubTenantId, activeTab]);
 
-      <div className="sticky top-0 z-30 bg-background/95 backdrop-blur border-b-2 px-4 py-3">
-        <div className="max-w-lg mx-auto flex gap-1.5 p-1.5 bg-muted border-2 border-muted rounded-2xl shadow-inner">
-          {HUB_TABS.map(({ key, label, icon: Icon }) => (
-            <Button
-              key={key}
-              variant="ghost"
-              size="sm"
-              onClick={() => handleTabChange(key)}
-              className={cn(
-                'relative flex-1 h-9 rounded-xl text-[9px] md:text-[10px] font-black uppercase tracking-widest transition-all gap-1.5',
-                activeTab === key ? 'bg-card shadow-sm border border-border/50 text-primary' : 'hover:bg-card/50 text-muted-foreground'
-              )}
-            >
-              <Icon className="w-3.5 h-3.5 shrink-0" />
-              <span className="hidden sm:inline">{label}</span>
-              {key === 'activity' && hasNewActivity && (
-                <span className="absolute top-1 right-1.5 h-2 w-2 rounded-full bg-red-500 animate-pulse" aria-label="New activity" />
-              )}
-            </Button>
+  const tenantId = hubTenantId;
+  return (
+    <div className="flex min-h-screen w-full flex-col overflow-x-hidden" style={{ background: '#f5f5f7' }}>
+      <AppHeader title="Money" />
+
+      <nav aria-label="Money" className="sticky top-0 z-30 border-b px-4 py-2.5 backdrop-blur" style={{ background: 'rgba(245,245,247,0.94)', borderColor: '#ececee' }}>
+        <div className="mx-auto flex max-w-[1180px] gap-1.5 overflow-x-auto md:px-2">
+          {HUB_TABS.map(({ key, label }) => (
+            <button key={key} type="button" aria-current={activeTab === key ? 'page' : undefined} onClick={() => handleTabChange(key)}
+              className="relative flex min-h-[44px] shrink-0 items-center gap-1.5 rounded-full px-4 text-[14px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2"
+              style={activeTab === key ? { background: '#16171a', color: '#fff', fontWeight: 600 } : { background: '#fff', color: '#16171a', border: '1px solid #ececee' }}>
+              {label}
+              {key === 'bank' && !!bankWaiting && <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full px-1.5 text-[12px] font-semibold" style={{ background: '#fff7ed', color: '#b45309' }}>{bankWaiting}</span>}
+              {key === 'activity' && hasNewActivity && <span className="h-2 w-2 rounded-full" style={{ background: '#b45309' }} aria-label="New activity" />}
+            </button>
           ))}
         </div>
-      </div>
+      </nav>
 
       <main className="flex-1 w-full">
-        {visitedTabs.has('overview') && <div className={cn(activeTab !== 'overview' && 'hidden')}><OverviewTab onNavigate={handleTabChange} /></div>}
+        {visitedTabs.has('overview') && <div className={cn(activeTab !== 'overview' && 'hidden')}>
+          <MoneyOverview bankCount={bankWaiting} onNavigate={(t) => handleTabChange(t as HubTab)} more={tenantId ? <>
+            <MonthCloseCard tenantId={tenantId} />
+            <AppPayoutsCard tenantId={tenantId} />
+            <MilesCard tenantId={tenantId} />
+            <RestockingFundCard tenantId={tenantId} />
+            <TipShareCard tenantId={tenantId} mode={String((hubTenant as any)?.tipSharing?.mode || 'direct')} period={(hubTenant as any)?.tipSharing?.period === 'week' ? 'week' : 'day'} />
+          </> : null} />
+        </div>}
         {visitedTabs.has('ledger')   && <div className={cn(activeTab !== 'ledger'   && 'hidden')}><LedgerTab /></div>}
+        {visitedTabs.has('bank')     && <div className={cn(activeTab !== 'bank'     && 'hidden')}><BankTab /></div>}
         {visitedTabs.has('payday')   && <div className={cn(activeTab !== 'payday'   && 'hidden')}><PaydayTab /></div>}
         {visitedTabs.has('bills')    && <div className={cn(activeTab !== 'bills'    && 'hidden')}><BillsTab /></div>}
         {visitedTabs.has('activity') && <div className={cn(activeTab !== 'activity' && 'hidden')}><ActivityTab /></div>}

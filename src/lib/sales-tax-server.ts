@@ -56,6 +56,27 @@ export async function taxReminder(db: any, tenantId: string, tenant: any, now = 
   return { text: reminderText(today, p, cents), period: p.key, cents, due: p.due };
 }
 
+/** For the Money page, cheaply: the reminder (while it shows) and what the last period that ended still owes (when it
+ *  isn't recorded as paid). Nothing is added up when tax isn't set up or the period is paid; otherwise the figure is
+ *  kept for a few hours (tenants/{t}/private/salesTaxOwed_{period}), so opening the page doesn't read months of books. */
+export async function taxStatus(db: any, tenantId: string, tenant: any, now = Date.now()): Promise<{ reminder: { text: string; period: string; cents: number; due: string } | null; owed: { period: string; label: string; due: string; cents: number } | null }> {
+  const none = { reminder: null, owed: null };
+  if (posTaxOf(tenant).unset) return none;
+  const f = filingOf(tenant); const today = todayIn(tenantTimeZone(tenant), new Date(now)); const p = lastEnded(today, f);
+  if (await paidOf(db, tenantId, p.key)) return none;
+  const cacheRef = db.doc(`tenants/${tenantId}/private/salesTaxOwed_${p.key}`);
+  const kept: any = (await cacheRef.get().catch(() => null))?.data();
+  let cents: number;
+  if (kept && Number.isFinite(Number(kept.cents)) && now - Date.parse(String(kept.at || 0)) < 6 * 3600000) cents = Math.round(Number(kept.cents));
+  else {
+    const r = await taxReportFor(db, tenantId, tenant, p); cents = Math.max(0, Math.round(r.toPay * 100));
+    await cacheRef.set({ period: p.key, cents, at: new Date(now).toISOString() }).catch(() => {});
+  }
+  const cur = posTaxOf(tenant); const charges = cur.productsPct > 0 || cur.servicesPct > 0 || Object.keys(tenant?.salesTax?.byLocation || {}).length > 0;
+  const reminder = remindNow(today, p, f, false) && (cents > 0 || charges) ? { text: reminderText(today, p, cents), period: p.key, cents, due: p.due } : null;
+  return { reminder, owed: cents > 0 ? { period: p.key, label: p.label, due: p.dueLabel, cents } : null };
+}
+
 /** Paid to the state: recorded once (its payment in the books as Sales Tax Paid). `cents`: what was paid. */
 export async function markTaxPaid(db: any, tenantId: string, tenant: any, key: unknown, cents: unknown, by: string, now = Date.now()) {
   const f = filingOf(tenant); const p = typeof key === 'string' && KEY.test(key) ? periodOf(key, f.dueDay) : null;

@@ -1,13 +1,14 @@
 // src/app/api/money/sales-tax/route.ts — THE SALES TAX REPORT (managers; lib/sales-tax-server).
 //   view     { tenantId, period? }          → a period's report (the last one that ended, without one), and whether it's paid
 //   remind   { tenantId }                   → the reminder for the one due next, while it shows
+//   status   { tenantId }                   → the reminder and what the last period still owes, for the Money page (kept a few hours)
 //   paid     { tenantId, period, cents }    → paid to the state: recorded once, its payment in the books
 //   unpaid   { tenantId, period }           → recorded by mistake: taken back
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
 import { logAuditAdmin } from '@/lib/audit';
-import { markTaxPaid, salesTaxView, taxReminder, unmarkTaxPaid } from '@/lib/sales-tax-server';
+import { markTaxPaid, salesTaxView, taxReminder, taxStatus, unmarkTaxPaid } from '@/lib/sales-tax-server';
 export const dynamic = 'force-dynamic';
 
 const ID = /^[A-Za-z0-9_-]{1,80}$/;
@@ -25,6 +26,7 @@ export async function POST(req: NextRequest) {
     const action = String(b.action || 'view');
     if (action === 'view') { const r: any = await salesTaxView(db, tenantId, tenant, b.period); return reply(r, r.ok ? 200 : r.status); }
     if (action === 'remind') return reply({ ok: true, reminder: await taxReminder(db, tenantId, tenant).catch(() => null) });
+    if (action === 'status') return reply({ ok: true, ...(await taxStatus(db, tenantId, tenant).catch(() => ({ reminder: null, owed: null }))) });
     if (action === 'paid') {
       const r: any = await markTaxPaid(db, tenantId, tenant, b.period, b.cents, by);
       if (r.ok && !r.already) await logAuditAdmin(db, tenantId, { action: 'salestax.paid', targetType: 'tenant', targetId: tenantId, summary: `${by} recorded $${(r.paid.cents / 100).toFixed(2)} of sales tax for ${b.period} as paid to the state.`, amount: r.paid.cents / 100, actor } as any).catch(() => {});

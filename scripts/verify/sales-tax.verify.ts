@@ -126,6 +126,15 @@ const get = async (p: string) => (await db.doc(p).get()).data() || null;
   check('…not more than a week before, not when it isn’t wanted, and not before tax is set up', (await S.taxReminder(db, 't1', tenant, Date.parse('2026-11-05T18:00:00Z'))) === null
     && (await S.taxReminder(db, 't1', { ...tenant, salesTax: { ...tenant.salesTax, filing: { every: 'month', dueDay: 20, remind: false } } }, at)) === null
     && (await S.taxReminder(db, 't1', { name: 'x', salesTax: { configured: false, startsUnset: true } }, at)) === null);
+  const st1: any = await S.taxStatus(db, 't1', tenant, at);
+  check('the Money page’s one call: the reminder and what the last period still owes', st1.reminder?.cents === 4299 && st1.owed?.cents === 4299 && st1.owed?.label === 'October 2026' && st1.owed?.due === 'November 20', st1);
+  await db.doc('tenants/t1/transactions/late1').set({ id: 'late1', type: 'income', category: 'Tax Collected', taxBucket: 'tax_collected', amount: 10, date: '2026-10-20T15:00:00.000Z' });
+  const st2: any = await S.taxStatus(db, 't1', tenant, at + 3600000);
+  const st3: any = await S.taxStatus(db, 't1', tenant, at + 7 * 3600000);
+  check('…its figure kept a few hours, so opening the page doesn’t read months of books each time, then worked out again', st2.owed?.cents === 4299 && st3.owed?.cents === 5299, [st2.owed, st3.owed]);
+  await db.doc('tenants/t1/transactions/late1').set({ amount: 0 }, { merge: true });
+  await db.doc('tenants/t1/private/salesTaxOwed_2026-10').set({ at: '2000-01-01T00:00:00.000Z' }, { merge: true });
+  check('…nothing added up before tax is set up', JSON.stringify(await S.taxStatus(db, 't1', { name: 'x', salesTax: { configured: false, startsUnset: true } }, at)) === JSON.stringify({ reminder: null, owed: null }));
   const early: any = await S.markTaxPaid(db, 't1', tenant, '2026-11', 100, 'Jo', at);
   check('a period that isn’t over can’t be recorded as paid', !early.ok && /isn’t over yet/.test(early.error));
   const paid: any = await S.markTaxPaid(db, 't1', tenant, '2026-10', 4299, 'Jo', at);
@@ -134,7 +143,7 @@ const get = async (p: string) => (await db.doc(p).get()).data() || null;
     && (await import('../../src/lib/books-summary')).effectOf(pl).side === 'taxpaid', pl);
   const again: any = await S.markTaxPaid(db, 't1', tenant, '2026-10', 5000, 'Jo', at);
   check('…once: recording it again changes nothing', again.ok && again.already && (await get('tenants/t1/transactions/salestax_2026-10'))?.amount === 42.99);
-  check('…and the reminder stops', (await S.taxReminder(db, 't1', tenant, at)) === null && (await S.salesTaxView(db, 't1', tenant, '2026-10', at) as any).paid?.cents === 4299);
+  check('…and the reminder stops, and nothing is owed or added up', JSON.stringify(await S.taxStatus(db, 't1', tenant, at)) === JSON.stringify({ reminder: null, owed: null }) && (await S.taxReminder(db, 't1', tenant, at)) === null && (await S.salesTaxView(db, 't1', tenant, '2026-10', at) as any).paid?.cents === 4299);
   await db.doc('tenants/t1/transactions/salestax_2026-10').set({ reconciled: true, bankTransactionId: 'b1' }, { merge: true });
   const noUndo: any = await S.unmarkTaxPaid(db, 't1', '2026-10');
   check('a payment matched to the bank isn’t taken back here', !noUndo.ok && /matched to your bank/.test(noUndo.error));
@@ -155,7 +164,8 @@ const get = async (p: string) => (await db.doc(p).get()).data() || null;
   const steps = (t: any) => SG.guideSteps(t, { livePriced: 0, teamCount: 1 } as any);
   check('the setup guide has a sales tax step, done once the rates are saved', steps({}).some((s: any) => s.id === 'salestax' && !s.done) && steps({ salesTax: { configured: true } }).some((s: any) => s.id === 'salestax' && s.done)
     && SG.guideSteps({ business: { kind: 'food' }, businessType: 'restaurant' }, { livePriced: 0, teamCount: 1 } as any).some((s: any) => s.id === 'salestax'));
-  const files = ['src/components/settings/SalesTaxCard.tsx', 'src/components/money/SalesTaxDueCard.tsx'].map((f) => fs.readFileSync(f, 'utf8'));
+  const files = ['src/components/settings/SalesTaxCard.tsx', 'src/components/money/MoneyOverview.tsx'].map((f) => fs.readFileSync(f, 'utf8'));
+  check('the Money page says when sales tax is due, under Needs you', /call\('status'\)/.test(files[1]) && /settings\?tab=payments#sales-tax/.test(files[1]));
   check('the new screens keep the house style', files.every((s) => !/\buppercase\b|font-black|\{\/\*| · |[Cc]all us|[Cc]ontact us|\b(salon|stylist|booth|chair|studio)\b/.test(s)));
   const hub = fs.readFileSync('src/components/pos/CheckoutHub.tsx', 'utf8');
   check('checkout says when sales tax isn’t set up, with the way to set it for a manager', /Sales tax isn’t set up yet/.test(hub) && /settings\?tab=payments#sales-tax/.test(hub));

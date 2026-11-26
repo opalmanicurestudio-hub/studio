@@ -149,3 +149,17 @@ export function useTransactionsInCategories(categories: string[]): { transaction
   const transactions = useMemo(() => (r.data || NONE).map((t: any) => ({ ...t, date: txDate(t.date) })), [r.data]);
   return { transactions, isLoading: !!q && (r.isLoading || (r.data == null && !r.error)) };
 }
+
+/** The same records read once, not kept live: for a past period shown beside this one, or a long one (a whole year). */
+export async function readDatedRange(firestore: any, tenantId: string, name: string, field: string, from: Date, to: Date): Promise<any[]> {
+  const [lo, hi] = textBounds(from, to);
+  const col = collection(firestore, 'tenants', tenantId, name);
+  // (Older records' stored times are a second, smaller read. If the text-dated read fails the figures would be wrong,
+  // so it fails: never an empty list that looks like nothing happened.)
+  const [a, b] = await Promise.allSettled([
+    getDocs(query(col, where(field, '>=', lo), where(field, '<', hi))).then((q) => q.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))),
+    getDocs(query(col, where(field, '>=', Timestamp.fromMillis(from.getTime() - DAY)), where(field, '<', Timestamp.fromMillis(to.getTime() + DAY)))).then((q) => q.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))),
+  ]);
+  if (a.status === 'rejected') throw a.reason;
+  return mergeInRange(a.value, b.status === 'fulfilled' ? b.value : [], from.getTime(), to.getTime(), field);
+}
