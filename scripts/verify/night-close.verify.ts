@@ -165,6 +165,12 @@ const src = (p: string) => readFileSync(p, 'utf8');
   check('a manager sets the checklist, the rule and the tips at close', r.body.ok && ts.items.length === 2 && ts.items[1].minF === 135 && ts.requireChecklist === false && ts.approveTips === false, ts);
   check('…and who gets the report, kept where only the server reads it (the business’s record is public)', !ts.reportTo && JSON.stringify((await get(`${T}/private/closing`)).reportTo) === JSON.stringify(['dana@linden.test', 'bad']) && JSON.stringify(r.body.settings.reportTo) === JSON.stringify(['dana@linden.test', 'bad']));
   check('…and the report only goes to real addresses', JSON.stringify(await S.reportRecipients(db, T, { email: 'o@x.test' }, ['dana@linden.test', 'bad'])) === JSON.stringify(['dana@linden.test']));
+  await db.doc('users/u_owner').set({ email: 'Owner@Linden.test' });
+  const toOwner = await S.reportRecipients(db, T, { userId: 'u_owner' }, []);
+  await db.doc(`${T}/staff/own1`).set({ role: 'owner', email: 'boss@linden.test' });
+  const toOwnerStaff = await S.reportRecipients(db, T, { userId: 'nobody' }, []);
+  check('a new business with nobody listed and no business email: the report goes to the owner (their sign-in, else their team record)', JSON.stringify(toOwner) === '["owner@linden.test"]' && JSON.stringify(toOwnerStaff) === '["boss@linden.test"]'
+    && JSON.stringify(await S.reportRecipients(db, T, { userId: 'u_owner', email: 'shop@linden.test' }, [])) === '["shop@linden.test"]', { toOwner, toOwnerStaff });
   actor = server;
   r = await call({ action: 'settings', requireChecklist: true });
   check('…a server can’t', r.status === 403);

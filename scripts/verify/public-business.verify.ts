@@ -305,6 +305,13 @@ const src = (p: string) => fs.readFileSync(p, 'utf8');
     && /loadBusinessForMe\(firestore, tenantId\)/.test(src('src/components/making-it-right/AfterPhoto.tsx')) && /manager: mgr\(s\)/.test(src('src/app/api/portal/chat-people/route.ts'))
     && /x\.manager === true \|\| isManagerRole\(portalTenant/.test(SP));
 
+  // Pages that stay open look again now and then (the check-in screen, the client portal), never blanking what shows.
+  const PBC = src('src/lib/public-business-client.ts');
+  check('the check-in screen and the client portal pick up a changed setting while open: when looked at after a minute, and every few minutes on screen',
+    /const AGAIN_MS = 60000, EVERY_MS = 5 \* 60000;/.test(PBC) && /document\.addEventListener\('visibilitychange', again\); window\.addEventListener\('focus', again\);/.test(PBC)
+    && /loadPublicBusiness\(tenantId\)\.then\(\(b\) => \{ if \(live && b\) setData\(b\); \}\)\.catch\(\(\) => \{\}\);/.test(PBC)
+    && ['src/app/check-in/[token]/page.tsx', 'src/app/(booking)/portal/[tenantId]/[clientId]/page.tsx', 'src/app/(booking)/portal/[tenantId]/page.tsx'].every((f) => /usePublicBusiness\(tenantId( \|\| null)?, \{ follow: true \}\)/.test(src(f))));
+
   // The lock: the full record is read only by the team and the business's own screens (kiosk, kitchen, check-in).
   const rules = src('firestore.rules');
   check('the full record is read only by the team and the business’s own screens (renters get the renter view, everyone else the public view)',

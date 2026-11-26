@@ -141,7 +141,7 @@ export default function ClientPortalPage() {
     const { data: client, isLoading: clientLoading } = useDoc<Client>(clientRef);
 
     // (The business's public details come from the server: lib/public-business.)
-    const { data: tenantPublic } = usePublicBusiness(tenantId);
+    const { data: tenantPublic } = usePublicBusiness(tenantId, { follow: true });
     const tenant = (tenantPublic || null) as Tenant | null;
 
     const appointmentsQuery = useMemoFirebase(() => query(collection(firestore, `tenants/${tenantId}/appointments`), where('clientId', '==', clientId)), [firestore, tenantId, clientId]);

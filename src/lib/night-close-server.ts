@@ -203,7 +203,8 @@ export async function buildNightReport(db: any, tenantId: string, tenant: any, d
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
 
-/** Who gets the report: the addresses the business listed, or team members by id; else the business's own email. */
+/** Who gets the report: the addresses the business listed, or team members by id; else the business's own email; else
+ *  the owner's own (a new business with neither set yet). */
 export async function reportRecipients(db: any, T: string, tenant: any, list: string[]): Promise<string[]> {
   const out = new Set<string>();
   for (const x of list) {
@@ -211,6 +212,15 @@ export async function reportRecipients(db: any, T: string, tenant: any, list: st
     else if (/^[A-Za-z0-9_-]{1,120}$/.test(x)) { const m: any = (await db.doc(`${T}/staff/${x}`).get().catch(() => null))?.data(); const e = String(m?.email || '').trim().toLowerCase(); if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) out.add(e); }
   }
   if (!out.size) { const e = String(tenant?.email || tenant?.businessEmail || tenant?.ownerEmail || '').trim().toLowerCase(); if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) out.add(e); }
+  // Nobody listed and no business email yet (a new business): the owner's own sign-in email, so the night's report
+  // still reaches someone. Never shown anywhere; it's only where this email goes.
+  if (!out.size) {
+    const uid = String(tenant?.userId || '');
+    const u: any = /^[A-Za-z0-9_-]{1,128}$/.test(uid) ? (await db.doc(`users/${uid}`).get().catch(() => null))?.data?.() : null;
+    let e = String(u?.email || '').trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) { const o: any = (await db.collection(`${T}/staff`).where('role', '==', 'owner').limit(1).get().catch(() => null))?.docs?.[0]?.data?.(); e = String(o?.email || '').trim().toLowerCase(); }
+    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) out.add(e);
+  }
   return Array.from(out).slice(0, 10);
 }
 

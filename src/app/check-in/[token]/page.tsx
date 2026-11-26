@@ -143,7 +143,7 @@ export default function CheckInPage() {
     }, [appointmentData?.id, (appointmentData as any)?.status, tenantId, token, verifyFirst, revoked, trust, payScreen, payOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // (The business's public details come from the server: lib/public-business.)
-    const { data: tenantPublic, isLoading: tenantLoading } = usePublicBusiness(tenantId || null);
+    const { data: tenantPublic, isLoading: tenantLoading } = usePublicBusiness(tenantId || null, { follow: true });
     const tenant = (tenantPublic || null) as Tenant | null;
     // The guest Wi-Fi isn't on the public business record (lib/tenant-private): it comes through this visit link.
     const [wifi, setWifi] = React.useState<{ network: string; password: string | null } | null>(null);

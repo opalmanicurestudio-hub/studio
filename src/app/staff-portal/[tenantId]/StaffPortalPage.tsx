@@ -162,6 +162,7 @@ import { FloorLinks } from '@/components/portal/FloorLinks';
 import { curbsideOn } from '@/lib/modules';
 import { HereForYou } from '@/components/visit/HereForYou';
 import { isFoodBusiness } from '@/lib/food-setup';
+import { PortalBriefing } from '@/components/staff-portal/PortalBriefing';
 
 // A renter's sign-in: the same test the portal's sign-in uses (api/portal/auth), so a renter's screens match what their
 // sign-in may read (the renter view of the business, not the team's record). That includes someone made a renter from
@@ -4397,6 +4398,7 @@ function StaffDashboard({ staffMember, tenantId, firestore, onSignOut }: any) {
           {activeTab==='today' && !viewingWalkIns && (
             isLoadingToday ? <TabSkeleton /> : (
               <div className="space-y-4">
+{!isRenter && isFoodBusiness(portalTenant) && <PortalBriefing tenantId={tenantId} />}
 {isSoloBiz && <StudioCard firestore={firestore} tenantId={tenantId} staffId={staffMember.id} name={(isRenter && (myRenter?.businessName || myRenter?.business)) || (isSoloBiz ? ((portalTenant as any)?.name || staffMember.name) : staffMember.name) || 'My business'}
   sub={isRenter ? `${myRentData?.booth?.name ? `${myRentData.booth.name} · ` : ''}${(portalTenant as any)?.name || ''}` : staffMember.name || ''} logo={isRenter ? (myRenter?.logoUrl || staffMember.avatarUrl || null) : (brandLogo(portalTenant) || null)} accent={accentColor}
   mine={allMyApts || []} rentInvoice={isRenter || isHybrid ? myOpenInvoice : null} onOpen={(apt: any) => { setDrawerApt(apt); setDrawerSvc((services||[]).find((s: any) => s.id===apt.serviceId)); }}

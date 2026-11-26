@@ -161,6 +161,11 @@ const src = (p: string) => readFileSync(p, 'utf8');
   check('says where the allergies come from, and to ask', page.includes('Always ask at the table') && page.includes('Could spare:') && !page.includes('More than needed'));
   check('house style in the new code', !/salon|stylist|booth|chair/i.test(mine) && !/uppercase|font-black/.test(mine) && !/ · /.test(mine) && !/\{\/\*/.test(page));
 
+  const pb = src('src/components/staff-portal/PortalBriefing.tsx'); const sp = src('src/app/staff-portal/[tenantId]/StaffPortalPage.tsx');
+  check('the team’s phones: on a day with something to act on, a line at the top of Today opens the briefing, and Got it there counts as read', /action: 'view', tenantId/.test(pb) && /action: 'read', tenantId, day: b\.day/.test(pb) && /staffAuthHeader/.test(pb)
+    && /\{!isRenter && isFoodBusiness\(portalTenant\) && <PortalBriefing tenantId=\{tenantId\} \/>\}/.test(sp) && sp.indexOf('<PortalBriefing') > sp.indexOf("{activeTab==='today' && !viewingWalkIns && (")
+    && /if \(!b \|\| !\(b\.note \|\| b\.toKnow\.length \|\| b\.kitchen\?\.soldOut\?\.length \|\| b\.kitchen\?\.low\?\.length\)\) return null;/.test(pb) && />Open<\/span>/.test(pb)
+    && !/font-black|\buppercase\b|salon|stylist|booth|studio/i.test(pb.replace(/^\/\/.*$/gm, '')));
   console.log(failures ? `\n${failures} failed` : '\nall passed');
   process.exit(failures ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });
