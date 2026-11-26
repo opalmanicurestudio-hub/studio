@@ -140,7 +140,7 @@ export function openDays(tenant: any, now = Date.now()): string[] {
  *  midnight), for how full each time is: read at most every 10 seconds per business. */
 const dayCache = new Map<string, { at: number; day: string; orders: any[] }>();
 // (Kept for each clock: `tenant|tz`. A new order forgets every one for the business.)
-const forgetDay = (tenantId: string) => { for (const k of [...dayCache.keys()]) if (k.startsWith(`${tenantId}|`)) dayCache.delete(k); };
+export const forgetDay = (tenantId: string) => { for (const k of [...dayCache.keys()]) if (k.startsWith(`${tenantId}|`)) dayCache.delete(k); };
 async function dayOrders(db: any, tenantId: string, tenant: any, now: number): Promise<any[]> {
   const tz = tenantTimeZone(tenant); const day = todayIn(tz, new Date(now)); const before = todayIn(tz, new Date(now - 86400000)); const c = dayCache.get(`${tenantId}|${tz}`);
   if (c && c.day === day && now - c.at < 10000) return c.orders;

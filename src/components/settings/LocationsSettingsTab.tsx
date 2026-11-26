@@ -19,7 +19,7 @@
  * WHY COORDINATES ARE HERE. An address is not a position. A geofence measures
  * distance, so it needs a point, and that point has to be resolved once and
  * stored — not looked up on every clock-in, which would put a staff member's
- * shift at the mercy of a third-party API being up. Locate Address geocodes
+ * shift at the mercy of a third-party API being up. Find it from the address geocodes
  * the fields; Use My Location takes GPS and fills the fields back in. Same
  * two paths, same provider, as the studio-wide card in Settings.
  *
@@ -283,7 +283,7 @@ export function LocationsSettingsTab() {
         setLocating(false);
         setError(err.code === 1
           ? 'Location access was denied — allow it in your browser, or type the address instead.'
-          : 'Could not get a position. Type the address and use Locate Address.');
+          : 'Could not get a position. Type the address and use Find it from the address.');
       },
       { enableHighAccuracy: true, timeout: 10000 }
     );
@@ -301,7 +301,7 @@ export function LocationsSettingsTab() {
     // A half-set pin is worse than none: it would put a geofence in the
     // Atlantic and refuse every clock-in without saying why.
     if ((lat === undefined) !== (lng === undefined)) {
-      setError('A pin needs both latitude and longitude. Use Locate Address, or clear both.');
+      setError('A pin needs both latitude and longitude. Use Find it from the address, or clear both.');
       return;
     }
     if (lat !== undefined && (Math.abs(lat) > 90 || Math.abs(lng as number) > 180)) {

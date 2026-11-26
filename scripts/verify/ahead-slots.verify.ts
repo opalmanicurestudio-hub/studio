@@ -67,6 +67,10 @@ const slot = (minutes: number) => { const step = 15 * 60000; return new Date(Mat
   check('a time’s items: paid orders, and ones still being paid for in the last half hour (not one left unpaid, given up, another kind of order, or the one being placed)', used.get(t1) === 4, Array.from(used.entries()));
   const voided = SL.itemsBySlot([o('a', 'paid', [2, 1], 0, { status: 'voided' }), o('b', 'paid', [1])], now);
   check('an order voided at the counter gives its room back', voided.get(t1) === 1);
+  const lq = (id: string, qty: number[], back: Record<string, number>) => ({ ...o(id, 'paid', []), lines: qty.map((q, i) => ({ lineId: `l${i}`, quantity: q })), refundedLines: back });
+  const refunded = SL.itemsBySlot([lq('a', [2, 1], { l0: 1 }), lq('b', [3], { l0: 3 }), lq('c', [1], {})], now);
+  check('a paid order refunded at the counter gives back what was refunded, and all of it when refunded in full', refunded.get(t1) === 3, Array.from(refunded.entries()));
+  check('…and the refund clears the day’s counts kept for a few seconds', /if \(o0\?\.channel === 'ahead'\) \{ const \{ forgetDay \} = await import\('@\/lib\/counter-ahead'\); forgetDay\(tenantId\); \}/.test(readFileSync('src/lib/counter-refund-server.ts', 'utf8')));
   check('an order fits while there’s room; a time with nothing in it takes any one order', SL.fits(3, 4, 1) && !SL.fits(3, 4, 2) && SL.fits(0, 4, 9) && SL.fits(99, null, 9));
   check('full times', SL.fullTimes([t1, 'x'], new Map([[t1, 4]]), 4).join() === t1 && SL.fullTimes([t1], new Map([[t1, 4]]), null).length === 0);
   check('as soon as it’s ready counts against the first time that could be ready', Date.parse(SL.asapSlot(now)) >= now + 20 * 60000 && Date.parse(SL.asapSlot(now)) % SL.SLOT_MS === 0 && Date.parse(SL.asapSlot(now, 10)) >= now + 30 * 60000);

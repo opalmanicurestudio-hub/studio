@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireRole } from '@/lib/route-guard';
 import Stripe from 'stripe';
+import { ensureTerminalLocation } from '@/lib/terminal-location';
 
 function getAdminDb() {
   const { initializeApp, getApps, cert } = require('firebase-admin/app');
@@ -44,23 +45,10 @@ export async function POST(req: NextRequest) {
 
     const stripe = getStripe();
 
-    // Ensure a Terminal location exists for this tenant
-    let locationId = tenantSnap.data()?.stripeTerminalLocationId;
-    if (!locationId) {
-      // A reader's location is the real business address — never a made-up one.
-      const tenantData = tenantSnap.data() || {};
-      const p = tenantData.studioAddressParts || {};
-      const line1 = String(p.street || p.line1 || '').trim(), city = String(p.city || '').trim(), state = String(p.state || '').trim(), zip = String(p.zip || p.postalCode || '').trim();
-      if (!line1 || !city || !state || !zip) {
-        return NextResponse.json({ error: 'Add your business address (street, city, state and ZIP) in Settings before connecting a card reader.' }, { status: 400 });
-      }
-      const location = await stripe.terminal.locations.create(
-        { display_name: tenantData.name || 'Front desk', address: { line1, city, state, country: String(p.country || 'US'), postal_code: zip } },
-        { stripeAccount: stripeAccountId }
-      );
-      locationId = location.id;
-      await db.doc(`tenants/${tenantId}`).update({ stripeTerminalLocationId: locationId });
-    }
+    // The readers' location (the business's real address), made the first time it's needed (lib/terminal-location).
+    const loc = await ensureTerminalLocation(db, stripe, tenantId, tenantSnap.data() || {});
+    if (!loc.ok) return NextResponse.json({ error: loc.error }, { status: 400 });
+    const locationId = loc.id;
 
     // Create a connection token scoped to the connected account
     const connectionToken = await stripe.terminal.connectionTokens.create(

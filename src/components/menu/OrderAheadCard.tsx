@@ -9,7 +9,7 @@ import { useEffect, useState } from 'react';
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
 const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
 const BTN = `inline-flex min-h-[44px] items-center justify-center rounded-xl px-4 text-[15px] font-semibold disabled:opacity-50 ${RING}`;
-export type AheadSettings = { on: boolean; driveThru: boolean; inside: boolean; curbside?: boolean; delivery?: boolean; deliveryMaxMin?: number; deliveryFeeTaxed?: boolean; deliveryReady?: boolean; deliveryByZip?: boolean;
+export type AheadSettings = { on: boolean; driveThru: boolean; inside: boolean; curbside?: boolean; curbsidePinned?: boolean; delivery?: boolean; deliveryMaxMin?: number; deliveryFeeTaxed?: boolean; deliveryReady?: boolean; deliveryByZip?: boolean;
   laterHours: number; slotItems?: number | null; payments: boolean; link: string;
   anotherDay?: { on: boolean; daysAhead: number; noticeHours: number; minCents: number | null };
   /** With more than one location (components/menu/PlacesCard). */
@@ -56,6 +56,7 @@ export function OrderAheadCard({ start, call }: { start: AheadSettings; call: (b
       <div className="grid gap-1 sm:grid-cols-2">
         <div><p className="text-[14px] font-semibold">How guests get it</p>{check(a.driveThru, 'At the drive-thru', 'driveThru')}{check(a.inside, 'Inside', 'inside')}{check(!!a.curbside, 'Curbside: we bring it to their car', 'curbside')}
           {a.curbside && <p className="text-[13px]" style={{ color: MUTED }}>Whoever runs orders out uses the Curbside screen.</p>}
+          {a.curbside && a.curbsidePinned === false && <p className="text-[13px]" style={{ color: AMBER }}>Guests tap I’m here when they pull in. To check them in by themselves as they arrive, add your address in <a href="/settings?tab=locations" className={`underline underline-offset-4 ${RING}`}>Settings, Locations</a> and use Find it from the address.</p>}
           {check(!!a.delivery, 'Delivery, by our drivers', 'delivery', !a.delivery && !a.deliveryReady)}
           {a.deliveryReady || a.delivery
             ? <p className="text-[13px]" style={{ color: MUTED }}>Uses your delivery zones and fees. The counter hands each order to a driver.</p>

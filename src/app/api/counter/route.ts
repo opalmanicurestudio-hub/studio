@@ -128,7 +128,7 @@ import { targetsOf, photoOf, spotsOf, pickupOnlyOf, carryOn, RUSH_CARS, inLineNo
 import { createCar, editOrder, sendOrder, voidOrder, setOrderName, cleanName, payOrder, staffMeal, setAllergy } from '@/lib/counter-server';
 import { cleanLooks } from '@/lib/counter-orders';
 import { FieldValue } from 'firebase-admin/firestore';
-import { listReaders, startCard, checkCard, stopCard } from '@/lib/counter-card';
+import { listReaders, startCard, checkCard, stopCard, presentTestCard } from '@/lib/counter-card';
 import { phoneLink, checkPhone, stopPhone, phoneSig } from '@/lib/counter-phone';
 import { walletsOn } from '@/lib/wallet-domains';
 import { aheadForLane, aheadToCar, aheadNothingMore, aheadOf } from '@/lib/counter-ahead';
@@ -157,7 +157,6 @@ import { bagsLeft, bagsOf, defaultBags } from '@/lib/food-bags';
 import { readWindow, boardNumbers } from '@/lib/pickup-window';
 import { moduleEnabled } from '@/lib/modules';
 import { linkOrigin } from '@/lib/app-origin';
-import { accountOf, readerStripe } from '@/lib/reader-sale';
 import { stopCarCall } from '@/lib/drive-thru-voice';
 import { lanesOf, laneOf, cleanLane, mergeAsk, mergeFirst, paidFirst, windowKey, byWindow, forLaneScreen } from '@/lib/drive-lanes';
 import { lineNow, lineClear, forgetLine } from '@/lib/lane-entry-server';
@@ -1378,15 +1377,8 @@ export async function POST(req: NextRequest) {
 
     if (action === 'cardTest') {
       // Only on a test reader (the card company's own pretend one): never on a real reader, and never with real money.
-      const acct = accountOf(tenant); const stripe = readerStripe(); const o: any = (await orderRef.get()).data();
-      const readerId = String(o?.card?.readerId || '');
-      if (!acct || !stripe || !o?.card?.id || o.card.state !== 'on_reader' || !/^tmr_[A-Za-z0-9]{4,60}$/.test(readerId)) return bad('Send the order to the test reader first.', 409);
-      try {
-        const rd: any = await stripe.terminal.readers.retrieve(readerId, {}, { stripeAccount: acct });
-        if (rd?.device_type !== 'simulated_wisepos_e') return bad('That only works on a test reader.', 409);
-        await stripe.testHelpers.terminal.readers.presentPaymentMethod(readerId, {}, { stripeAccount: acct });
-      } catch { return bad('The test card didn’t go through. Try again.', 503); }
-      return ok({ staffOk });
+      const t: any = await presentTestCard(db, tenantId, tenant, orderRef.id);
+      return t.ok ? ok({ staffOk }) : bad(t.error, t.status);
     }
 
     if (action === 'cancel') {

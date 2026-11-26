@@ -218,6 +218,8 @@ export async function refundCounterOrder(db: any, tenantId: string, tenant: any,
   if (!done.ok) return done;
   // (The guests' copies of a cancelled gift card's balance, lib/gift-cards.)
   if (Array.isArray(c.held) && c.held.length) { const { syncClientGift } = await import('@/lib/gift-cards'); for (const id of c.held.map(String).filter((x: string) => ID.test(x))) { const g: any = (await db.doc(`${T}/giftCards/${id}`).get()).data(); for (const who of [g?.recipientId, g?.purchaserId]) if (who) await syncClientGift(db, tenantId, String(who)).catch(() => null); } }
+  // (An ordered-ahead order's pickup time has room again for what was given back: lib/ahead-slots.)
+  if (o0?.channel === 'ahead') { const { forgetDay } = await import('@/lib/counter-ahead'); forgetDay(tenantId); }
   const left = refundLeftOf(o0);
   return { ok: true, cents: c.plan.cents, back: (c.back as Back[]).map((b) => ({ kind: b.kind, cents: b.back, ...(b.code ? { code: b.code } : {}) })), machineCents: machineC, cashCents: cashC,
     full: c.plan.full === true || c.plan.cents >= left + Math.max(0, Math.round(Number(c.plan.giftCents) || 0)),

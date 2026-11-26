@@ -19,7 +19,7 @@ import { accountOf, readerStripe } from '@/lib/reader-sale';
 import { lineFor, totalsOf, orderNumber, type OrderLine } from '@/lib/counter-orders';
 import { readMenu, type MenuItem } from '@/lib/menu-server';
 import { sendOrder, voidOrder, cleanName } from '@/lib/counter-server';
-import { startCard, checkCard, stopCard } from '@/lib/counter-card';
+import { startCard, checkCard, stopCard, presentTestCard } from '@/lib/counter-card';
 import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
 import { priceNow, servedNow } from '@/lib/menu-time';
 import { offerOf } from '@/lib/menu-upgrades';
@@ -76,6 +76,8 @@ export async function kioskMenu(db: any, tenantId: string, tenant: any, screen: 
     accent: pageAccent(tenant),
     // Paying needs the business's card payments and this kiosk's reader; until then the kiosk says so to the team.
     payments: !!accountOf(tenant) && !!(o.stripe || readerStripe()), reader: !!screen.readerId,
+    // The card company's pretend reader (a business trying the kiosk out): the paying screen offers its test card.
+    testReader: !!screen.readerId && screen.readerTest === true,
     // For here or to go, when what goes out with an order depends on it (lib/plate-extras), as the counter asks.
     askToGo: extrasOf(tenant).some((e: any) => e.per !== 'guest' && e.when !== 'any'),
     // The sales tax rate, so the total shows before paying (the server works it out again when the order is placed).
@@ -190,6 +192,15 @@ export async function kioskPay(db: any, tenantId: string, tenant: any, screen: S
   if (!screen.readerId) return fail('This kiosk’s card reader isn’t picked yet. Please order at the counter.', 409, 'no_reader');
   const r: any = await startCard(db, tenantId, tenant, or.id, screen.readerId, screen.name, o);
   return r.ok ? { ...r, number: or.number } : r;
+}
+
+/** "Use a test card" while trying the kiosk out: only on the card company's pretend reader (lib/counter-card
+ *  presentTestCard), for this kiosk's own order on its reader. A real reader never offers it. */
+export async function kioskTestCard(db: any, tenantId: string, tenant: any, screen: Screen, orderId: unknown, o: { stripe?: any } = {}): Promise<any> {
+  const or = await ownOrder(db, tenantId, screen, orderId); if (!or) return fail('That order isn’t this kiosk’s.', 404);
+  if (!screen.readerId || or.card?.readerId !== screen.readerId) return fail('Send the order to the test reader first.', 409);
+  const t: any = await presentTestCard(db, tenantId, tenant, or.id, o);
+  return t.ok ? { ok: true } : fail(t.error, t.status);
 }
 
 /** How paying is going (lib/counter-card checkCard): approved → paid, and the kitchen has it. */

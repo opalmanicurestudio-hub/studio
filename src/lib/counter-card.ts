@@ -341,6 +341,21 @@ export async function startCard(db: any, tenantId: string, tenant: any, orderId:
   return fail('The card payment couldn’t be started. Try again.', 409);
 }
 
+/** "Use a test card": on the card company's own pretend reader only (never a real reader, never real money), the test
+ *  card is tapped for the order now on it, so a business can try paying end to end before it has a reader. */
+export async function presentTestCard(db: any, tenantId: string, tenant: any, orderId: string, o: { stripe?: any } = {}): Promise<{ ok: true } | { ok: false; error: string; status: number }> {
+  const acct = accountOf(tenant); const stripe = o.stripe || readerStripe();
+  const or: any = (await db.doc(`tenants/${tenantId}/counterOrders/${orderId}`).get()).data();
+  const readerId = String(or?.card?.readerId || '');
+  if (!acct || !stripe || !or?.card?.id || or.card.state !== 'on_reader' || !/^tmr_[A-Za-z0-9]{4,60}$/.test(readerId)) return { ok: false, error: 'Send the order to the test reader first.', status: 409 };
+  try {
+    const rd: any = await stripe.terminal.readers.retrieve(readerId, {}, { stripeAccount: acct });
+    if (rd?.device_type !== 'simulated_wisepos_e') return { ok: false, error: 'That only works on a test reader.', status: 409 };
+    await stripe.testHelpers.terminal.readers.presentPaymentMethod(readerId, {}, { stripeAccount: acct });
+  } catch { return { ok: false, error: 'The test card didn’t go through. Try again.', status: 503 }; }
+  return { ok: true };
+}
+
 /** How the order's card payment is going, from the card company: approved → the order is paid by it; turned down →
  *  the reader's words; still asking → on the reader. */
 export async function checkCard(db: any, tenantId: string, tenant: any, orderId: string, by: string, o: { stripe?: any } = {}): Promise<CardAnswer> {

@@ -52,6 +52,7 @@ import { bagExtrasSetOf, cleanBagGroups, MAX_BAG_EXTRAS } from '@/lib/bag-extras
 import { extraWords, extrasOf } from '@/lib/plate-extras';
 import { bizLocationsOf, forgetLocations, hereOf, zoneOf, zoneToAsk, zonedFor, zonedHere } from '@/lib/here-server';
 import { locateMissing } from '@/lib/locate-server';
+import { pickupGeoOf, forgetPickupGeo } from '@/lib/pickup-geo';
 import { cleanWeek } from '@/lib/ahead-places';
 import { smsConfigured } from '@/lib/sms';
 import { cleanDayparts, cleanHappyHour, daypartsOf, happyHourOf } from '@/lib/menu-time';
@@ -142,7 +143,16 @@ const deliveryReady = (t: any) => { const plan = deliveryFrom(t?.retailSettings)
  *  is its own time zone when it keeps one (lib/here-server zoneOf). */
 async function withPlaces(db: any, tenantId: string, a: any, t: any) {
   let locs = await bizLocationsOf(db, tenantId);
-  if (locs.length < 2) return a;
+  if (locs.length < 2) {
+    // One location, with curbside on: pinned from its address the first time (lib/locate-server), so guests on their way
+    // are checked in as they pull in (lib/pickup-geo). Whether that worked goes back, so the card can say what to do.
+    // Only when nothing is pinned yet: a pin already set (the location's, or the business's own) is never moved, so the
+    // time clock's fence and delivery's starting point stay where the owner put them.
+    if (!a.curbside) return a;
+    if (await pickupGeoOf(db, tenantId, t).catch(() => null)) return { ...a, curbsidePinned: true };
+    await locateMissing(db, tenantId).catch(() => ({})); forgetPickupGeo(tenantId);
+    return { ...a, curbsidePinned: !!(await pickupGeoOf(db, tenantId, t).catch(() => null)) };
+  }
   // (Every time: one found from an address that's since changed is looked up again. One read when nothing's due.)
   const maps = await locateMissing(db, tenantId);
   locs = await bizLocationsOf(db, tenantId);

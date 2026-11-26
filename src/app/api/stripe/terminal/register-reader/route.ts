@@ -3,6 +3,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireRole } from '@/lib/route-guard';
 import Stripe from 'stripe';
+import { ensureTerminalLocation } from '@/lib/terminal-location';
+import { accountOf } from '@/lib/reader-sale';
 
 function getAdminDb() {
   const { initializeApp, getApps, cert } = require('firebase-admin/app');
@@ -30,10 +32,11 @@ export async function POST(req: NextRequest) {
     if (!regCode) return NextResponse.json({ ok: false, error: 'Type the code the reader shows on its screen.' }, { status: 400 });
     const db = getAdminDb();
     const t = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
-    if (!t.stripeAccountId) return NextResponse.json({ ok: false, error: 'Connect your Stripe account in Settings first.' }, { status: 400 });
-    if (!t.stripeTerminalLocationId) return NextResponse.json({ ok: false, error: 'Open the front desk once so the reader location is set up, then try again.' }, { status: 400 });
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2024-06-20' });
-    const reader = await stripe.terminal.readers.create({ registration_code: regCode, label: name, location: t.stripeTerminalLocationId }, { stripeAccount: t.stripeAccountId });
+    // The readers' location: made here if the front desk never made it (a café adding its first reader).
+    const loc = await ensureTerminalLocation(db, stripe, String(tenantId), t);
+    if (!loc.ok) return NextResponse.json({ ok: false, error: loc.error }, { status: 400 });
+    const reader = await stripe.terminal.readers.create({ registration_code: regCode, label: name, location: loc.id }, { stripeAccount: accountOf(t) as string });
     return NextResponse.json({ ok: true, id: reader.id, label: reader.label, deviceType: reader.device_type });
   } catch (err: any) {
     const msg = String(err?.message || '');

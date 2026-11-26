@@ -46,7 +46,7 @@ const rid = () => Array.from(crypto.getRandomValues(new Uint8Array(12))).map((x)
 type Item = { id: string; name: string; nameEs?: string | null; wordsEs?: string | null; section: string; words: string | null; price: number; happy?: boolean; from: boolean; startPrice: number; imageUrl: string | null; choices: any[]; soldOut: boolean; calories?: number | null; upgrades?: { size: boolean; items: string[] }; featured?: boolean; badge?: 'new' | 'limited' | null;
   /** What it contains of the major allergens, when the business has said (null: nobody has). */
   allergens?: AllergenKey[] | null };
-type Menu = { business: string; payments: boolean; reader: boolean; askToGo: boolean; taxPct: number; sections: { name: string; nameEs?: string | null; items: Item[] }[]; accent?: string | null;
+type Menu = { business: string; payments: boolean; reader: boolean; testReader?: boolean; askToGo: boolean; taxPct: number; sections: { name: string; nameEs?: string | null; items: Item[] }[]; accent?: string | null;
   /** "Text me when it's ready" offered on the paid screen (lib/ready-text). */
   texts?: boolean };
 /** The business's own color (white type reads on it) and a pale wash of it for grounds. */
@@ -558,6 +558,7 @@ export default function KioskScreen() {
           <p className="text-[clamp(26px,3vw,36px)] font-bold leading-tight" role="status">{t(paying?.state === 'on_reader' ? 'Tap, insert or swipe your card' : 'Getting the card reader ready…')}</p>
           {paying?.state === 'on_reader' && <p className="text-[18px]" style={{ color: 'rgba(255,255,255,0.85)' }}>{t('on the card reader by this screen')}</p>}
           <p className="text-[48px] font-semibold tabular-nums">{usd(placed?.total || 0)}</p>
+          {paying?.state === 'on_reader' && menu?.testReader && placed && <button type="button" disabled={busy} onClick={() => { setErr(''); void call({ action: 'testCard', tenantId, key, orderId: placed.orderId }).then(({ d }) => { if (!d.ok) setErr(d.error || 'The test card didn’t go through. Try again.'); }); }} className={`${btnOn} min-h-[52px] rounded-full px-6 text-[16px]`} style={{ background: '#fff', color: INK, ...ringOn(A) }}>Use a test card (test reader)</button>}
         </>}
         {err && <p role="alert" className="rounded-xl bg-[#fff] px-4 py-2 text-[15px]" style={{ color: AMBER }}>{err}</p>}
         <button type="button" disabled={busy} onClick={() => void letGo('review')} className={`${btnOn} min-h-[56px] rounded-full border-[1.5px] px-8 text-[17px]`} style={{ borderColor: 'rgba(255,255,255,0.55)', color: '#fff', background: 'transparent', ...ringOn(A) }}>{t('Cancel')}</button>

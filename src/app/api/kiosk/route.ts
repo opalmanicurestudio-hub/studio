@@ -5,6 +5,7 @@
 //   menu                              → the menu as a guest sees it now, and whether the kiosk can take payments
 //   place { orderKey, lines, name, toGo } → the order, sent to the kitchen unpaid (its stock held), and its number
 //   pay / check / cancel { orderId }  → the card on this kiosk's reader; paid, the kitchen has it; canceled, it's let go
+//   testCard { orderId }              → "Use a test card": only on the card company's pretend reader, while trying it out
 //   textMe { orderId, phone }         → "Text me when it's ready" for the order just paid here (lib/ready-text)
 //   receipt { orderId, channel: 'sms'|'email', to } → "Get a receipt": its private link sent to what the guest typed
 //   readers / setReader { pin?, readerId } → a manager (signed in, or their PIN) picks this kiosk's card reader
@@ -17,11 +18,11 @@ import { screenOf } from '@/lib/screen-keys';
 import { requireRole } from '@/lib/route-guard';
 import { listReaders } from '@/lib/counter-card';
 import { logAuditAdmin } from '@/lib/audit';
-import { kioskMenu, kioskPlace, kioskPay, kioskCheck, kioskCancel, kioskTextMe, kioskReceipt, managerByPin } from '@/lib/kiosk';
+import { kioskMenu, kioskPlace, kioskPay, kioskCheck, kioskCancel, kioskTestCard, kioskTextMe, kioskReceipt, managerByPin } from '@/lib/kiosk';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 const READER = /^tmr_[A-Za-z0-9]{4,60}$/;
-const ACTIONS = ['menu', 'place', 'pay', 'check', 'cancel', 'textMe', 'receipt', 'readers', 'setReader'];
+const ACTIONS = ['menu', 'place', 'pay', 'check', 'cancel', 'testCard', 'textMe', 'receipt', 'readers', 'setReader'];
 const ok = (b: any = {}) => NextResponse.json({ ok: true, ...b }, { headers: { 'Cache-Control': 'no-store' } });
 const bad = (error: string, status = 400, extra: any = {}) => NextResponse.json({ ok: false, error, ...extra }, { status });
 const answer = (r: any) => (r?.ok ? ok(r) : bad(r?.error || 'That didn’t go through. Try again.', r?.status || 500, r?.code ? { code: r.code } : {}));
@@ -52,6 +53,7 @@ export async function POST(req: NextRequest) {
     if (action === 'pay') return answer(await kioskPay(db, tenantId, tenant, screen, b.orderId));
     if (action === 'check') return answer(await kioskCheck(db, tenantId, tenant, screen, b.orderId));
     if (action === 'cancel') return answer(await kioskCancel(db, tenantId, tenant, screen, b.orderId));
+    if (action === 'testCard') return answer(await kioskTestCard(db, tenantId, tenant, screen, b.orderId));
     if (action === 'textMe') {
       // Each text costs the business something, so a kiosk can ask for only so many an hour.
       const slow = await limitPublic(req, 'kiosk_text', tenantId, { perHour: 120, perDay: 1500 }); if (slow) return slow;
@@ -79,7 +81,8 @@ export async function POST(req: NextRequest) {
     if (action === 'readers') return ok({ readers: r.rows, payments: r.payments, current: screen.readerId || null, by: manager.name });
     const readerId = String(b.readerId || '');
     if (!READER.test(readerId) || !r.rows.some((x: any) => x.id === readerId)) return bad('Pick one of this business’s card readers.', 400);
-    await screen.ref.set({ readerId, readerSetAt: new Date().toISOString(), readerSetBy: manager.name }, { merge: true });
+    // (Whether it's the card company's pretend reader: then the paying screen offers its test card.)
+    await screen.ref.set({ readerId, readerTest: r.rows.find((x: any) => x.id === readerId)?.test === true, readerSetAt: new Date().toISOString(), readerSetBy: manager.name }, { merge: true });
     const label = String(r.rows.find((x: any) => x.id === readerId)?.label || 'a card reader').slice(0, 60);
     await logAuditAdmin(db, tenantId, { action: 'kiosk.reader', targetType: 'screen', targetId: screen.ref.id, summary: `${manager.name} set ${screen.name} to take cards on ${label}.`, actor: { type: 'user', id: manager.id || 'kiosk', name: manager.name } } as any).catch(() => {});
     return ok({ current: readerId });

@@ -97,7 +97,7 @@ export default function PrintersSettings() {
             <Seg label="Make" value={edit.kind} onChange={(v) => E({ kind: v })} options={[['star', 'Star (CloudPRNT)'], ['epson', 'Epson (Server Direct Print)']]} />
           </Row>
           <Row label="Paper" inline><Seg label="Paper" value={edit.narrow ? 'n' : 'w'} onChange={(v) => E({ narrow: v === 'n' })} options={[['w', '80 mm'], ['n', '58 mm']]} /></Row>
-          <Row label="Prints new tickets by themselves" help="Each table’s course or order on one slip, as soon as it’s fired, with any allergy printed so it stands out" inline>
+          <Row label="Prints new tickets by themselves" help={edit.tickets && (edit.labels || edit.stickers) ? 'On: kitchen tickets come out here too, on the same labels. Turn this off for a label printer' : 'Each table’s course or order on one slip, as soon as it’s fired, with any allergy printed so it stands out'} inline>
             <Toggle checked={edit.tickets} onChange={(v) => E({ tickets: v })} label="Prints new tickets by themselves" />
           </Row>
           {(edit.tickets || edit.stickers) && stations.length > 0 && <Row label="For which stations" help={edit.stations.length ? `Only these stations’ ${edit.tickets ? 'tickets' : 'stickers'}` : `None picked: every station’s ${edit.tickets ? 'tickets' : 'items'}`}>
@@ -107,7 +107,7 @@ export default function PrintersSettings() {
           </Row>}
           {edit.tickets && edit.kind === 'star' && <Row label="Beep for a new ticket" help="For a printer with a buzzer" inline><Toggle checked={edit.buzz} onChange={(v) => E({ buzz: v })} label="Beep for a new ticket" /></Row>}
           <Row label="Prints item stickers" help={edit.kind === 'epson' ? 'A sticker for each item made at the stations picked above, as the order comes in: the number, the name, the item with its choices, and a code scanned before a to-go order is handed over. For drinks, put a sticky label printer at the bar and pick the bar' : 'A sticker for each item made at the stations picked above, as the order comes in: the number, the name, the item with its choices, and a code to scan. A Star printer prints the code once it has printed its first slip in the app’s look (most on CloudPRNT do, and Print a test starts it); until then, these aren’t scanned at handover'} inline>
-            <Toggle checked={edit.stickers} onChange={(v) => E({ stickers: v })} label="Prints item stickers" />
+            <Toggle checked={edit.stickers} onChange={(v) => E({ stickers: v, ...(v && edit.id === null && !edit.labels ? { tickets: false } : {}) })} label="Prints item stickers" />
           </Row>
           {edit.stickers && <Row label="Stickers on which orders" help={edit.stickersOn ? 'Only these, where a wrong or missing item costs most. Everyday orders keep the bag scan, so the rush isn’t slowed' : 'Every order, as it comes in'}>
             <div className="space-y-2">
@@ -124,7 +124,7 @@ export default function PrintersSettings() {
             <Toggle checked={edit.receipts} onChange={(v) => E({ receipts: v })} label="Prints receipts" />
           </Row>
           <Row label="Prints bag labels" help={edit.kind === 'epson' ? 'A label for each bag of a food order, as it’s ready: the number, the name, the items and a code to scan before it’s handed over. Best on a sticky label printer with no backing paper' : 'A label for each bag of a food order, as it’s ready: the number, the name, the items and a code to scan before it’s handed over. A Star printer prints the code once it has printed its first slip in the app’s look (most on CloudPRNT do, and Print a test starts it); until then, these aren’t scanned at handover'} inline>
-            <Toggle checked={edit.labels} onChange={(v) => E({ labels: v })} label="Prints bag labels" />
+            <Toggle checked={edit.labels} onChange={(v) => E({ labels: v, ...(v && edit.id === null && !edit.stickers ? { tickets: false } : {}) })} label="Prints bag labels" />
           </Row>
           <Row label="Opens the cash drawer" help="A cash drawer plugged into this printer opens for a cash sale, with or without a receipt" inline>
             <Toggle checked={edit.drawer} onChange={(v) => E({ drawer: v })} label="Opens the cash drawer" />

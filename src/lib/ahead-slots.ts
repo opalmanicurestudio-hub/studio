@@ -32,14 +32,17 @@ export function itemsBySlot(orders: any[], now: number, except?: string): Map<st
   const out = new Map<string, number>();
   for (const o of orders || []) {
     if (!o || o.id === except || o.channel !== 'ahead') continue; const a = o.ahead || {}; const slot = String(a.slot || '');
-    // Voided or given back at the counter: it isn't being made, so its room is free again.
+    // Voided or given back at the counter: it isn't being made, so its room is free again. (A paid order is refunded
+    // rather than voided: what was refunded no longer takes room, and an order refunded in full takes none.)
     if (['voided', 'refunded', 'canceled', 'cancelled'].includes(String(o.status || ''))) continue;
     if (!slot) continue;
     // (An order for another day takes no room in its pickup time: it starts early enough for its size. lib/ahead-days)
     if (a.forDay) continue;
     const live = a.state === 'paid' || (a.state === 'awaiting_pay' && now - Date.parse(String(o.createdAt || '')) < UNPAID_HOLD_MS);
     if (!live) continue;
-    const items = Array.isArray(o.lines) ? o.lines.reduce((n: number, l: any) => n + Math.max(1, Math.round(Number(l?.quantity) || 1)), 0) : 1;
+    const back = o.refundedLines && typeof o.refundedLines === 'object' ? o.refundedLines : {};
+    const items = Array.isArray(o.lines) ? o.lines.reduce((n: number, l: any) => n + Math.max(0, Math.max(1, Math.round(Number(l?.quantity) || 1)) - Math.max(0, Math.round(Number(back[String(l?.lineId)]) || 0))), 0) : 1;
+    if (items <= 0) continue;
     out.set(slot, (out.get(slot) || 0) + items);
   }
   return out;

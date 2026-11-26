@@ -104,7 +104,7 @@ const ON_READER = ['starting', 'on_reader', 'capturing'];
 type Item = MenuItem & { off?: string | null; priceNow?: number; happy?: boolean };
 type Line = { lineId: string; itemId: string; name: string; quantity: number; unitPrice: number; choicesText: string | null; happy?: boolean; offer?: 'size' | 'item'; note?: string | null };
 type Order = { id: string; number: string; status: string; guestName?: string | null; lines: Line[]; subtotal: number; tax: number; total: number; paidAt: string | null;
-  kitchen: 'not sent' | 'making' | 'ready'; waitingOn: { name: string; quantity: number }[]; ticketCount: number; card?: { state: string; failed: string | null; cents?: number | null } | null;
+  kitchen: 'not sent' | 'making' | 'ready'; waitingOn: { name: string; quantity: number }[]; ticketCount: number; card?: { state: string; failed: string | null; readerId?: string | null; cents?: number | null } | null;
   toGo?: boolean; staffMeal?: { for: string } | null;
   /** Its tip (in its total) and discount (lib/counter-money). */
   tipCents?: number; keptChange?: boolean; markdown?: { id: string; label: string; words: string; cents: number; okBy: string | null; reason?: string | null } | null;
@@ -479,6 +479,8 @@ export default function CounterPage() {
     if (!d.paidOtherwise) setSlip({ orderId: order.id, title: titleOf(order), cash: (d.payMethod || method) === 'cash', change: Number(d.change) > 0 ? Number(d.change) : null, auto: !d.already });
   });
   const toReader = (cents?: number) => order && reader && act('card', { action: 'card', orderId: order.id, readerId: reader.id, ...(cents !== undefined ? { cents } : {}) });
+  // The card company's pretend reader only (a business trying the counter out): its test card, for the order on it.
+  const testCard = () => order && act('cardTest', { action: 'cardTest', orderId: order.id });
   // A split bill (components/pos/CounterMoney SplitAsk; lib/counter-split-server): how many ways, and one part at a time.
   // The last part pays the order.
   const splitWays = (ways: number | null) => order && act('split', { action: 'split', orderId: order.id, ways });
@@ -626,7 +628,7 @@ export default function CounterPage() {
                 {[{ v: false, label: 'For here' }, { v: true, label: 'To go' }].map((x) => <button key={x.label} type="button" role="radio" aria-checked={toGo === x.v} onClick={() => setToGo(x.v)} className={`min-h-[44px] rounded-lg text-[14.5px] font-semibold ${RING}`} style={toGo === x.v ? { background: '#fff', color: INK, boxShadow: '0 1px 2px rgba(22,23,26,0.08)' } : { color: MUTED }}>{x.label}</button>)}
               </div>}
               <button type="button" disabled={!order.lines.length || !!busy} onClick={() => { saveName(); void sendIt(); }} className={`${btn} min-h-[52px] text-[16px]`} style={dark}>Send and take payment</button></>
-              : cardOn ? <div className="space-y-2 rounded-2xl p-3" style={{ background: SOFT }}><p className="text-[14.5px] font-semibold">On the card reader: {usd(order.card?.cents ? order.card.cents / 100 : due)}</p><p className="text-[13px]" style={{ color: MUTED }}>The guest taps, inserts or swipes there.</p><button type="button" onClick={stopReader} disabled={!!busy} className={`${btn} w-full`} style={quiet}>Stop</button></div>
+              : cardOn ? <div className="space-y-2 rounded-2xl p-3" style={{ background: SOFT }}><p className="text-[14.5px] font-semibold">On the card reader: {usd(order.card?.cents ? order.card.cents / 100 : due)}</p><p className="text-[13px]" style={{ color: MUTED }}>The guest taps, inserts or swipes there.</p>{readers.find((x) => x.id === order.card?.readerId)?.test && <button type="button" onClick={testCard} disabled={!!busy} className={`${btn} w-full`} style={quiet}>Use a test card</button>}<button type="button" onClick={stopReader} disabled={!!busy} className={`${btn} w-full`} style={quiet}>Stop</button></div>
               : staffFor !== null ? <div className="space-y-2">
                 <label className="block text-[13px] font-semibold" style={{ color: MUTED }}>Who it’s for
                   <input autoFocus value={staffFor} onChange={(e) => setStaffFor(e.target.value.slice(0, 24))} onKeyDown={(e) => { if (e.key === 'Enter') void staffMeal(); }} placeholder="First name" autoComplete="off" className="mt-1 block min-h-[44px] w-full rounded-xl border px-3 text-[16px] font-normal outline-none focus:border-[#16171a]" style={{ background: '#fff', borderColor: LINE, color: INK }} /></label>

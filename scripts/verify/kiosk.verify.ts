@@ -38,6 +38,8 @@ class FakeStripe {
     processPaymentIntent: async (id: string, p: any) => { const r = S.readers.get(id); r.action = { type: 'process_payment_intent', status: 'in_progress', process_payment_intent: { payment_intent: p.payment_intent }, failure_message: null }; S.calls.push(`process ${id} ${p.payment_intent}`); return clone(r); },
     cancelAction: async (id: string) => { const r = S.readers.get(id); r.action = null; S.calls.push(`cancelAction ${id}`); return clone(r); },
   } };
+  // The card company's test card, tapped on its pretend reader.
+  testHelpers = { terminal: { readers: { presentPaymentMethod: async (id: string) => { S.calls.push(`present ${id}`); approve(id); return clone(S.readers.get(id)); } } } };
 }
 const approve = (readerId: string) => { const r = S.readers.get(readerId); S.pis.get(r.action.process_payment_intent.payment_intent).status = 'requires_capture'; r.action.status = 'succeeded'; };
 const decline = (readerId: string) => { const r = S.readers.get(readerId); r.action.status = 'failed'; r.action.failure_message = 'Your card was declined.'; };
@@ -86,6 +88,7 @@ const hhmm = (h: number) => `${String(((h % 24) + 24) % 24).padStart(2, '0')}:00
   await P.setStaffPin(db, 't1', 'm9', '4321'); await P.setStaffPin(db, 't1', 'b1', '1111');
   S.readers.set('tmr_door1', { id: 'tmr_door1', label: 'By the door', device_type: 'stripe_s700', status: 'online', action: null });
   S.readers.set('tmr_door2', { id: 'tmr_door2', label: 'Second kiosk', device_type: 'stripe_s700', status: 'online', action: null });
+  S.readers.set('tmr_test1', { id: 'tmr_test1', label: 'Test reader', device_type: 'simulated_wisepos_e', status: 'online', action: null });
 
   console.log('its key');
   const key = (await kitchen(req({ action: 'pair', tenantId: 't1', name: 'Kiosk by the door', kind: 'kiosk' }))).body.key;
@@ -118,7 +121,7 @@ const hhmm = (h: number) => `${String(((h % 24) + 24) % 24).padStart(2, '0')}:00
   const r2: any = await k({ action: 'setReader', pin: '1111', readerId: 'tmr_door1' });
   check('…a team member’s PIN that isn’t a manager’s doesn’t', r.status === 403 && r2.status === 403 && !(await get(`kitchenScreens/${(await import('crypto')).createHash('sha256').update(key).digest('hex')}`)).readerId, [r.body, r2.body]);
   r = await k({ action: 'readers', pin: '4321' });
-  check('a manager’s PIN lists the business’s readers', r.body.ok && r.body.readers.map((x: any) => x.id).sort().join(',') === 'tmr_door1,tmr_door2' && r.body.current === null, r.body);
+  check('a manager’s PIN lists the business’s readers', r.body.ok && r.body.readers.map((x: any) => x.id).sort().join(',') === 'tmr_door1,tmr_door2,tmr_test1' && r.body.readers.find((x: any) => x.id === 'tmr_test1')?.test === true && r.body.current === null, r.body);
   r = await k({ action: 'setReader', pin: '4321', readerId: 'tmr_nope99' });
   check('…and only one of them can be picked', r.status === 400, r.body);
   r = await k({ action: 'setReader', pin: '4321', readerId: 'tmr_door1' });
@@ -218,8 +221,30 @@ const hhmm = (h: number) => `${String(((h % 24) + 24) % 24).padStart(2, '0')}:00
   const menuNow: any = await k({ action: 'menu' });
   check('…and the kiosk’s menu says what a dish contains (or nothing, when nobody has said)', menuNow.body.sections.flatMap((x: any) => x.items).find((i: any) => i.id === 'latte')?.allergens?.join() === 'milk' && menuNow.body.sections.flatMap((x: any) => x.items).find((i: any) => i.id === 'scone')?.allergens === null, menuNow.body.sections?.flatMap((x: any) => x.items).map((i: any) => [i.id, i.allergens]));
 
+  console.log('trying it out on a test reader');
+  const key3 = (await kitchen(req({ action: 'pair', tenantId: 't1', name: 'Kiosk three', kind: 'kiosk' }))).body.key;
+  const tr: any = await k({ action: 'setReader', pin: '4321', readerId: 'tmr_test1' }, key3);
+  const scr3: any = (await all('kitchenScreens')).find((x: any) => x.readerId === 'tmr_test1');
+  const m3: any = await k({ action: 'menu' }, key3); const m1: any = await k({ action: 'menu' });
+  check('a kiosk set to the card company’s pretend reader says so (and one on a real reader doesn’t)', tr.body.ok && scr3?.readerTest === true && m3.body.testReader === true && m1.body.testReader === false, { tr: tr.body, scr3, m3: m3.body.testReader, m1: m1.body.testReader });
+  r = await k({ action: 'place', orderKey: 'order-key-test-1', lines: [{ itemId: 'latte', quantity: 1 }] }, key3); const idT = r.body.orderId;
+  const early: any = await k({ action: 'testCard', orderId: idT }, key3);
+  check('the test card waits for the order to be on the reader', early.status === 409 && !S.calls.some((c: string) => c === 'present tmr_test1'), early.body);
+  await k({ action: 'pay', orderId: idT }, key3);
+  const other: any = await k({ action: 'testCard', orderId: idT });
+  const tc: any = await k({ action: 'testCard', orderId: idT }, key3);
+  r = await k({ action: 'check', orderId: idT }, key3);
+  check('“Use a test card” pays the order on the test reader, from this kiosk only', other.status === 404 && tc.body.ok && S.calls.includes('present tmr_test1') && r.body.state === 'paid' && !!(await get(`${T}/counterOrders/${idT}`))?.paidAt, { other: other.body, tc: tc.body, r: r.body });
+  r = await k({ action: 'place', orderKey: 'order-key-test-2', lines: [{ itemId: 'latte', quantity: 1 }] }); const idR = r.body.orderId;
+  await k({ action: 'pay', orderId: idR });
+  const real: any = await k({ action: 'testCard', orderId: idR });
+  check('…and never on a real reader', real.status === 409 && /only works on a test reader/.test(real.body.error) && !S.calls.includes('present tmr_door1'), real.body);
+  await k({ action: 'cancel', orderId: idR });
+
   console.log('the page');
   const page = src('src/app/drive-thru/[tenantId]/kiosk/page.tsx');
+  check('the paying screen offers the test card only on a test reader; so does the counter', /paying\?\.state === 'on_reader' && menu\?\.testReader && placed && <button type="button" disabled=\{busy\} onClick=\{\(\) => \{ setErr\(''\); void call\(\{ action: 'testCard'/.test(page)
+    && /readers\.find\(\(x\) => x\.id === order\.card\?\.readerId\)\?\.test && <button type="button" onClick=\{testCard\}/.test(src('src/app/(app)/counter/page.tsx')) && /action: 'cardTest'/.test(src('src/app/(app)/counter/page.tsx')));
   check('set up like the other screens; reads only api/kiosk; the reader under Team', /<ScreenSetup kiosk tenantId=\{tenantId\}/.test(page) && /fetch\('\/api\/kiosk'/.test(page) && !/api\/counter/.test(page) && /ReaderSheet/.test(page) && /kind: kiosk \? 'kiosk'/.test(src('src/components/drive-thru/ScreenSetup.tsx')));
   check('starts over by itself: Still ordering? after a minute, the paid screen after a while; paying, the order is let go first', /IDLE_MS = 60000, ASK_MS = 15000, PAY_IDLE_MS = 120000, PAID_MS = 20000/.test(page) && /Still ordering\?/.test(page) && /void letGo\('start'\)/.test(page));
   check('…and a let-go that didn’t go through when it was left alone is tried again shortly, never left on the reader', /if \(then === 'start'\) \{ setLeaving\(false\); setAsk\(Date\.now\(\)\); \}/.test(page));

@@ -211,6 +211,9 @@ const src = (p: string) => fs.readFileSync(p, 'utf8');
   const mine = ['src/lib/curbside.ts', 'src/lib/curbside-server.ts', 'src/app/api/curbside/route.ts', 'src/components/orders/CurbsideScreen.tsx', 'src/app/(app)/curbside/page.tsx', 'src/lib/pickup-geo.ts'].map(src).join('\n');
   check('in the app’s own words and look', !/uppercase|font-black|\{\/\*| · |call us|contact us/i.test(mine) && !/[\u{1F300}-\u{1FAFF}]/u.test(mine) && !/min-h-\[(?:[0-3]\d|4[0-3])px\]/.test(mine));
 
+  const menuRoute = src("src/app/api/menu/route.ts"); const aheadCard = src("src/components/menu/OrderAheadCard.tsx");
+  check('one location with curbside on: pinned from its address only when nothing is pinned yet (a pin already set never moves), and the card says what to do when it can’t be', /if \(!a\.curbside\) return a;\s*if \(await pickupGeoOf\(db, tenantId, t\)\.catch\(\(\) => null\)\) return \{ \.\.\.a, curbsidePinned: true \};\s*await locateMissing\(db, tenantId\)\.catch\(\(\) => \(\{\}\)\); forgetPickupGeo\(tenantId\);\s*return \{ \.\.\.a, curbsidePinned: !!\(await pickupGeoOf\(db, tenantId, t\)/.test(menuRoute)
+    && /a\.curbside && a\.curbsidePinned === false && <p[^>]*>Guests tap I’m here when they pull in\./.test(aheadCard));
   console.log(failures ? `\n${failures} failed` : '\nall passed');
   process.exit(failures ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });

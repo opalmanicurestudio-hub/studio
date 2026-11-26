@@ -217,6 +217,9 @@ const nowS = () => new Date().toISOString();
   check('the Menu page turns the scan on or off; Settings, Printers sets which printer prints labels', /laneSettings', bagCheck: v/.test(src('src/app/(app)/menu/page.tsx')) && /label="Prints bag labels"/.test(src('src/app/(app)/settings/printers/page.tsx')));
   for (const f of ['src/components/drive-thru/BagSheets.tsx', 'src/lib/food-bags.ts', 'src/lib/food-bags-server.ts']) check(`${f}: no comments in markup, no uppercase, no " · "`, !/\{\/\*/.test(src(f)) && !/\buppercase\b/.test(src(f)) && !/ · /.test(src(f)));
 
+  const pp = src('src/app/(app)/settings/printers/page.tsx');
+  check('a new printer made a label printer stops printing kitchen tickets on its labels; one already set says so', /onChange=\{\(v\) => E\(\{ labels: v, \.\.\.\(v && edit\.id === null && !edit\.stickers \? \{ tickets: false \} : \{\}\) \}\)\}/.test(pp)
+    && /onChange=\{\(v\) => E\(\{ stickers: v, \.\.\.\(v && edit\.id === null && !edit\.labels \? \{ tickets: false \} : \{\}\) \}\)\}/.test(pp) && /Turn this off for a label printer/.test(pp));
   console.log(failures ? `\n${failures} failed` : '\nall passed');
   process.exit(failures ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });
