@@ -3,7 +3,7 @@
 // The canonical category library for ClarityFlow.
 //
 // One source of truth shared by: AddTransactionDialog (ledger + events),
-// BankFeedSection (reconciliation category picker + learned rules), and the
+// the Bank screen (components/money/BankScreen: the category picker and learned rules), and the
 // print report (each category carries the taxBucket that drives its color).
 //
 // `taxBucket` values match TAX_BUCKET_COLORS in the Money Hub report:

@@ -82,7 +82,7 @@ import { BadDebtAgingCard } from '@/components/ledger/BadDebtAgingCard';
 import { useToast } from '@/hooks/use-toast';
 import { useTenant } from '@/context/TenantContext';
 import { OwedToClients } from '@/components/money/OwedToClients';
-import { BankFeedSection } from '@/components/shared/BankFeedSection';
+import { BankScreen } from '@/components/money/BankScreen';
 import { useInventory } from '@/context/InventoryContext';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -1441,7 +1441,7 @@ const LedgerTab = () => {
 
 // ─── PaydayTab (formerly PaydayPage) ──────────────────────────────────────────
 
-/** The Bank tab: lines from the connected bank to sort, sorted for you, and matched (components/shared/BankFeedSection). */
+/** The Bank tab: lines from the connected bank to sort, sorted for you, and matched (components/money/BankScreen). */
 const BankTab = () => {
   const { firestore } = useFirebase();
   const { selectedTenant } = useTenant();
@@ -1451,7 +1451,7 @@ const BankTab = () => {
     <div className="mx-auto w-full max-w-[1180px] px-4 py-5 md:px-6" style={{ color: '#16171a' }}>
       <h1 className="px-1 text-[30px] font-semibold leading-tight md:text-[34px]" style={{ letterSpacing: '-0.02em' }}>Bank</h1>
       <p className="mt-1 px-1 text-[14px]" style={{ color: '#6d7075' }}>Each line from your connected bank: sorted for you when it’s plain what it is, matched when it’s money already in your books, and the rest waiting for you with a category picked.</p>
-      <div className="mt-5">{tenantId && firestore && <BankFeedSection tenantId={tenantId} firestore={firestore} actor={auditActor} />}</div>
+      <div className="mt-5">{tenantId && firestore && <BankScreen tenantId={tenantId} firestore={firestore} actor={auditActor} />}</div>
     </div>
   );
 };
