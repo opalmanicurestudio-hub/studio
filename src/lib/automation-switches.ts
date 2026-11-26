@@ -60,6 +60,7 @@ export const AUTOMATION_SWITCHES: AutomationSwitch[] = [
   // ── You ──
   { id: 'owner-brief', kinds: ['owner_brief'], who: 'you', title: 'Your morning brief', does: 'A text each morning with the day ahead — bookings, gaps and anything that needs you.', field: 'clientNotify.ownerBrief', defaultOn: true,
     needs: { field: 'clientNotify.ownerPhone', hint: 'Add the phone number to send it to.' }, timing: [{ field: 'clientNotify.ownerPhone', label: 'Send it to', input: 'phone' }] },
+  { id: 'bank-sort', who: 'you', module: 'money', title: 'Sort your bank lines', does: 'Books each line from your connected bank that’s plainly a business cost (bank fees, payroll, software) or interest the bank paid you, or that comes from a payee you’ve sorted before. Everything else waits for you, with a category suggested. Card payouts, moves between your own accounts and supplier payments are always matched. You can change any line on the Money page.', field: 'automations.bankAutoSort', defaultOn: true },
   { id: 'tour-followup', who: 'you', module: 'booth_rental', title: 'Tours nobody wrote up', does: 'The day after a tour with no outcome, you’re reminded to note how it went.', field: 'automations.tourFollowup', defaultOn: true },
 ];
 

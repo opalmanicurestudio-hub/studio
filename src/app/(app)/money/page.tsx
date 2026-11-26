@@ -325,6 +325,7 @@ function buildPrintHtml(
       ${printLine('Sales tax collected', summary.taxCollected)}
       ${summary.taxRefunded ? printLine('Given back on refunds and voids', -summary.taxRefunded, 'sub') : ''}
       ${printLine('Sales tax owed', summary.taxOwed, 'total')}
+      ${summary.taxPaid ? printLine('Paid to the state', summary.taxPaid, 'sub') : ''}
       ${summary.taxFreeSales ? printLine('Sold tax free to resellers', summary.taxFreeSales, 'sub') : ''}
       ${summary.giftCardsSold ? printLine('Gift cards sold', summary.giftCardsSold) : ''}
       ${summary.heldForRenters ? printLine('Taken for booth renters', summary.heldForRenters) : ''}

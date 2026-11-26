@@ -38,6 +38,21 @@ async function email(to: string, subject: string, text: string) {
   try { await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ from: resolveFromAddress(), to, subject, text }) }); } catch { /* ignore */ }
 }
 
+/** What a business paid for ClarityFlow, as an expense in its own books (tenants/{t}/transactions/clarityflow_{invoice}). */
+async function recordPlanExpense(db: any, tenantId: string, inv: Stripe.Invoice, paidAt: Date) {
+  const ref = db.doc(`tenants/${tenantId}/transactions/clarityflow_${String(inv.id).replace(/[^A-Za-z0-9_]/g, '')}`);
+  const url = inv.hosted_invoice_url || null;
+  await db.runTransaction(async (tx: any) => {
+    if ((await tx.get(ref)).exists) return;
+    tx.set(ref, {
+      id: ref.id, date: paidAt.toISOString(), description: `ClarityFlow${inv.number ? `, invoice ${inv.number}` : ''}`, clientOrVendor: 'ClarityFlow',
+      type: 'expense', context: 'Business', category: 'Software & Subscriptions', taxBucket: 'operating_cost',
+      amount: Math.round(Number(inv.amount_paid)) / 100, paymentMethod: 'Card', hasReceipt: !!url, ...(url ? { receiptUrl: url } : {}),
+      source: 'platform_invoice', sourceId: String(inv.id), platformInvoiceId: String(inv.id), tenantId, createdAt: new Date().toISOString(),
+    });
+  });
+}
+
 export async function POST(req: NextRequest) {
   const secret = process.env.STRIPE_BILLING_WEBHOOK_SECRET;
   const sig = req.headers.get('stripe-signature');
@@ -107,6 +122,10 @@ export async function POST(req: NextRequest) {
         const paidAt = new Date(((inv.status_transitions?.paid_at as number) || Math.floor(Date.now() / 1000)) * 1000);
         await db.doc(`platformBilling/${inv.id}`).set({ id: inv.id, tenantId: t?.id || null, tenantName: t?.data?.name || null, amountPaidCents: inv.amount_paid, currency: inv.currency,
           month: `${paidAt.getUTCFullYear()}-${String(paidAt.getUTCMonth() + 1).padStart(2, '0')}`, paidAt: paidAt.toISOString(), number: inv.number || null, hostedUrl: inv.hosted_invoice_url || null });
+        // The business's own books: what it paid us is a software expense, with the invoice as its receipt. Once per
+        // invoice (named after it); a line the owner has since changed is left as they left it. When the card or bank it
+        // came from is connected, the bank feed matches its line to this one instead of booking it again.
+        if (t?.id && Number(inv.amount_paid) > 0) await recordPlanExpense(db, t.id, inv, paidAt);
         break;
       }
       case 'invoice.payment_failed': {

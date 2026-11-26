@@ -11,6 +11,7 @@
 // 'use client' files.
 
 import { logAuditAdmin } from './audit';
+import { automationOn } from './automation-switches';
 
 const PLAID_BASE: Record<string, string> = {
   sandbox: 'https://sandbox.plaid.com',
@@ -42,34 +43,72 @@ export function vendorKey(name: string): string {
   return (name || '').toLowerCase().replace(/[#*\d]+/g, ' ').replace(/[^a-z ]/g, '').replace(/\s+/g, ' ').trim().slice(0, 60);
 }
 
-// Plaid personal_finance_category → ledger category + taxBucket
-export function mapCategory(pfc: string | undefined, name: string): { category: string; taxBucket: string; type: 'income' | 'expense' } {
+// What a bank line is, from the bank's own reading of it (Plaid's category: its broad kind, the detailed one, and how
+// sure it is) and the name on it, in the app's own categories (lib/categories), so a line booked from the feed lands
+// in the right part of the books and on the right tax line. `sure` says it can be booked without asking: the bank is
+// sure and it's a business cost by its nature (bank fees, payroll, software, interest the bank paid). Everything else
+// waits for the owner with its category suggested, since it can be personal even on a business account (shopping,
+// travel, gas, phone, insurance, meals), needs a choice (a loan payment's interest is an expense, its principal isn't),
+// or may be income or a cost in disguise (a "transfer" can be a client's Zelle payment). A transfer that pairs with the
+// other side on another of her connected accounts is matched on its own (syncTenantBankFeed).
+export type BankGuess = { category: string; taxBucket: string; type: 'income' | 'expense'; sure: boolean };
+const NAME_RULES: [RegExp, string, string, 'income' | 'expense' | null][] = [
+  [/\b(GUSTO|ADP|PAYCHEX|PAYLOCITY|RIPPLING|ONPAY|PATRIOT PAYROLL)\b|\bPAYROLL\b/, 'Payroll', 'payroll', 'expense'],
+  [/\bCLARITYFLOW\b/, 'Software & Subscriptions', 'operating_cost', 'expense'],
+  [/SALES (AND USE )?TAX|COMPTROLLER|DEPT? OF REVENUE|DEPARTMENT OF REVENUE|TAXATION AND FINANCE|BOARD OF EQUALIZATION|CDTFA/, 'Sales Tax Paid', 'tax_remitted', 'expense'],
+];
+const SURE_OK = new Set(['Bank Fees', 'Software & Subscriptions', 'Payroll', 'Interest Income']);
+export function mapCategory(pfc: string | undefined, name: string, detailed?: string, confidence?: string): BankGuess {
   const n = (name || '').toUpperCase();
-  if (n.includes('STRIPE')) return { category: 'Stripe Payout', taxBucket: 'transfer', type: 'income' };
-  const p = (pfc || '').toUpperCase();
-  const M: [string, string, string][] = [
-    ['RENT_AND_UTILITIES', 'Rent & Utilities', 'operating_cost'],
-    ['GENERAL_MERCHANDISE', 'Supplies', 'operating_cost'],
-    ['GENERAL_SERVICES', 'Professional Services', 'operating_cost'],
-    ['FOOD_AND_DRINK', 'Meals', 'operating_cost'],
-    ['TRANSPORTATION', 'Travel & Transport', 'operating_cost'],
-    ['TRAVEL', 'Travel & Transport', 'operating_cost'],
-    ['PERSONAL_CARE', 'Supplies', 'operating_cost'],
-    ['BANK_FEES', 'Bank Fees', 'operating_cost'],
-    ['ENTERTAINMENT', 'Marketing & Entertainment', 'operating_cost'],
-    ['MEDICAL', 'Health', 'operating_cost'],
-    ['LOAN_PAYMENTS', 'Loan Payments', 'operating_cost'],
-    ['INCOME', 'Other Income', 'revenue'],
-    ['TRANSFER_IN', 'Transfer In', 'transfer'],
-    ['TRANSFER_OUT', 'Transfer Out', 'transfer'],
-  ];
-  for (const [key, cat, bucket] of M) {
-    if (p.startsWith(key)) return { category: cat, taxBucket: bucket, type: bucket === 'revenue' ? 'income' : 'expense' };
+  const p = (pfc || '').toUpperCase(); const d = (detailed || '').toUpperCase();
+  const bankSure = /^(VERY_HIGH|HIGH)$/.test(String(confidence || '').toUpperCase());
+  const out = (category: string, taxBucket: string, type: 'income' | 'expense', sure = bankSure): BankGuess => ({ category, taxBucket, type, sure: sure && SURE_OK.has(category) });
+  if (n.includes('STRIPE')) return { category: 'Stripe Payout', taxBucket: 'transfer', type: 'income', sure: false };
+  for (const [re, cat, bucket, type] of NAME_RULES) {
+    // (Sales tax paid always waits: it can be a different tax with the same name on it.)
+    if (re.test(n)) return { category: cat, taxBucket: bucket, type: type || 'expense', sure: cat !== 'Sales Tax Paid' };
   }
-  return { category: 'Uncategorized', taxBucket: 'operating_cost', type: 'expense' };
+  if (d.startsWith('RENT_AND_UTILITIES_RENT')) return out('Rent & Lease', 'operating_cost', 'expense');
+  if (d.startsWith('RENT_AND_UTILITIES_TELEPHONE') || d.startsWith('RENT_AND_UTILITIES_INTERNET')) return out('Phone & Internet', 'operating_cost', 'expense');
+  if (p === 'RENT_AND_UTILITIES') return out('Utilities', 'operating_cost', 'expense');
+  if (/^GENERAL_SERVICES_(ACCOUNTING|CONSULTING)/.test(d)) return out('Professional Services', 'operating_cost', 'expense');
+  if (d.startsWith('GENERAL_SERVICES_INSURANCE')) return out('Insurance', 'operating_cost', 'expense');
+  if (d.startsWith('GENERAL_SERVICES_POSTAGE')) return out('Shipping', 'operating_cost', 'expense');
+  if (d.startsWith('GENERAL_SERVICES_EDUCATION')) return out('Education & Training', 'operating_cost', 'expense');
+  if (d.startsWith('GENERAL_SERVICES_AUTOMOTIVE')) return out('Vehicle', 'operating_cost', 'expense');
+  if (p === 'GENERAL_SERVICES') return out('Other', 'operating_cost', 'expense', false);
+  if (d.startsWith('GENERAL_MERCHANDISE_OFFICE')) return out('Office Expense', 'operating_cost', 'expense');
+  if (d.startsWith('GENERAL_MERCHANDISE_ELECTRONICS')) return out('Equipment', 'operating_cost', 'expense');
+  if (p === 'GENERAL_MERCHANDISE') return out('Supplies', 'operating_cost', 'expense');
+  if (d.startsWith('HOME_IMPROVEMENT_FURNITURE')) return out('Equipment', 'operating_cost', 'expense');
+  if (p === 'HOME_IMPROVEMENT') return out('Repairs & Maintenance', 'operating_cost', 'expense');
+  if (p === 'BANK_FEES') return out('Bank Fees', 'operating_cost', 'expense');
+  if (p === 'LOAN_PAYMENTS') return out('Loan Payment', 'transfer', 'expense');
+  if (/^INCOME_(INTEREST|DIVIDENDS)/.test(d)) return out('Interest Income', 'income', 'income');
+  if (p === 'INCOME') return out('Other Income', 'revenue', 'income', false);
+  if (p === 'TRANSFER_IN' || p === 'TRANSFER_OUT') return out('Transfer', 'transfer', p === 'TRANSFER_IN' ? 'income' : 'expense');
+  if (d === 'GOVERNMENT_AND_NON_PROFIT_GOVERNMENT_DEPARTMENTS_AND_AGENCIES') return out('Licenses & Permits', 'operating_cost', 'expense');
+  if (/^TRANSPORTATION_(GAS|PARKING|TOLLS)/.test(d)) return out('Vehicle', 'operating_cost', 'expense');
+  if (p === 'TRANSPORTATION' || p === 'TRAVEL') return out('Travel', 'operating_cost', 'expense');
+  if (d === 'FOOD_AND_DRINK_GROCERIES') return out('Supplies', 'operating_cost', 'expense', false);
+  if (p === 'FOOD_AND_DRINK') return out('Meals & Entertainment', 'operating_cost', 'expense', false);
+  if (p === 'ENTERTAINMENT') return out('Other', 'operating_cost', 'expense', false);   // (entertainment isn't a business cost)
+  if (p === 'PERSONAL_CARE') return out('Supplies', 'operating_cost', 'expense', false);
+  return { category: 'Uncategorized', taxBucket: 'operating_cost', type: 'expense', sure: false };
 }
 
 export type SyncResult = { pulled: number; matched: number; autoBooked: number; needsReview: number };
+
+/** The same supplier on two lines (a bank line's name, and an order booked to the supplier): their first word, or one
+ *  name inside the other. */
+export function sameVendor(a: string, b: string): boolean {
+  const ka = vendorKey(a), kb = vendorKey(b);
+  if (!ka || !kb) return false;
+  if (ka.includes(kb) || kb.includes(ka)) return true;
+  const fa = ka.split(' ')[0], fb = kb.split(' ')[0];
+  return fa.length >= 3 && fa === fb;
+}
+const DAY = 86400000;
 
 /** Pull new bank transactions for one tenant, auto-match against the
  *  ledger, auto-book vendor-rule hits, and stage the rest for review.
@@ -86,6 +125,10 @@ export async function syncTenantBankFeed(db: any, tenantId: string): Promise<Syn
     items.push({ ref: privRef, accessToken: legacy.accessToken, cursor: legacy.cursor, label: 'Business' });
   }
   if (items.length === 0) throw new Error('No bank connected yet.');
+  // Sorting lines on its own is the owner's one switch (Automations): off, every line waits for them, except an exact
+  // match to something already in the books or a card payout, which are matches, not choices.
+  const tenantDoc: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
+  const autoSort = automationOn(tenantDoc, 'bank-sort');
 
   const added: any[] = [];
   for (const item of items) {
@@ -135,6 +178,10 @@ export async function syncTenantBankFeed(db: any, tenantId: string): Promise<Syn
 
   // Unreconciled ledger txns for matching
   const windowStart = new Date(Date.now() - 120 * 86400000).toISOString();
+  // Card payouts landing in the bank (connect-webhook keeps each one): matched to their deposit by amount and the day
+  // they arrive, so they never wait in the inbox. A payout moves money; it's never income.
+  const payouts: any[] = (await db.collection(`tenants/${tenantId}/stripePayouts`).where('arrivalDate', '>=', windowStart).get().catch(() => ({ docs: [] as any[] }))).docs
+    .map((d: any) => ({ id: d.id, ref: d.ref, ...(d.data() as any) })).filter((x: any) => !x.bankTransactionId);
   const ledgerSnap = await db.collection(`tenants/${tenantId}/transactions`)
     .where('date', '>=', windowStart).get();
   const ledger = ledgerSnap.docs
@@ -144,6 +191,53 @@ export async function syncTenantBankFeed(db: any, tenantId: string): Promise<Syn
   let matched = 0, staged = 0, autoBooked = 0;
   const pendingWrites: { ref: any; data: any }[] = [];
   const nowIso = new Date().toISOString();
+
+  // Money moved between two of her own connected accounts: the line out of one and the line into the other, the same
+  // amount within two days, both called a transfer by the bank. Matched to each other on their own, with nothing in the
+  // books when both accounts are the business's; between a business and a personal account it's an owner draw or an
+  // owner contribution, booked on the business's side (never income or an expense). A transfer with no other side
+  // waits for the owner: it may be a client's Zelle payment or someone she paid.
+  // (Paying off a card from checking is called a loan payment on the checking side: it pairs with the card's line in.)
+  const CARD_PAYOFF = 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT';
+  const xfer = (b: any) => /^TRANSFER_(IN|OUT)/.test(String(b?.personal_finance_category?.primary || '').toUpperCase())
+    || String(b?.personal_finance_category?.detailed || '').toUpperCase() === CARD_PAYOFF;
+  const dayOf = (d: string) => new Date(String(d).slice(0, 10) + 'T00:00:00Z').getTime();
+  const pairs = new Map<string, { otherId: string; otherContext: string }>();
+  const pool = added.filter((b) => !b.pending && xfer(b));
+  const waitingXfers: any[] = (await db.collection(`tenants/${tenantId}/bankTransactions`).where('status', '==', 'unmatched').limit(500).get().catch(() => ({ docs: [] as any[] }))).docs
+    .map((d: any) => ({ id: d.id, ref: d.ref, ...(d.data() as any) })).filter((x: any) => x.accountId && !x.pending && (/^TRANSFER_(IN|OUT)/.test(String(x.plaidCategory || '')) || String(x.plaidDetailed || '') === CARD_PAYOFF));
+  // A draw or contribution she already booked herself (a Profit First move on the Money page): matched, never booked again.
+  const ownerLineFor = (out: boolean, amountCents: number, date: string) => ledger.find((t: any) => !t.reconciled && (t.context || 'Business') === 'Business'
+    && String(t.category || '').toLowerCase() === (out ? 'distribution' : 'owner contribution') && Math.round((t.amount || 0) * 100) === amountCents
+    && Math.abs(dayOf(t.date) - dayOf(date)) <= 4 * DAY);
+  for (const a of pool) {
+    if (pairs.has(a.transaction_id)) continue;
+    const aOut = a.amount > 0; const ac = Math.round(Math.abs(a.amount) * 100); const ad = dayOf(a.date);
+    const b = pool.find((x) => x !== a && !pairs.has(x.transaction_id) && (x.amount > 0) !== aOut && Math.round(Math.abs(x.amount) * 100) === ac
+      && x.account_id && a.account_id && x.account_id !== a.account_id && Math.abs(dayOf(x.date) - ad) <= 2 * DAY);
+    if (b) { pairs.set(a.transaction_id, { otherId: b.transaction_id, otherContext: b.__context || 'Business' }); pairs.set(b.transaction_id, { otherId: a.transaction_id, otherContext: a.__context || 'Business' }); continue; }
+    const w = waitingXfers.find((x: any) => !x.__claimed && (x.direction === 'out') !== aOut && x.amountCents === ac && a.account_id && x.accountId !== a.account_id && Math.abs(dayOf(x.date) - ad) <= 2 * DAY);
+    if (w) {
+      w.__claimed = true; pairs.set(a.transaction_id, { otherId: w.id, otherContext: w.context || 'Business' });
+      // (The other side came in on an earlier sync and is waiting in the inbox: it's matched now too, and when it's the
+      // business's side of a move to or from a personal account, the owner draw or contribution is booked on it.)
+      let ownerLine: string | null = null;
+      if ((w.context || 'Business') === 'Business' && (a.__context || 'Business') !== 'Business') {
+        const wOut = w.direction === 'out'; const mine = ownerLineFor(wOut, ac, w.date);
+        if (mine) { mine.reconciled = true; ownerLine = mine.id; await db.doc(`tenants/${tenantId}/transactions/${mine.id}`).set({ reconciled: true, reconciledAt: nowIso, bankTransactionId: w.id }, { merge: true }); }
+        else {
+        const ref = db.doc(`tenants/${tenantId}/transactions/owner_${String(w.id).replace(/[^A-Za-z0-9_]/g, '')}`);
+        await ref.set({ id: ref.id, type: wOut ? 'expense' : 'income', context: 'Business', taxBucket: 'transfer', category: wOut ? 'Distribution' : 'Owner Contribution', amount: ac / 100,
+          description: wOut ? 'Owner draw (to your personal account)' : 'Owner contribution (from your personal account)', clientOrVendor: 'You',
+          date: String(w.date).slice(0, 10) + 'T12:00:00.000Z', paymentMethod: 'Bank feed', hasReceipt: false, reconciled: true, reconciledAt: nowIso,
+          bankTransactionId: w.id, autoCategorized: true, sortedBy: 'bank', tenantId, createdAt: nowIso });
+        ownerLine = ref.id;
+        }
+      }
+      await w.ref.set({ status: 'own_transfer', pairedWith: a.transaction_id, resolvedAt: nowIso, ...(ownerLine ? { matchedTxnId: ownerLine } : {}) }, { merge: true });
+    }
+  }
+
   for (const bt of added) {
     const btId = bt.transaction_id;
     const btRef = db.doc(`tenants/${tenantId}/bankTransactions/${btId}`);
@@ -152,11 +246,17 @@ export async function syncTenantBankFeed(db: any, tenantId: string): Promise<Syn
     // Plaid: positive amount = money OUT; ledger: expense = out
     const outflow = bt.amount > 0;
     const cents = Math.round(Math.abs(bt.amount) * 100);
-    const sugg = mapCategory(bt.personal_finance_category?.primary, bt.name);
+    const pfc = bt.personal_finance_category || {};
+    const sugg = mapCategory(pfc.primary, bt.merchant_name || bt.name, pfc.detailed, pfc.confidence_level);
+    const vendorName = bt.merchant_name || bt.name;
+
+    // A card payout arriving: matched to the payout, never booked again.
+    const btDate = new Date(bt.date + 'T00:00:00Z').getTime();
+    const payout = !outflow && !bt.pending && !pairs.has(btId) ? payouts.find((x: any) => !x.__claimed && Math.round(Number(x.amount || 0) * 100) === cents
+      && Math.abs(new Date(String(x.arrivalDate).slice(0, 10) + 'T00:00:00Z').getTime() - btDate) <= 3 * DAY) : null;
 
     // Auto-match: same amount, right direction, within ±4 days
-    const btDate = new Date(bt.date + 'T00:00:00Z').getTime();
-    const hit = ledger.find((t: any) => {
+    const exact = payout ? null : ledger.find((t: any) => {
       if ((t.context || 'Business') !== (bt.__context || 'Business')) return false;
       const tCents = Math.round((t.amount || 0) * 100);
       if (tCents !== cents) return false;
@@ -165,6 +265,14 @@ export async function syncTenantBankFeed(db: any, tenantId: string): Promise<Syn
       const tDate = new Date(String(t.date).slice(0, 10) + 'T00:00:00Z').getTime();
       return Math.abs(tDate - btDate) <= 4 * 86400000;
     });
+    // …or a supplier order booked when it was placed ("on account") and paid later: the same supplier and amount, paid
+    // up to 60 days after. Without this, the payment was booked a second time (a learned rule for the supplier booked
+    // it on its own).
+    const onAccount = (t: any) => outflow && t.type === 'expense' && /on account/i.test(String(t.paymentMethod || ''))
+      && (t.context || 'Business') === (bt.__context || 'Business') && sameVendor(String(t.clientOrVendor || t.description || ''), vendorName)
+      && (() => { const tDate = new Date(String(t.date).slice(0, 10) + 'T00:00:00Z').getTime(); return btDate >= tDate - 2 * DAY && btDate <= tDate + 60 * DAY; })();
+    const hit = exact || (payout ? null : ledger.find((t: any) => (onAccount(t) || (outflow && t.source === 'platform_invoice' && t.type === 'expense'
+      && Math.abs(new Date(String(t.date).slice(0, 10) + 'T00:00:00Z').getTime() - btDate) <= 10 * DAY)) && Math.round((t.amount || 0) * 100) === cents));
 
     const record: any = {
       id: btId, tenantId,
@@ -174,10 +282,40 @@ export async function syncTenantBankFeed(db: any, tenantId: string): Promise<Syn
       date: bt.date, pending: !!bt.pending,
       plaidCategory: bt.personal_finance_category?.primary || null,
       suggestedCategory: sugg.category, suggestedTaxBucket: sugg.taxBucket, suggestedType: sugg.type,
+      plaidDetailed: pfc.detailed || null, plaidConfidence: pfc.confidence_level || null, accountId: bt.account_id || null,
       createdAt: nowIso,
     };
 
-    if (hit) {
+    const pair = pairs.get(btId);
+    if (pair) {
+      record.status = 'own_transfer';
+      record.pairedWith = pair.otherId;
+      const here = bt.__context || 'Business';
+      // Between the business and a personal account: an owner draw (out of the business) or contribution (into it),
+      // on the business's side, so its money adds up. Between two of the same kind: nothing to book.
+      const mine = here === 'Business' && pair.otherContext !== 'Business' ? ownerLineFor(outflow, cents, bt.date) : null;
+      if (mine) {
+        mine.reconciled = true; record.matchedTxnId = mine.id;
+        await db.doc(`tenants/${tenantId}/transactions/${mine.id}`).set({ reconciled: true, reconciledAt: nowIso, bankTransactionId: btId }, { merge: true });
+      } else if (here === 'Business' && pair.otherContext !== 'Business') {
+        const txnRef = db.doc(`tenants/${tenantId}/transactions/owner_${String(btId).replace(/[^A-Za-z0-9_]/g, '')}`);
+        await txnRef.set({
+          id: txnRef.id, type: outflow ? 'expense' : 'income', context: 'Business', taxBucket: 'transfer',
+          category: outflow ? 'Distribution' : 'Owner Contribution', amount: cents / 100,
+          description: outflow ? 'Owner draw (to your personal account)' : 'Owner contribution (from your personal account)', clientOrVendor: 'You',
+          date: bt.date + 'T12:00:00.000Z', paymentMethod: 'Bank feed', hasReceipt: false, reconciled: true, reconciledAt: nowIso,
+          bankTransactionId: btId, autoCategorized: true, sortedBy: 'bank', tenantId, createdAt: nowIso,
+        });
+        record.matchedTxnId = txnRef.id;
+      }
+      matched++;
+    } else if (payout) {
+      payout.__claimed = true;
+      record.status = 'payout';
+      record.matchedPayoutId = payout.id;
+      await payout.ref.set({ bankTransactionId: btId, reconciledAt: nowIso }, { merge: true });
+      matched++;
+    } else if (hit) {
       record.status = 'matched';
       record.matchedTxnId = hit.id;
       await db.doc(`tenants/${tenantId}/transactions/${hit.id}`).set(
@@ -199,6 +337,11 @@ export async function syncTenantBankFeed(db: any, tenantId: string): Promise<Syn
         if (Math.abs(tCents - cents) > tol || tCents === cents) return false;
         const tDate = new Date(String(t.date).slice(0, 10) + 'T00:00:00Z').getTime();
         return Math.abs(tDate - btDate) <= 5 * 86400000;
+      }) || ledger.find((t: any) => {
+        // (A supplier order on account paid a little differently, with shipping or tax added: suggested, never booked.)
+        if (!onAccount(t)) return false;
+        const tCents = Math.round((t.amount || 0) * 100);
+        return tCents !== cents && Math.abs(tCents - cents) <= Math.max(500, Math.round(cents * 0.1));
       });
       if (near) {
         record.suggestedMatchTxnId = near.id;
@@ -231,7 +374,31 @@ export async function syncTenantBankFeed(db: any, tenantId: string): Promise<Syn
       // the exact double-count we're guarding against, so the line goes
       // to review with the "same as" suggestion instead.
       const rule = vendorRules.get(`${(bt.__context || 'Business').toLowerCase()}:${vendorKey(bt.merchant_name || bt.name)}`);
-      if (rule && !bt.pending && !near) {
+      // The bank is sure, and the category means the same for everyone: booked as it says, marked as sorted by the app
+      // (changing it in the books or the inbox teaches a rule for that vendor). The way the money went decides the
+      // side: money back on a cost brings that cost down.
+      const sureFits = sugg.sure && (sugg.taxBucket === 'transfer' || sugg.type === (outflow ? 'expense' : 'income') || (!outflow && sugg.type === 'expense'));
+      if (autoSort && !rule && sureFits && !bt.pending && !near) {
+        const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+        await txnRef.set({
+          id: txnRef.id, type: outflow ? 'expense' : 'income',
+          context: bt.__context || 'Business', taxBucket: sugg.taxBucket,
+          amount: cents / 100, category: sugg.category,
+          description: vendorName, clientOrVendor: vendorName,
+          date: bt.date + 'T12:00:00.000Z', paymentMethod: 'Bank feed',
+          hasReceipt: false, reconciled: true, reconciledAt: nowIso,
+          bankTransactionId: btId, autoCategorized: true, sortedBy: 'bank', tenantId, createdAt: nowIso,
+        });
+        record.status = 'auto_categorized';
+        record.matchedTxnId = txnRef.id;
+        record.appliedRule = sugg.category;
+        autoBooked++;
+        await logAuditAdmin(db, tenantId, {
+          action: 'transaction.auto_book', targetType: 'transaction', targetId: txnRef.id,
+          summary: `Sorted ${vendorName} as ${sugg.category} (the bank’s own category)`,
+          amount: cents / 100, actor: { type: 'system', name: 'bank-sync' },
+        });
+      } else if (autoSort && rule && !bt.pending && !near) {
         const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
         await txnRef.set({
           id: txnRef.id, type: rule.type || (outflow ? 'expense' : 'income'),

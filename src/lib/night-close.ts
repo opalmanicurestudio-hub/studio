@@ -144,6 +144,9 @@ export type DeliveryNight = { delivered: number; refunded: number; pickedUp: num
 
 export function nightReport(x: { day: string; timeZone: string; sales: Sale[]; tables: { covers: number }[]; adjustments: Adjustment[]; tills: Till[]; tips: { mode: string; rows: TipRow[] };
   items: CloseItem[]; checks: Record<string, CheckMark | undefined>; usualComps?: number | null; deliveries?: DeliveryNight | null;
+  /** Checks and desk sales with money taken on them (paid in full, or shares of a split) but never closed: not in the
+   *  books until they are (lib/night-close-server). */
+  openPaid?: { count: number; cents: number; names: string[] } | null;
   /** One location's night, with more than one (lib/night-close-server): its name. Tips are shared across the business, so
    *  they're shared out on the whole business's report. */
   place?: string | null;
@@ -204,6 +207,7 @@ export function nightReport(x: { day: string; timeZone: string; sales: Sale[]; t
       ...checklist.filter((c) => c.out).map((c) => `${c.label} read ${c.value}°F, ${c.limit}. ${c.note || ''}`.trim()),
       ...cash.filter((t) => t.overShort !== null && Math.abs(t.overShort) >= 0.01).map((t) => `${t.openedBy}’s drawer was ${t.overShort! < 0 ? 'short' : 'over'} $${Math.abs(t.overShort!).toFixed(2)}.`),
       ...(x.usualComps && x.usualComps > 0 && compTotal >= x.usualComps * 1.75 && compTotal - x.usualComps >= 20 ? [`Comps were $${compTotal.toFixed(2)}, about ${Math.round(compTotal / x.usualComps)} times a usual ${weekdayOf(x.day)}.`] : []),
+      ...(x.openPaid?.count ? [`${x.openPaid.count === 1 ? 'A check' : `${x.openPaid.count} checks`} with $${(x.openPaid.cents / 100).toFixed(2)} paid ${x.openPaid.count === 1 ? 'was' : 'were'} never closed${x.openPaid.names.length ? ` (${x.openPaid.names.join(', ')})` : ''}. ${x.openPaid.count === 1 ? 'It isn’t' : 'They aren’t'} in your sales or your books until ${x.openPaid.count === 1 ? 'it’s' : 'they’re'} closed.`] : []),
       ...(x.deliveries?.notSettled ? [`${x.deliveries.notSettled === 1 ? 'A delivery that couldn’t be made is' : `${x.deliveries.notSettled} deliveries that couldn’t be made are`} still to refund or send again.`] : []),
     ],
   };

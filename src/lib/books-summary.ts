@@ -8,7 +8,8 @@
 //   tips           — the team's money. Their pay (an expense) includes the tips paid out, so the Profit & Loss shows the
 //                    tips beside the sales rather than leaving them out: otherwise the profit would come out short
 //   other income   — a claim paid out, interest: income that isn't a sale
-//   sales tax      — collected, less what refunds and voids gave back: held for the state, never income
+//   sales tax      — collected, less what refunds and voids gave back: held for the state, never income; what was paid
+//                    to the state (Sales Tax Paid) is kept apart from both, never an expense
 //   held           — gift cards sold (they count as sales when they're used) and money taken for booth renters
 //   transfers      — owner draws, Profit First moves, payouts landing in the bank: never income or expense
 //   costs          — cost of goods; card processing fees (less what Stripe gave back); everything else
@@ -16,13 +17,13 @@
 // down, a void of the sales tax brings the tax owed down, a refund of a sale is a return. The line it names is looked up
 // by id (reversalOf / voidOf) in the lookup list — the whole ledger, so a refund in March of a February sale still
 // finds it — or read from what the reversal says about it (reversedType, voidType / voidCategory / voidTaxBucket).
-import { CATEGORY_LIBRARY } from '@/lib/categories';
+import { canonicalCategory, findCategory } from '@/lib/categories';
 
 const n = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 const r2 = (v: number) => Math.round(v * 100) / 100;
 const lc = (v: any) => String(v || '').trim().toLowerCase();
 
-export type Side = 'sales' | 'returns' | 'discounts' | 'tips' | 'other' | 'tax' | 'held' | 'transfer' | 'cogs' | 'fees' | 'opex' | 'skip';
+export type Side = 'sales' | 'returns' | 'discounts' | 'tips' | 'other' | 'tax' | 'taxpaid' | 'held' | 'transfer' | 'cogs' | 'fees' | 'opex' | 'skip';
 /** Where a line lands: `amount` is signed for that part of the books (a fee Stripe gave back is fees −, a void of the
  *  sales tax is tax −); `tax` is the sales tax a return gave back (it lowers the tax owed, not the sales); `tip` is a
  *  tip given back with it (not a sale either: it comes off the team's tips when they'd been given it, `tipBooked`,
@@ -31,22 +32,31 @@ export type Effect = { side: Side; amount: number; tax: number; category: string
 
 const COGS_WORDS = ['cost of goods', 'spoilage', 'supplies', 'comp'];
 const isCogs = (c: string) => COGS_WORDS.some((w) => lc(c).includes(w));
-const REFUND_CATS = new Set(['refunds', 'refund', 'deposit refund', 'chargeback', 'chargebacks', 'returns']);
+const REFUND_CATS = new Set(['refunds', 'refund', 'deposit refund', 'chargeback', 'chargebacks', 'returns', 'tuition refunds']);
+// Paying back a loan's principal, or moving money between your own accounts: never an expense, whatever bucket a line
+// was given when it came in from the bank (the feed once called them operating costs).
+const TRANSFER_CATS = new Set(['loan payment', 'loan payments', 'transfer', 'transfer in', 'transfer out', 'owner contribution']);
+const TAX_PAID_CATS = new Set(['sales tax paid']);
+const isTransferCat = (c: any) => TRANSFER_CATS.has(lc(c)) || TRANSFER_CATS.has(lc(canonicalCategory(String(c || ''))));
 const OTHER_INCOME = new Set(['other income', 'loss recovery', 'interest income', 'interest']);
 const GIFT_WORDS = /gift card/i;
 const SHIP_CHARGED = /^(shipping|delivery) charged$/i;
 const SHIP_COST = /^(shipping|postage|carrier adjustment)$/i;
 
 const libBucket = (cat: string, type: 'income' | 'expense'): string | null => {
-  const hit = CATEGORY_LIBRARY.find((c) => c.name.toLowerCase() === lc(cat));
+  const hit = findCategory(cat);
   return hit && hit.type === type ? hit.taxBucket : null;
 };
-const libType = (cat: string): 'income' | 'expense' | null => CATEGORY_LIBRARY.find((c) => c.name.toLowerCase() === lc(cat))?.type || null;
+const libType = (cat: string): 'income' | 'expense' | null => findCategory(cat)?.type || null;
+/** Lines with no category yet, or one the bank feed couldn't place: still in the books (as an expense, or a sale),
+ *  and counted apart so the owner sees what's waiting to be sorted. */
+const UNSORTED = (c: any) => { const k = lc(c); return !k || k === 'uncategorized'; };
 
 /** An income line. */
 function incomeSide(t: any): Side {
   const cat = lc(t?.category);
   const b = lc(t?.taxBucket) || libBucket(t?.category, 'income') || 'revenue';
+  if (isTransferCat(cat)) return 'transfer';
   if (b === 'tax_collected' || cat === 'tax collected') return 'tax';
   if (b === 'gratuity' || cat === 'tips' || cat === 'gratuity') return 'tips';
   if (b === 'pass_through') return 'held';
@@ -58,6 +68,7 @@ function incomeSide(t: any): Side {
  *  the cost it came back on, to be brought down. */
 function incomeAsCostBack(t: any): Side | null {
   const b = lc(t?.taxBucket);
+  if (b === 'tax_remitted' || TAX_PAID_CATS.has(lc(t?.category))) return 'taxpaid';   // (sales tax the state sent back)
   if (b === 'processing_fee') return 'fees';
   if (b === 'refund' || b === 'operating_cost' || b === 'payroll' || b === 'expense') return isCogs(t?.category) ? 'cogs' : 'opex';
   return null;
@@ -67,6 +78,8 @@ function expenseSide(t: any): Side {
   const cat = lc(t?.category);
   const b = lc(t?.taxBucket) || libBucket(t?.category, 'expense') || 'operating_cost';
   if (REFUND_CATS.has(cat) || b === 'refund') return 'returns';
+  if (TAX_PAID_CATS.has(cat) || b === 'tax_remitted') return 'taxpaid';
+  if (isTransferCat(cat)) return 'transfer';
   if (b === 'adjustment') return 'discounts';
   if (b === 'transfer' || cat === 'distribution') return 'transfer';
   if (b === 'processing_fee' || cat === 'processing fee' || cat === 'processing fees') return 'fees';
@@ -76,7 +89,7 @@ function expenseSide(t: any): Side {
 
 /** Where an ordinary (not reversing) line lands, with its sign. */
 function plain(t: any, amount: number): Effect {
-  const category = String(t?.category || '') || 'Other';
+  const category = canonicalCategory(String(t?.category || '')) || 'Other';
   const type = lc(t?.type);
   if (type === 'income') {
     const back = incomeAsCostBack(t);
@@ -103,7 +116,7 @@ function described(t: any): any | null {
 
 /** A reversal or void: the opposite of the line it undoes (`o`, when it's known). */
 function undo(t: any, amount: number, o: any | null, byId: Map<string, any> | undefined, depth: number): Effect {
-  const category = String(t?.category || '') || 'Refunds';
+  const category = canonicalCategory(String(t?.category || '')) || 'Refunds';
   const isVoid = lc(t?.category) === 'void';
   const taxIn = (cap: number) => Math.min(cap, Math.max(0, n(t?.taxRefunded)));
   let orig = o;
@@ -126,9 +139,9 @@ function undo(t: any, amount: number, o: any | null, byId: Map<string, any> | un
   if (done.side === 'sales') return { side: 'returns', amount, tax: taxIn(amount), category: isVoid ? 'Void' : REFUND_CATS.has(lc(t?.category)) ? category : 'Reversals' };
   if (done.side === 'returns') {
     const tax = Math.min(amount, Math.max(0, n(t?.taxRefunded ?? orig?.taxRefunded)));
-    return { side: 'returns', amount: -amount, tax: -tax, category: String(orig?.category || category), ...(done.tip ? { tip: -done.tip, tipBooked: done.tipBooked } : {}) };
+    return { side: 'returns', amount: -amount, tax: -tax, category: canonicalCategory(String(orig?.category || category)), ...(done.tip ? { tip: -done.tip, tipBooked: done.tipBooked } : {}) };
   }
-  return { side: done.side, amount: -done.amount, tax: -done.tax, category: String(orig?.category || category) };
+  return { side: done.side, amount: -done.amount, tax: -done.tax, category: canonicalCategory(String(orig?.category || category)) };
 }
 
 /** Where one line lands in the books. `byId` finds the line a reversal or void undoes. */
@@ -158,6 +171,10 @@ export type BooksSummary = {
   sales: number; returns: number; discounts: number; netSales: number;
   tips: number; otherIncome: number; income: number;
   taxCollected: number; taxRefunded: number; taxOwed: number;
+  /** Sales tax paid to the state in the period (it settles what was owed; never an expense). */
+  taxPaid: number;
+  /** Lines still waiting for a category (how many, and their total either way), so they can be sorted. */
+  unsorted: { count: number; amount: number };
   held: number; giftCardsSold: number; heldForRenters: number; transfers: number;
   cogs: number; grossProfit: number;
   feesPaid: number; feesBack: number; netFees: number; feesPassedOn: number;
@@ -186,7 +203,8 @@ export function lookupOf(...lists: (any[] | undefined)[]): Map<string, any> {
 
 export function booksSummary(txns: any[], opts: SummaryOptions = {}): BooksSummary {
   const byId = lookupOf(opts.lookup, txns);
-  const acc: Record<Side, number> = { sales: 0, returns: 0, discounts: 0, tips: 0, other: 0, tax: 0, held: 0, transfer: 0, cogs: 0, fees: 0, opex: 0, skip: 0 };
+  const acc: Record<Side, number> = { sales: 0, returns: 0, discounts: 0, tips: 0, other: 0, tax: 0, taxpaid: 0, held: 0, transfer: 0, cogs: 0, fees: 0, opex: 0, skip: 0 };
+  let unsortedCount = 0; let unsortedAmount = 0;
   const cats: BooksSummary['byCategory'] = { sales: [], returns: [], discounts: [], other: [], cogs: [], fees: [], opex: [], transfer: [], held: [] };
   const catMaps = Object.fromEntries(Object.keys(cats).map((k) => [k, new Map<string, number>()])) as Record<keyof BooksSummary['byCategory'], Map<string, number>>;
   let taxIn = 0; let taxBack = 0; let feesPaid = 0; let feesBack = 0; let feesPassedOn = 0;
@@ -198,6 +216,7 @@ export function booksSummary(txns: any[], opts: SummaryOptions = {}): BooksSumma
     if (opts.businessOnly && lc(t?.context) === 'personal') continue;
     const e = effectOf(t, byId);
     if (e.side === 'skip') continue;
+    if (UNSORTED(t?.category) && lc(t?.type) !== 'reversal') { unsortedCount++; unsortedAmount += Math.abs(n(t?.amount)); }
     if (e.side === 'returns') {
       // The sales tax inside a refund comes off the tax owed, not the sales; a tip inside it comes off the tips.
       const tip = e.tip || 0;
@@ -231,7 +250,8 @@ export function booksSummary(txns: any[], opts: SummaryOptions = {}): BooksSumma
   return {
     sales: r2(acc.sales), returns: r2(acc.returns), discounts: r2(acc.discounts), netSales: r2(netSales),
     tips: r2(acc.tips), otherIncome: r2(acc.other), income: r2(income),
-    taxCollected: r2(taxIn), taxRefunded: r2(taxBack), taxOwed: r2(taxIn - taxBack),
+    taxCollected: r2(taxIn), taxRefunded: r2(taxBack), taxOwed: r2(taxIn - taxBack), taxPaid: r2(acc.taxpaid),
+    unsorted: { count: unsortedCount, amount: r2(unsortedAmount) },
     held: r2(acc.held), giftCardsSold: r2(giftCardsSold), heldForRenters: r2(heldForRenters), transfers: r2(acc.transfer),
     cogs: r2(acc.cogs), grossProfit: r2(grossProfit),
     feesPaid: r2(feesPaid), feesBack: r2(feesBack), netFees: r2(acc.fees), feesPassedOn: r2(feesPassedOn),

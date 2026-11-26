@@ -75,7 +75,16 @@ export async function completeDonation(tenantId: string, session: any) {
     const rec = { id: session.id, amountCents: Number(session.amount_total) || 0, fund: m.fund || GENERAL, name: m.name || session.customer_details?.name || '', email: String(session.customer_details?.email || session.customer_email || '').toLowerCase() || null,
       anonymous: !!m.anonymous, business: m.business || null, showName: !!m.showName, message: m.message || null, status: 'paid', createdAt: new Date().toISOString(), paymentIntent: typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id || null,
       receiptNo: `G-${new Date().getFullYear()}-${session.id.slice(-6).toUpperCase()}` };
-    tx.set(ref, rec); return rec; });
+    tx.set(ref, rec);
+    // In the school's books with it: a gift is income, never a sale (other income). Its card fee is booked by the card
+    // company's own notice, as every payment's is (lib/stripe-fee).
+    if (rec.amountCents > 0) {
+      const line = db.doc(`tenants/${tenantId}/transactions/donation_${String(session.id).replace(/[^A-Za-z0-9_]/g, '')}`);
+      tx.set(line, { id: line.id, date: rec.createdAt, description: `Gift to ${rec.fund}${rec.business ? ` from ${rec.business}` : ''}`, clientOrVendor: rec.anonymous ? 'Anonymous' : (rec.business || rec.name || 'A donor'),
+        type: 'income', context: 'Business', category: 'Donations', taxBucket: 'income', amount: rec.amountCents / 100, paymentMethod: 'Card (Stripe)', hasReceipt: false,
+        source: 'academy_donation', sourceId: session.id, ...(rec.paymentIntent ? { stripePaymentIntentId: rec.paymentIntent } : {}), tenantId, createdAt: rec.createdAt });
+    }
+    return rec; });
   if (!made) return { already: true };
   await appendAudit(tenantId, { type: 'funding.gift', by: made.email || 'donor', summary: `Gift ${usd(made.amountCents)} to “${made.fund}”${made.business ? ` from ${made.business}` : ''}` });
   const sent = await sendReceipt(tenantId, made);

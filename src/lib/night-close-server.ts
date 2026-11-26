@@ -187,7 +187,16 @@ export async function buildNightReport(db: any, tenantId: string, tenant: any, d
   // (One location's: what was sold tonight at no location, on the whole business's report only, so the two add up.)
   const unplaced = at ? [...rc.docs.map((d: any) => d.data() || {}).filter((r: any) => !r.voided && !r.locationId).map((r: any) => Math.max(0, num(r.subtotal) - num(r.discount))),
     ...co.docs.map((d: any) => d.data() || {}).filter((o: any) => !o.locationId && o.paidAt && !o.staffMeal && !o.refundedAt && !['refunded', 'cancelled', 'canceled'].includes(String(o.status || ''))).map((o: any) => num(o.subtotal ?? (num(o.total) - num(o.tax))))] : [];
-  const report = nightReport({ day, timeZone: b.timeZone, counterRefunds, giftRefunds, priceOffs, place: at ? opts.place || null : null, unplaced: unplaced.length ? { count: unplaced.length, total: Math.round(unplaced.reduce((n, v) => n + v, 0) * 100) / 100 } : null, sales, tables, adjustments, tills, tips: { mode: tips.mode, rows: tips.rows }, items: closeSettingsOf(tenant).items, checks, usualComps: prev.length >= 2 ? prev.reduce((s, v) => s + v, 0) / prev.length : null, deliveries });
+  // Checks and desk sales with money taken but never closed (lib/reader-sale: paid in full and waiting, or shares of a
+  // split): the card money is taken, the sale isn't in the books until someone closes it. Any night's, still open now.
+  const openDocs = ((await db.collection(`${T}/pendingCheckouts`).where('status', 'in', ['partial', 'paid_waiting']).limit(200).get().catch(() => ({ docs: [] as any[] }))).docs as any[])
+    .map((d: any) => d.data() || {}).filter((pc: any) => mine(pc));
+  const takenOn = (pc: any) => String(pc.status) === 'paid_waiting' ? Math.round(num(pc.paidCents))
+    : Math.round((Array.isArray(pc.tenders) ? pc.tenders : []).filter((x: any) => x && !x.refundedAt).reduce((n: number, x: any) => n + num(x.amount) + num(x.tip), 0) * 100);
+  const openPaidDocs = openDocs.filter((pc: any) => takenOn(pc) > 0);
+  const openPaid = openPaidDocs.length ? { count: openPaidDocs.length, cents: openPaidDocs.reduce((n: number, pc: any) => n + takenOn(pc), 0),
+    names: openPaidDocs.map((pc: any) => String(pc.tableName ? `table ${pc.tableName}` : pc.clientName || '').trim()).filter(Boolean).slice(0, 8) } : null;
+  const report = nightReport({ day, timeZone: b.timeZone, openPaid, counterRefunds, giftRefunds, priceOffs, place: at ? opts.place || null : null, unplaced: unplaced.length ? { count: unplaced.length, total: Math.round(unplaced.reduce((n, v) => n + v, 0) * 100) / 100 } : null, sales, tables, adjustments, tills, tips: { mode: tips.mode, rows: tips.rows }, items: closeSettingsOf(tenant).items, checks, usualComps: prev.length >= 2 ? prev.reduce((s, v) => s + v, 0) / prev.length : null, deliveries });
   // What was worth a look tonight (lib/activity), on the whole business's report: why, what, who.
   if (!at) {
     try {

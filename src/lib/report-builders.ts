@@ -59,6 +59,8 @@ export function buildPnlHtml(txns: Txn[], range: Range, currency = 'USD', opts: 
     ${printLine('Sales tax collected', s.taxCollected, 'memo')}
     ${s.taxRefunded ? printLine('Sales tax given back on refunds and voids', -s.taxRefunded, 'memo') : ''}
     ${printLine('Sales tax owed to the state', s.taxOwed, 'memo')}
+    ${s.taxPaid ? printLine('Sales tax paid to the state', s.taxPaid, 'memo') : ''}
+    ${s.unsorted.count ? printLine(`In your books without a category (${s.unsorted.count})`, s.unsorted.amount, 'memo') : ''}
     ${s.giftCardsSold ? printLine('Gift cards sold (counted as sales when used)', s.giftCardsSold, 'memo') : ''}
     ${s.heldForRenters ? printLine('Taken for booth renters', s.heldForRenters, 'memo') : ''}
     ${printLine('Owner draws and transfers', s.transfers, 'memo')}
@@ -83,7 +85,9 @@ export function buildTaxSummaryHtml(txns: Txn[], range: Range, currency = 'USD',
     if (String(t?.context || '').toLowerCase() === 'personal') continue;
     const e = effectOf(t, byId);
     if (e.side !== 'opex' && e.side !== 'fees' && e.side !== 'transfer') continue;
-    const line = e.side === 'fees' ? scheduleCFor('Processing Fee') : e.side === 'transfer' ? 'Not deductible — owner draws and transfers' : scheduleCFor(e.category);
+    // (A transfer says which kind where it can: a loan paid back, money between your accounts, an owner draw.)
+    const own = scheduleCFor(e.category);
+    const line = e.side === 'fees' ? scheduleCFor('Processing Fee') : e.side === 'transfer' ? (own.startsWith('Not deductible') ? own : 'Not deductible — owner draws and transfers') : own;
     const target = e.side === 'transfer' || line.startsWith('Not deductible') ? notDeductible : lines;
     target.set(line, (target.get(line) || 0) + e.amount);
   }
@@ -117,6 +121,8 @@ export function buildTaxSummaryHtml(txns: Txn[], range: Range, currency = 'USD',
     ${printLine('Sales tax collected', s.taxCollected, 'memo')}
     ${s.taxRefunded ? printLine('Sales tax given back on refunds and voids', -s.taxRefunded, 'memo') : ''}
     ${printLine('Sales tax to pay the state', s.taxOwed, 'memo')}
+    ${s.taxPaid ? printLine('Sales tax paid to the state', s.taxPaid, 'memo') : ''}
+    ${s.unsorted.count ? printLine(`In your books without a category (${s.unsorted.count}), counted under Other expenses`, s.unsorted.amount, 'memo') : ''}
     ${s.giftCardsSold ? printLine('Gift cards sold (income when they’re used)', s.giftCardsSold, 'memo') : ''}
     ${s.heldForRenters ? printLine('Taken for booth renters', s.heldForRenters, 'memo') : ''}
   `;
