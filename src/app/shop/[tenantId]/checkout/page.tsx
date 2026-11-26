@@ -1211,9 +1211,9 @@ export default function CheckoutPage() {
               </div>
             )}
             {!digitalOnlyCart && (
-              <IfOutSection tenantId={tenantId} items={ifOutItems} perItem={shop?.swaps?.perItem !== false && !wholesale} shopDefault={shop?.swaps?.default === 'refund' ? 'refund' : 'match'}
+              <IfOutSection tenantId={tenantId} items={ifOutItems} perItem={shop?.swaps?.perItem !== false && !wholesale} shopDefault={shop?.swaps?.default === 'match' ? 'match' : 'refund'}
                 choices={ifOut} onChoose={(k, c) => setIfOut((m) => { const n = { ...m }; if (c) n[k] = c; else delete n[k]; return n; })}
-                orderWide={orderWide || (shop?.swaps?.default === 'refund' ? 'refund' : 'match')} onOrderWide={setOrderWide} />
+                orderWide={orderWide || (shop?.swaps?.default === 'match' ? 'match' : 'refund')} onOrderWide={setOrderWide} />
             )}
             {!digitalOnlyCart && (
               <div className="space-y-2 rounded-2xl border-2 bg-white p-3">

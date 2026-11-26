@@ -64,6 +64,7 @@ const fresh = async (rs: any = {}, x: any = {}) => {
 
   // ── The rules, on their own ──
   check('spot checks are off unless the shop picks 1 in 10, 25 or 50', P.spotEvery({}) === 0 && P.spotEvery({ spotCheckEvery: 25 }) === 25 && P.spotEvery({ spotCheckEvery: 7 }) === 0);
+  check('…and Setup says when to turn them on: two or more people packing, or misses on How it’s going', /'Off\. Turn it on when two or more people pack orders, or when How it’s going shows packing misses\. Someone other than the packer then scans a share of orders again\.'/.test(src('src/components/orders/SetupScreen.tsx')));
   check('1 in N is picked at random, never a pop-up order or a download', P.pickForSpot({ lines: [line()] }, 10, 0.05) && !P.pickForSpot({ lines: [line()] }, 10, 0.2) && !P.pickForSpot({ lines: [line()], popupId: 'p' }, 10, 0) && !P.pickForSpot({ lines: [line({ digital: true })] }, 10, 0) && !P.pickForSpot({ lines: [line()] }, 0, 0));
   const half = { lines: [line(), line2({ qtyOrdered: 3, qtyShorted: 1 })], spotCheck: { due: true, counts: { A: 1, B: 2 }, missing: { A: 1 }, wrong: 2 } };
   check('the check counts what’s going out, line by line (shorted units aren’t in the bag)', JSON.stringify(P.spotLines(half).map((l) => [l.lineId, l.need, l.got, l.missing])) === JSON.stringify([['A', 2, 1, 1], ['B', 2, 2, 0]]) && P.spotLeft(half) === 1);

@@ -1,7 +1,7 @@
 // src/lib/retail-swap.ts — WHEN SOMETHING ISN'T THERE: SWAP OR REFUND. At checkout the customer says, for each item,
 // what they want if it turns out to be out: the best match the packer finds, a backup they pick themselves, or a
-// refund. An item they leave as it is follows the shop's choice (Setup), and a product the shop never swaps is always
-// refunded. Everything is decided at checkout, so nobody waits on an answer while packing. A swap never costs more
+// refund. An item they leave as it is follows the shop's choice (Setup; a refund unless it picked best match), and a
+// product the shop never swaps is always refunded. Everything is decided at checkout, so nobody waits on an answer while packing. A swap never costs more
 // than what was paid: only items at the same price or less are offered (unless the shop chose to cover a little more
 // itself), and when one costs less, the difference (with its tax) goes back to them. At packing, a swap closes the
 // missing line and adds the replacement as its own line, scanned in like any other. Pure, so the client and the
@@ -28,8 +28,9 @@ export const SWAP_HOWS: { id: SwapHow; label: string; note: string }[] = [
 /** How much more a swap may cost when the shop covers the difference itself (Setup), as a percentage of the price. */
 export const COVER_MORE_PCT = 15;
 
-/** What an item the customer left as it is gets: the shop's choice in Setup, a best match unless it chose refunds. */
-export const swapDefault = (rs: any): 'match' | 'refund' => (rs?.swapDefault === 'refund' ? 'refund' : 'match');
+/** What an item the customer left as it is gets: the shop's choice in Setup, a refund unless it chose best matches
+ *  (a swap the customer never agreed to is the one that comes back as a complaint or a disputed charge). */
+export const swapDefault = (rs: any): 'match' | 'refund' => (rs?.swapDefault === 'match' ? 'match' : 'refund');
 /** Customers pick for each item (on unless the shop turned it off; off, one choice covers the whole order). */
 export const perItemOn = (rs: any): boolean => rs?.swapPerItem !== false;
 /** The shop lets a swap cost a little more and covers the difference itself (off unless it turned it on). */

@@ -111,7 +111,7 @@ function SwapsGroup({ fs, tenantId, rs, owner, inventory, onToast }: { fs: Fires
       <div className="px-4 py-3" style={{ borderBottom: `1px solid ${C.line}` }}>
         <p className="m-0 text-[17px] tracking-[-0.01em]">When a customer doesn’t choose</p>
         <div role="radiogroup" aria-label="When a customer doesn’t choose" className="mt-2 inline-flex flex-wrap gap-1 rounded-full p-1" style={{ background: C.soft }}>
-          {(['match', 'refund'] as const).map((h) => (
+          {(['refund', 'match'] as const).map((h) => (
             <button key={h} type="button" role="radio" aria-checked={dflt === h} disabled={busy || !owner} onClick={() => { if (dflt !== h) void save({ 'retailSettings.swapDefault': h }, () => setDflt(h), h === 'match' ? 'Items left as they are get the best match now.' : 'Items left as they are are refunded now.'); }}
               className="cf-press h-11 rounded-full px-4 text-[15px] font-semibold" style={dflt === h ? { background: C.paper, color: C.ink, boxShadow: '0 1px 3px rgba(22,23,26,.12)' } : { background: 'transparent', color: C.ink }}>{h === 'match' ? 'Best match' : 'Refund it'}</button>))}
         </div>
@@ -216,7 +216,7 @@ function ScanningGroup({ fs, tenantId, rs, owner, inventory, onToast }: { fs: Fi
             <button key={n} type="button" aria-pressed={spot === n} disabled={busy || !owner} onClick={() => { if (spot !== n) void save({ 'retailSettings.spotCheckEvery': n }, () => setSpot(n), n ? `1 in ${n} orders is spot-checked now.` : 'Spot checks are off.'); }}
               className="cf-press h-11 rounded-full px-4 text-[15px] font-semibold" style={spot === n ? { background: C.paper, color: C.ink, boxShadow: '0 1px 3px rgba(22,23,26,.12)' } : { background: 'transparent', color: C.ink }}>{n ? `1 in ${n}` : 'Off'}</button>))}
         </div>
-        <p className="m-0 mt-2 text-[13px]" style={muted}>{spot ? `1 in ${spot} packed orders is picked at random. Someone other than its packer scans every item again before it goes any further, and what they find shows on How it’s going.` : 'Off. Turn it on when there are two people on: someone other than the packer scans a share of orders again.'}</p>
+        <p className="m-0 mt-2 text-[13px]" style={muted}>{spot ? `1 in ${spot} packed orders is picked at random. Someone other than its packer scans every item again before it goes any further, and what they find shows on How it’s going.` : 'Off. Turn it on when two or more people pack orders, or when How it’s going shows packing misses. Someone other than the packer then scans a share of orders again.'}</p>
       </div>
       <div className="px-4 py-3">
         <p className="m-0 text-[17px] tracking-[-0.01em]">Who approves an item that won’t scan</p>

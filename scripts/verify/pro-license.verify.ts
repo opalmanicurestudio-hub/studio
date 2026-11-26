@@ -197,7 +197,8 @@ const future = (days: number) => new Date(Date.now() + days * 86400000).toISOStr
 
   console.log('swaps');
   const cotOrder = (await orders()).find((o: any) => (o.lines || []).some((l: any) => l.productId === 'cot'));
-  await db.doc(`${T}/retailOrders/${cotOrder.id}`).set({ stage: 'paid' }, { merge: true });
+  // (The customer asked for a best match: items left as they are are refunded unless the shop or the customer says so.)
+  await db.doc(`${T}/retailOrders/${cotOrder.id}`).set({ stage: 'paid', ifUnavailable: 'similar' }, { merge: true });
   const sw: any = await offerSwap(db, 't1', cotOrder.id, cotOrder.lines[0].lineId, 'mono', { id: 'm1', name: 'Ana' }, 'https://app.test');
   const sw2: any = await offerSwap(db, 't1', cotOrder.id, cotOrder.lines[0].lineId, 'gel-b', { id: 'm1', name: 'Ana' }, 'https://app.test');
   const after = await get(`${T}/retailOrders/${cotOrder.id}`);

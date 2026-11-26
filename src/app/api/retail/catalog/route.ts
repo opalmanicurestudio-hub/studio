@@ -116,7 +116,7 @@ export async function GET(req: NextRequest) {
       tipsEnabled: rs.tipsEnabled === true,
       scheduledPickup: rs.scheduledPickup === true,
       // If something's out (lib/retail-swap): whether checkout asks for each item, and what an item left as it is gets.
-      swaps: { perItem: rs.swapPerItem !== false, default: rs.swapDefault === 'refund' ? 'refund' : 'match' },
+      swaps: { perItem: rs.swapPerItem !== false, default: rs.swapDefault === 'match' ? 'match' : 'refund' },
       pageConfig: sanitizeShopConfig(rs.shopPageConfig),
       wholesaleOffered,
       wholesaleUnlocked,

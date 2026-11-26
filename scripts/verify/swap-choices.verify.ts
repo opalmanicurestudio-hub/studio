@@ -26,7 +26,7 @@ const src = (p: string) => fs.readFileSync(p, 'utf8');
   check('a product the shop never swaps is refunded, whatever was chosen', S.lineIfOut({ ifUnavailable: 'similar' }, { noSwap: true, ifOut: { how: 'match' } }).how === 'refund');
   check('a choice as checkout receives it: a known way, a backup only with a clean id', JSON.stringify(S.normaliseIfOut({ how: 'backup', backupId: 'p_1' })) === '{"how":"backup","backupId":"p_1"}'
     && S.normaliseIfOut({ how: 'backup', backupId: '../x' }) === null && S.normaliseIfOut({ how: 'ask' }) === null && JSON.stringify(S.normaliseIfOut({ how: 'refund', backupId: 'x' })) === '{"how":"refund"}' && S.normaliseIfOut('match') === null);
-  check('the shop’s choice for items left as they are: best match unless it chose refunds', S.swapDefault({}) === 'match' && S.swapDefault({ swapDefault: 'refund' }) === 'refund' && S.perItemOn({}) && !S.perItemOn({ swapPerItem: false }));
+  check('the shop’s choice for items left as they are: a refund unless it chose best matches', S.swapDefault({}) === 'refund' && S.swapDefault({ swapDefault: 'refund' }) === 'refund' && S.swapDefault({ swapDefault: 'match' }) === 'match' && S.swapDefault({ swapDefault: 'odd' }) === 'refund' && S.perItemOn({}) && !S.perItemOn({ swapPerItem: false }));
   check('Ask me first is no longer one of the choices', !S.SWAP_HOWS.some((h: any) => /ask/i.test(h.label)) && S.SWAP_HOWS.map((h) => h.id).join() === 'match,backup,refund');
 
   // ── Never more than they paid ──
@@ -88,7 +88,9 @@ const src = (p: string) => fs.readFileSync(p, 'utf8');
   const page = src('src/app/shop/[tenantId]/checkout/page.tsx');
   check('checkout sends each item’s choice, a backup only once one is picked, and a refused backup goes back to the shop’s choice',
     /\.\.\.\(!wholesale && ifOutFor\(key\) \? \{ ifOut: ifOutFor\(key\) \} : \{\}\)/.test(page) && /perItem=\{shop\?\.swaps\?\.perItem !== false && !wholesale\}/.test(page) && /c\.how === 'backup' && !c\.backupId\)\) return undefined/.test(page) && /if \(data\.backup && data\.productId\) setIfOut/.test(page) && !/IF_UNAVAILABLE/.test(page));
-  check('the shop’s settings reach checkout', /swaps: \{ perItem: rs\.swapPerItem !== false, default: rs\.swapDefault === 'refund' \? 'refund' : 'match' \}/.test(src('src/app/api/retail/catalog/route.ts')));
+  check('the shop’s settings reach checkout, a refund unless the shop chose best matches', /swaps: \{ perItem: rs\.swapPerItem !== false, default: rs\.swapDefault === 'match' \? 'match' : 'refund' \}/.test(src('src/app/api/retail/catalog/route.ts'))
+    && (src('src/app/shop/[tenantId]/checkout/page.tsx').match(/shop\?\.swaps\?\.default === 'match' \? 'match' : 'refund'/g) || []).length === 2 && !/swaps\?\.default === 'refund'/.test(src('src/app/shop/[tenantId]/checkout/page.tsx'))
+    && /\(\['refund', 'match'\] as const\)\.map\(\(h\) => \(\s*<button key=\{h\} type="button" role="radio" aria-checked=\{dflt === h\}/.test(src('src/components/orders/SetupScreen.tsx')));
   const sec = src('src/components/shop/IfOutSection.tsx');
   check('the customer’s picker: best match, a backup (the same product first) or a refund, kept on this device if they like', /SWAP_HOWS\.map/.test(sec) && /Other colors of this one/.test(sec) && /Use this backup next time too/.test(sec) && /cfshop-backups-/.test(sec) && /try \{/.test(sec));
   const setup = src('src/components/orders/SetupScreen.tsx');
