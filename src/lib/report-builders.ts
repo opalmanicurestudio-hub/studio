@@ -6,6 +6,7 @@
 //   buildTaxSummaryHtml      — Schedule C summary (US)
 //   buildPayrollRegisterHtml — pay by person, with the employer tax estimate
 //   buildAuditTrailHtml      — the money audit log
+//   buildSalesTaxHtml        — the sales tax report, for filing (lib/sales-tax-report)
 //
 // The figures come from lib/books-summary, the same reading of the ledger the Money page shows, so the paper and the
 // screen always agree: refunds are returns (their sales tax comes off the tax owed), discounts and deposits applied
@@ -16,6 +17,7 @@ import { scheduleCFor } from './categories';
 import { booksSummary, effectOf, lookupOf } from './books-summary';
 import { esc, printLine, printMoney, printPage } from './print-style';
 import { format } from 'date-fns';
+import type { TaxReport } from './sales-tax-report';
 
 type Txn = any;
 type Range = { from?: Date; to?: Date } | undefined;
@@ -62,7 +64,7 @@ export function buildPnlHtml(txns: Txn[], range: Range, currency = 'USD', opts: 
     ${s.taxPaid ? printLine('Sales tax paid to the state', s.taxPaid, 'memo') : ''}
     ${s.unsorted.count ? printLine(`In your books without a category (${s.unsorted.count})`, s.unsorted.amount, 'memo') : ''}
     ${s.giftCardsSold ? printLine('Gift cards sold (counted as sales when used)', s.giftCardsSold, 'memo') : ''}
-    ${s.heldForRenters ? printLine('Taken for booth renters', s.heldForRenters, 'memo') : ''}
+    ${s.heldForRenters ? printLine('Taken for renters', s.heldForRenters, 'memo') : ''}
     ${printLine('Owner draws and transfers', s.transfers, 'memo')}
     ${s.shippingCharged || s.shippingCost ? printLine('Shipping charged / shipping cost', `${printMoney(s.shippingCharged, currency)} / ${printMoney(s.shippingCost, currency)}`, 'memo') : ''}
   `;
@@ -124,7 +126,7 @@ export function buildTaxSummaryHtml(txns: Txn[], range: Range, currency = 'USD',
     ${s.taxPaid ? printLine('Sales tax paid to the state', s.taxPaid, 'memo') : ''}
     ${s.unsorted.count ? printLine(`In your books without a category (${s.unsorted.count}), counted under Other expenses`, s.unsorted.amount, 'memo') : ''}
     ${s.giftCardsSold ? printLine('Gift cards sold (income when they’re used)', s.giftCardsSold, 'memo') : ''}
-    ${s.heldForRenters ? printLine('Taken for booth renters', s.heldForRenters, 'memo') : ''}
+    ${s.heldForRenters ? printLine('Taken for renters', s.heldForRenters, 'memo') : ''}
   `;
   return printPage({
     title: 'Tax summary', heading: 'Tax <b>summary</b>', subtitle: `Schedule C (US sole proprietor or single-member LLC) · ${periodLabel(range)}`, shopName: opts.shopName,
@@ -192,5 +194,38 @@ export function buildAuditTrailHtml(entries: any[], range: Range, currency = 'US
     body,
     footNote: 'Each entry is written when the action happens and is never edited or deleted; a correction is a new entry.',
     footRight: periodLabel(range),
+  });
+}
+
+// ─── Sales tax, for filing ────────────────────────────────────────────────────
+
+/** The sales tax report for a period (lib/sales-tax-report): what the return asks for, then by location. `paid`: when it
+ *  was recorded as paid, and how much. */
+export function buildSalesTaxHtml(r: TaxReport, opts: ReportOptions & { paid?: { at: string; cents: number } | null } = {}) {
+  const cur = opts.currency || 'USD';
+  const body = `
+    <h2>What your return asks for</h2>
+    ${printLine('All sales', r.allSales)}
+    ${r.taxFree ? printLine('Sold tax free to resellers (keep their certificates)', -r.taxFree, 'sub') : ''}
+    ${r.viaApps ? printLine('Sold through delivery apps that collect the tax themselves', -r.viaApps, 'sub') : ''}
+    ${printLine('Not taxed (services where they aren’t taxed, fees, anything rung in untaxed)', -r.notTaxed, 'sub')}
+    ${printLine('Taxable sales', r.taxable, 'total')}
+    ${printLine('Sales tax collected', r.collected)}
+    ${r.givenBack ? printLine('Given back on refunds and voids', -r.givenBack, 'sub') : ''}
+    ${printLine('Sales tax to pay', r.toPay, 'total')}
+    <h2>By location</h2>
+    <table><thead><tr><th>Location</th><th class="r">Rate</th><th class="r">Taxable sales</th><th class="r">Tax to pay</th></tr></thead><tbody>
+      ${r.places.map((p) => `<tr><td>${esc(p.name)}${p.address ? `<div class="faint">${esc(p.address)}</div>` : ''}</td><td class="r">${esc(p.rate)}</td><td class="r">${printMoney(p.taxable, cur)}</td><td class="r">${printMoney(p.tax, cur)}</td></tr>`).join('')}
+    </tbody></table>
+    ${opts.paid ? `<h2>Paid to the state</h2>${opts.paid.cents > 0 ? printLine(`Recorded as paid ${esc(format(new Date(opts.paid.at), 'MMMM d, yyyy'))}`, opts.paid.cents / 100) : printLine(`Filed ${esc(format(new Date(opts.paid.at), 'MMMM d, yyyy'))}, nothing to pay`, 0)}` : ''}
+  `;
+  const notes = ['Sales are what clients paid before tax and tips; tips are never taxed. Gift cards are taxed when they’re used, not when they’re sold.'];
+  notes.push('Days are your business’s own, in its time zone. Taxable sales and tax to pay by location are after refunds.');
+  if (r.estimated) notes.push('For some sales and refunds, what was taxed is worked out from their tax and the rate charged.');
+  return printPage({
+    title: `Sales tax, ${r.period.label}`, heading: `Sales tax, <b>${esc(r.period.label)}</b>`, subtitle: `${esc(format(new Date(`${r.period.start}T12:00:00Z`), 'MMMM d'))} to ${esc(format(new Date(`${r.period.end}T12:00:00Z`), 'MMMM d, yyyy'))}. Due ${esc(r.period.dueLabel)}.`,
+    shopName: opts.shopName, body,
+    footNote: `${notes.join(' ')} Check it against your state’s return before you file.`,
+    footRight: esc(r.period.label),
   });
 }

@@ -245,7 +245,7 @@ export async function editOrder(db: any, tenantId: string, tenant: any, orderId:
         lines = lines.map((l) => (l.lineId === lineId ? { ...l, quantity: q } : l));
       }
     }
-    const totals = totalsOf(tenant, lines);
+    const totals = totalsOf(tenant, lines, 0, String(o.locationId || '') || null);
     tx.set(orderRef, { lines, ...totals, updatedAt: nowIso, ...(tapKey ? { taps: [...taps, tapKey].slice(-30) } : {}) }, { merge: true });
     return { order: { id: orderId, number: o.number, status: o.status, lines, ...totals }, line };
   });
@@ -809,6 +809,10 @@ export async function payOrder(db: any, tenantId: string, orderId: string, how: 
     // (A week whose payout was already checked and its difference booked: counted in the next one, so the booked week
     // stays as it was. Read here, before anything is written.)
     for (let i = 0; viaApp && i < 3; i++) { const wk: any = (await tx.get(db.doc(`${T}/private/${appWeekId(appKey, week)}`))).data(); if (!wk?.adjustedAt) break; week = payoutWeek(new Date(Date.parse(`${week}T12:00:00Z`) + 7 * 864e5).toISOString().slice(0, 10)); }
+    // (On each sales tax line: where it was sold, the rate and what was taxed, for the filing report: lib/sales-tax-report.)
+    // (An order from before these were kept has no rate on it: the report works it out from the tax.)
+    const taxFacts = (taxed: unknown) => ({ ...(o.taxPct !== undefined && Number.isFinite(Number(o.taxPct)) ? { taxRates: { productsPct: Number(o.taxPct), servicesPct: 0 } } : {}),
+      ...(Number(taxed) > 0 ? { taxedAmount: Math.round(Number(taxed) * 100) / 100 } : {}), ...(o.locationId ? { taxLocationId: String(o.locationId) } : {}) });
     const common = { date: nowIso, type: 'income', context: 'Business', paymentMethod: payWord, hasReceipt: true, clientOrVendor: viaApp ? String(o.app.label || 'Delivery app') : `${CHANNEL_NAME[o.channel as Channel]} ${o.number}`, orderId, channel: o.channel, tenantId,
       ...(viaReader ? { stripePaymentIntentId: how.card!.id } : {}),
       // (A split bill's card-reader parts, each its own payment: lib/counter-split-server.)
@@ -817,7 +821,7 @@ export async function payOrder(db: any, tenantId: string, orderId: string, how: 
       ...(am ? { appKey, appWeek: week, appMenuCents: am.menuCents, appFeeCents: am.feeCents, appTaxCents: am.taxCents, appPayoutCents: am.payoutCents } : {}) });
     if (am) {
       // The sales tax the business pays (an app that doesn't collect it), and the app's share, its own expense line.
-      if (am.taxCents > 0) tx.set(taxRef, { id: taxRef.id, ...common, description: `Sales tax on ${appName(o.app)} (yours to pay: it comes in the payout)`, category: 'Tax Collected', taxBucket: 'tax_collected', amount: am.taxCents / 100, hasReceipt: false });
+      if (am.taxCents > 0) tx.set(taxRef, { id: taxRef.id, ...common, description: `Sales tax on ${appName(o.app)} (yours to pay: it comes in the payout)`, category: 'Tax Collected', taxBucket: 'tax_collected', amount: am.taxCents / 100, hasReceipt: false, ...taxFacts(am.appCents / 100) });
       if (am.feeCents > 0) { const feeRef = db.doc(`${T}/transactions/counter_${orderId}_appfee`); tx.set(feeRef, { id: feeRef.id, ...common, type: 'expense', category: 'Delivery App Fees', taxBucket: 'operating_cost', description: `${String(o.app.label || 'The app')}’s share (${am.feePct}%), ${appName(o.app)}`, clientOrVendor: String(o.app.label || 'Delivery app'), paymentMethod: 'Deducted from payout', amount: am.feeCents / 100, hasReceipt: false, relatedTxnId: saleRef.id }); }
       // The week's payout from that app, counted as it goes (lib/app-payouts checks it when it comes in).
       tx.set(db.doc(`${T}/private/${appWeekId(appKey, week)}`), { app: appKey, label: String(o.app.label || ''), week, orders: FieldValue.increment(1), grossCents: FieldValue.increment(am.appCents + am.taxCents), feeCents: FieldValue.increment(am.feeCents), payoutCents: FieldValue.increment(am.payoutCents), updatedAt: nowIso }, { merge: true });
@@ -828,11 +832,11 @@ export async function payOrder(db: any, tenantId: string, orderId: string, how: 
     // (The delivery fee's own sales tax, where the business charges it, is a line of its own beside the fee.)
     const feeTax = Math.min(tax, Math.max(0, num(o.deliveryFeeTax)));
     const foodTax = Math.round((tax - feeTax) * 100) / 100;
-    if (foodTax > 0) tx.set(taxRef, { id: taxRef.id, ...common, description: o.taxLabel || 'Sales tax', category: 'Tax Collected', taxBucket: 'tax_collected', amount: foodTax, hasReceipt: false });
+    if (foodTax > 0) tx.set(taxRef, { id: taxRef.id, ...common, description: o.taxLabel || 'Sales tax', category: 'Tax Collected', taxBucket: 'tax_collected', amount: foodTax, hasReceipt: false, ...taxFacts(o.taxedAmount) });
     // A delivery's fee (lib/food-delivery): on its own line, what the guest paid for delivery, never food sales.
     const fee = num(o.deliveryFee);
     if (fee > 0) { const feeRef = db.doc(`${T}/transactions/counter_${orderId}_delivery`); tx.set(feeRef, { id: feeRef.id, ...common, description: `Delivery, order ${o.number}`, category: 'Shipping Charged', taxBucket: 'revenue', amount: fee, hasReceipt: false }); }
-    if (feeTax > 0) { const ftRef = db.doc(`${T}/transactions/counter_${orderId}_delivery_tax`); tx.set(ftRef, { id: ftRef.id, ...common, description: `${o.taxLabel || 'Sales tax'} on delivery, order ${o.number}`, category: 'Tax Collected', taxBucket: 'tax_collected', amount: feeTax, hasReceipt: false }); }
+    if (feeTax > 0) { const ftRef = db.doc(`${T}/transactions/counter_${orderId}_delivery_tax`); tx.set(ftRef, { id: ftRef.id, ...common, description: `${o.taxLabel || 'Sales tax'} on delivery, order ${o.number}`, category: 'Tax Collected', taxBucket: 'tax_collected', amount: feeTax, hasReceipt: false, ...taxFacts(fee) }); }
     // Its driver's tip (lib/food-delivery): a tip, never sales, kept with no one on it until it's delivered, when it's put
     // under the driver's name (lib/food-delivery-server). Refunded with the order, it goes back to the card from here.
     const tipC = Math.max(0, Math.round(num(o.tipCents))) + keptC;

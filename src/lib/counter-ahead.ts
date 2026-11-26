@@ -305,9 +305,11 @@ export async function placeAhead(db: any, tenantId: string, tenant: any, b: { ke
   // The driver's tip (a delivery only): worked out here from the food, never taken from the page.
   const tipCents = deliv ? tipCentsOf(b.tip, centsOf(totalsOf(tenant, lines).subtotal)) : 0;
   if (tipCents < 0) return fail('Pick a tip again.', 400, 'tip');
-  // Sales tax on the delivery fee, where the business charges it (Menu, Ordering ahead): the same rate as the food.
-  const feeTax = deliv && deliv.feeCents > 0 && foodDeliveryOf(tenant).feeTaxed ? posTaxAmount(tenant, { services: 0, products: deliv.feeCents / 100 }) : 0;
-  const money = deliv ? withDeliveryFee(totalsOf(tenant, lines), deliv.feeCents, tipCents, feeTax) : totalsOf(tenant, lines); const cents = centsOf(money.total);
+  // Sales tax on the delivery fee, where the business charges it (Menu, Ordering ahead): the same rate as the food, at
+  // the location it's made at (its own rate, when it has one).
+  const taxAt = (from || picked)?.id || null;
+  const feeTax = deliv && deliv.feeCents > 0 && foodDeliveryOf(tenant).feeTaxed ? posTaxAmount(tenant, { services: 0, products: deliv.feeCents / 100 }, taxAt) : 0;
+  const money = deliv ? withDeliveryFee(totalsOf(tenant, lines, 0, taxAt), deliv.feeCents, tipCents, feeTax) : totalsOf(tenant, lines, 0, taxAt); const cents = centsOf(money.total);
   if (cents < 50) return fail('Orders paid online start at $0.50.', 400, 'too_small');
   if (forDay && L.minCents !== null && centsOf(totalsOf(tenant, lines).subtotal) < L.minCents) return fail(`Orders for another day start at $${(L.minCents / 100).toFixed(2)} before tax.`, 400, 'too_small');
   // Where it's made: the location picked, or for a delivery, the one it goes from (with one location, none).

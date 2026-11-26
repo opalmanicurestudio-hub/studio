@@ -600,8 +600,12 @@ export function usePosEngine() {
       staff: staffDiscountValue, loyalty: loyaltyValue, loyaltyLabel: loyaltyReward?.label || null,
     };
   })();
-  const taxCalc = posTaxAmount(selectedTenant, taxPartsRef.current);   // Settings → Payments → Sales tax
-  const taxLabel = posTaxLabel(selectedTenant);
+  // (At this desk's location, which has its own rates when the business set them: lib/pos-tax. The same location the
+  // sale is sent with.)
+  // (Like the server's: only with more than one location, and only one of them.)
+  const deskAt = (() => { const places = businessLocations(allLocations); if (places.length < 2) return null; try { const v = localStorage.getItem('cf.desk.location') || ''; return places.some((p: any) => p.id === v) ? v : null; } catch { return null; } })();
+  const taxCalc = posTaxAmount(selectedTenant, taxPartsRef.current, deskAt);   // Settings → Payments → Sales tax
+  const taxLabel = posTaxLabel(selectedTenant, deskAt);
   const beforeGiftCalc = Math.max(0, subtotalCalc + taxCalc + tipAmount - discountValue - membershipDiscountValue - storeCreditApplied);
   const giftItemsTotal = retailItems.filter((i: any) => i.type === 'giftcard').reduce((s: number, i: any) => s + safeNumber(i.price) * safeNumber(i.quantity || 1), 0);
   const giftCardValue = Math.round(Math.min(Math.max(0, beforeGiftCalc - giftItemsTotal), giftApplied.reduce((s, g) => s + g.cents, 0) / 100) * 100) / 100;

@@ -18,7 +18,7 @@ import { tonight, addDays } from '@/lib/night-close-server';
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
 type Who = { id: string | null; name: string };
 /** One order's money with an app, by its settings now: frozen on the order when it's sent. */
-const booksFor = (tenant: any, m: AppMoney, subtotal: unknown) => appBooks(Math.round((Number(subtotal) || 0) * 100), m, (d) => posTaxAmount(tenant, { services: 0, products: d }));
+const booksFor = (tenant: any, m: AppMoney, subtotal: unknown, at: unknown) => appBooks(Math.round((Number(subtotal) || 0) * 100), m, (d) => posTaxAmount(tenant, { services: 0, products: d }, String(at || '') || null));
 type Fail = { ok: false; error: string; status: number; needsManager?: boolean };
 const fail = (error: string, status: number): Fail => ({ ok: false, error, status });
 /** States that hold a shelf spot: being sent to the kitchen, and waiting for the courier. */
@@ -64,7 +64,7 @@ export async function appSend(db: any, tenantId: string, tenant: any, orderId: s
     // No sales tax added on the order: the guest paid the app. The total is what the items come to on the menu; what the
     // app charged, its share, and any sales tax the business pays are worked out now, by the app's settings as they are
     // (lib/app-orders appBooks), and booked when it's picked up.
-    tx.set(orderRef, { app: { state: 'sending', app: app.code, label: app.label, code, shelf, courierAt, sentBy: who.name, claimId, day, money: booksFor(tenant, app, o.subtotal) }, tax: 0, taxLabel: null, total: Math.round(Number(o.subtotal || 0) * 100) / 100 }, { merge: true });
+    tx.set(orderRef, { app: { state: 'sending', app: app.code, label: app.label, code, shelf, courierAt, sentBy: who.name, claimId, day, money: booksFor(tenant, app, o.subtotal, o.locationId) }, tax: 0, taxLabel: null, total: Math.round(Number(o.subtotal || 0) * 100) / 100 }, { merge: true });
     return { ok: true, shelf };
   });
   // Waiting at the counter for the courier, paid on the app.
@@ -132,7 +132,7 @@ export async function appCode(db: any, tenantId: string, tenant: any, orderId: s
     if (old && old.orderId === orderId) tx.delete(oldRef);
     tx.set(claimRef, { orderId, number: o.number || null, at: new Date(now).toISOString(), appCodeDay: tonight(tenant, new Date(now)) });
     // (Another app: its own price difference, share and tax.)
-    tx.set(ref, { app: { app: app.code, label: app.label, code, claimId, fixedFrom: was, fixedBy: who.name, ...(o.app.app !== app.code ? { money: booksFor(tenant, app, o.subtotal) } : {}) } }, { merge: true });
+    tx.set(ref, { app: { app: app.code, label: app.label, code, claimId, fixedFrom: was, fixedBy: who.name, ...(o.app.app !== app.code ? { money: booksFor(tenant, app, o.subtotal, o.locationId) } : {}) } }, { merge: true });
     // The kitchen's tickets still to hand over say the new code.
     const station = `${name}${o.app.shelf ? `, shelf ${o.app.shelf}` : ''}`;
     for (const d of tix) { const t: any = d.data() || {}; if (!['delivered', 'cancelled'].includes(String(t.status))) tx.set(d.ref, { stationName: station }, { merge: true }); }

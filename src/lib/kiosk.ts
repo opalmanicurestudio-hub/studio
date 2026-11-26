@@ -81,7 +81,7 @@ export async function kioskMenu(db: any, tenantId: string, tenant: any, screen: 
     // For here or to go, when what goes out with an order depends on it (lib/plate-extras), as the counter asks.
     askToGo: extrasOf(tenant).some((e: any) => e.per !== 'guest' && e.when !== 'any'),
     // The sales tax rate, so the total shows before paying (the server works it out again when the order is placed).
-    taxPct: posTaxOf(tenant).productsPct, sections, now: at.toISOString(),
+    taxPct: posTaxOf(tenant, here).productsPct, sections, now: at.toISOString(),
     // "Text me when it's ready" on the paid screen, where the business can text (lib/ready-text).
     texts: readyTextsOn(tenant) };
 }
@@ -127,7 +127,7 @@ export async function kioskPlace(db: any, tenantId: string, tenant: any, screen:
     if (m.soldOut || !m.inStock) return fail(`${m.name} just sold out. Take it off and try again.`, 409, 'sold_out');
     if (m.canMake !== null && m.canMake < q) return fail(m.canMake > 0 ? `Only ${m.canMake} ${m.name} left. Change your order and try again.` : `${m.name} just sold out. Take it off and try again.`, 409, 'sold_out');
   }
-  const money = totalsOf(tenant, lines);
+  const money = totalsOf(tenant, lines, 0, here);
   if (Math.round(money.total * 100) < 50) return fail('Card payments start at $0.50. Add something, or order at the counter.', 400, 'too_small');
   // The same order only for the same key AND the same details: changed after going back, it's a new order.
   // The guest's allergies (lib/order-allergy): on every ticket.

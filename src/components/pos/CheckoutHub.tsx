@@ -1,6 +1,7 @@
 'use client';
 
 import { can as canDo } from '@/lib/permissions';
+import { posTaxOf } from '@/lib/pos-tax';
 import { doc, updateDoc } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { visitTiming, overtimePrice } from '@/lib/timing';
@@ -505,6 +506,9 @@ export const CheckoutHub = ({
   const terminal = useTerminalSafe();
 
   const isOwnerOrAdmin = canDo(selectedTenant, role, 'checkout.discount');
+  // Sales tax not set up yet (Settings → Payments): none is added, and the desk says so; a manager can go and set it.
+  const taxUnset = posTaxOf(selectedTenant).unset;
+  const canSetTax = ['owner', 'admin', 'manager'].includes(String((role as any) || '').toLowerCase());
 
   const selectedClient = useMemo(
     () => clients.find((c: Client) => c.id === selectedClientId),
@@ -1693,6 +1697,13 @@ export const CheckoutHub = ({
               })()}
               {recoveryAmount > 0 && <div className="flex justify-between"><span>Service recovery{recoveryReason ? <span style={muted}> · {recoveryReason.slice(0, 28)}{recoveryReason.length > 28 ? '…' : ''}</span> : null}</span><span className="tabular-nums">−{coMoney(recoveryAmount)}</span></div>}
               {finalTotal > 0 && <div className="flex justify-between"><span>{taxLabel || 'Sales tax'}</span><span className="tabular-nums">{coMoney(tax)}</span></div>}
+              {finalTotal > 0 && taxUnset && (
+                <div className="flex gap-2.5 rounded-2xl p-3" style={{ background: '#fff7ed' }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#b45309" strokeWidth="2" strokeLinecap="round" aria-hidden="true" className="mt-0.5 shrink-0"><circle cx="12" cy="12" r="9" /><path d="M12 7.5v5.5M12 16.5h.01" /></svg>
+                  <div className="min-w-0"><p className="text-[14px] font-semibold" style={{ color: '#b45309' }}>Sales tax isn’t set up yet</p>
+                    <p className="text-[13px]" style={muted}>Nothing is added until your rate is in.</p>
+                    {canSetTax && <a href="/settings?tab=payments#sales-tax" target="_blank" rel="noopener" className="inline-flex min-h-[44px] items-center text-[14px] font-semibold underline underline-offset-2">Set up sales tax</a>}</div>
+                </div>)}
               {tipAmount > 0 && <div className="flex justify-between"><span>Tip</span><span className="tabular-nums">{coMoney(tipAmount)}</span></div>}
               {totalPaidDeposits > 0 && <div className="flex justify-between" style={{ color: 'var(--ok)' }}><span>Deposit already paid</span><span className="tabular-nums">−{coMoney(totalPaidDeposits)}</span></div>}
               {creditUsed > 0 && <div className="flex justify-between" style={{ color: 'var(--ok)' }}><span>Store credit</span><span className="tabular-nums">−{coMoney(creditUsed)}</span></div>}

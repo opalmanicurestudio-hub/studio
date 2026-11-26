@@ -24,6 +24,7 @@ import { monthKey } from '@/lib/team-discount';
 import { consumeApproval, isApprover } from '@/lib/approvals';
 import { heldCovered, heldLine, heldShortfall } from '@/lib/held-stock';
 import { hereOf } from '@/lib/here-server';
+import { posTaxRates } from '@/lib/pos-tax';
 import { stockAtOf } from '@/lib/store-stock';
 import { NextRequest, NextResponse } from 'next/server';
 import { FieldValue } from 'firebase-admin/firestore';
@@ -863,7 +864,9 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   // visit only when the business lets renters accept studio cards (Gift cards → Renters) — the studio then owes the renter
   // that amount, credited against their rent. A card a renter sold pays only for that renter's visits (they already have
   // the money). So: first the bill without gift cards, then what each card may pay for, then the bill with them.
-  const calcArgs: any = { tenant, visits, staff, redeemedOffer, waivedIds, items, fees, discounts, client, memberships, tip, storeCredit: Math.max(0, num(b.storeCredit)), staffDiscount: null as any, skipGroupDiscount: b.skipGroupDiscount === true, skipMemberDiscount: b.skipMemberDiscount === true };
+  // (The desk's location: its own sales tax rates when it has them. The same one the desk itself works its total out at.)
+  const taxAt: string | null = await hereOf(db, tenantId, b.locationId).catch(() => null);
+  const calcArgs: any = { taxAt, tenant, visits, staff, redeemedOffer, waivedIds, items, fees, discounts, client, memberships, tip, storeCredit: Math.max(0, num(b.storeCredit)), staffDiscount: null as any, skipGroupDiscount: b.skipGroupDiscount === true, skipMemberDiscount: b.skipMemberDiscount === true };
   const salonOffers = resolveOffers(tenant);   // studio cards for renters' visits: off, on for every renter, or an add-on each renter has or hasn't (lib/renter-offers)
   const giftUse: { id: string; code: string; cents: number; holdId: string | null; done?: boolean; owner: string | null; forRenters: Record<string, number> }[] = [];
   const giftTopUps: Record<string, number> = {};
@@ -938,7 +941,7 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   { const sdPre = b.staffDiscount && ['pct', 'amt'].includes(b.staffDiscount.kind) && num(b.staffDiscount.value) > 0 ? { kind: b.staffDiscount.kind as 'pct' | 'amt', value: Math.max(0, num(b.staffDiscount.value)) } : null;
     const calc0 = computeCheckout({ ...calcArgs, staffDiscount: sdPre, giftCard: 0, momentReward: moment && b.skipMomentReward !== true ? { pct: moment.rewardPct, label: moment.rewardLabel || 'Thank-you', key: moment.key } : null });
     const err = await giftPlan(calc0); if (err) return json({ ok: false, error: err }, 400); }
-  const calc = computeCheckout({ tenant, visits, staff, redeemedOffer, waivedIds, items, fees, discounts, client, memberships, tip, loyaltyReward, storeCredit: Math.max(0, num(b.storeCredit)), giftCard: giftUse.reduce((s2, g) => s2 + g.cents, 0) / 100, staffDiscount: sdIn, skipGroupDiscount: b.skipGroupDiscount === true, skipMemberDiscount: b.skipMemberDiscount === true, momentReward: moment && b.skipMomentReward !== true ? { pct: moment.rewardPct, label: moment.rewardLabel || 'Thank-you', key: moment.key } : null });
+  const calc = computeCheckout({ taxAt, tenant, visits, staff, redeemedOffer, waivedIds, items, fees, discounts, client, memberships, tip, loyaltyReward, storeCredit: Math.max(0, num(b.storeCredit)), giftCard: giftUse.reduce((s2, g) => s2 + g.cents, 0) / 100, staffDiscount: sdIn, skipGroupDiscount: b.skipGroupDiscount === true, skipMemberDiscount: b.skipMemberDiscount === true, momentReward: moment && b.skipMomentReward !== true ? { pct: moment.rewardPct, label: moment.rewardLabel || 'Thank-you', key: moment.key } : null });
   const recoveryAmount = Math.min(Math.max(0, num(b.recovery?.amount)), calc.subtotal);
   // Gift cards paying for this sale were planned above (giftPlan); the bill can't take more than it costs.
   { let over = giftUse.reduce((s2, g) => s2 + g.cents, 0) - Math.round(num((calc as any).giftCard) * 100); for (let i = giftUse.length - 1; i >= 0 && over > 0; i--) { const cut = Math.min(over, giftUse[i].cents); giftUse[i].cents -= cut; over -= cut; } }
@@ -1291,7 +1294,9 @@ async function runCheckout(db: any, tenantId: string, b: any, auth: any, req: Ne
   if (calc.groupDiscount > 0 && calc.group) txn({ description: `${calc.group.label} — ${client.name || 'client'}`, type: 'expense', context: 'Business', category: 'Discounts', taxBucket: 'adjustment', amount: calc.groupDiscount, paymentMethod: 'Internal', hasReceipt: false, discountKind: calc.group.type === 'team' ? 'team' : 'family', linkedStaffId: calc.group.staffId || null });
   if (calc.staffDiscount > 0) txn({ description: `Staff discount — ${staffDiscountReason}${staffDiscountApprovedBy ? ` · approved by ${staffDiscountApprovedBy}` : ''}`, type: 'expense', context: 'Business', category: 'Discounts', taxBucket: 'adjustment', amount: calc.staffDiscount, paymentMethod: 'Internal', hasReceipt: false, notes: staffDiscountReason, discountKind: 'staff', givenBy: auth.actor.name, ...(staffDiscountApprovedBy ? { approvedBy: staffDiscountApprovedBy } : {}) });
   if (recoveryAmount > 0) txn({ description: `Service Recovery: ${recoveryReason}`, type: 'expense', context: 'Business', category: 'Discounts', taxBucket: 'adjustment', amount: recoveryAmount, notes: recoveryReason, paymentMethod: 'Internal', hasReceipt: false, ...(recoveryApprovedBy ? { approvedBy: recoveryApprovedBy } : {}) });
-  if (calc.tax > 0) txn({ description: calc.taxLabel, type: 'income', context: 'Business', category: 'Tax Collected', taxBucket: 'tax_collected', amount: calc.tax, paymentMethod: method, hasReceipt: false });
+  // (With the rates it was worked out at, what was taxed and where: the sales tax report adds them up by rate and location.)
+  if (calc.tax > 0) { const rt = posTaxRates(tenant, taxAt); txn({ description: calc.taxLabel, type: 'income', context: 'Business', category: 'Tax Collected', taxBucket: 'tax_collected', amount: calc.tax, paymentMethod: method, hasReceipt: false,
+    taxRates: rt, taxedAmount: Math.round(((rt.servicesPct > 0 ? num(calc.taxableServices) : 0) + (rt.productsPct > 0 ? num(calc.taxableProducts) : 0)) * 100) / 100, ...(taxAt ? { taxLocationId: taxAt } : {}) }); }
   if (cardSurcharge > 0) { txn({ description: 'Card Processing Fee (passed to client)', type: 'income', context: 'Business', category: 'Card Processing Fee', taxBucket: 'revenue', amount: cardSurcharge, paymentMethod: method, hasReceipt: false }); totalLtvIncrease += cardSurcharge; }
   let cashDepositOffset = 0;
   // What the deposits pay of this bill (never more than it comes to), each from what's left on it, in one step with

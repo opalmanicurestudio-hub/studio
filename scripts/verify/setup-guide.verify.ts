@@ -13,8 +13,8 @@ const none = { livePriced: 0, teamCount: 1 };
 // Which steps a business sees
 const solo = { modules: { retail: false, team: false } };
 const shop = { modules: { retail: true, team: true } };
-ok(ids(guideSteps(solo, none)) === 'details,hours,services,payments,booking,changes,messages', 'a business without a shop or a team sees only the steps it needs');
-ok(ids(guideSteps(shop, none)) === 'details,hours,services,products,payments,booking,changes,messages,shop,open,team', 'the shop and team steps join when those tools are on (a shop chosen on purpose brings its products and opening too: seller-setup.verify)');
+ok(ids(guideSteps(solo, none)) === 'details,hours,services,payments,salestax,booking,changes,messages', 'a business without a shop or a team sees only the steps it needs');
+ok(ids(guideSteps(shop, none)) === 'details,hours,services,products,payments,salestax,booking,changes,messages,shop,open,team', 'the shop and team steps join when those tools are on (a shop chosen on purpose brings its products and opening too: seller-setup.verify)');
 ok(GUIDE_STEPS.every((s) => fs.existsSync(`src/app/(app)${s.href.split(/[?#]/)[0] === '/' ? '' : s.href.split(/[?#]/)[0]}/page.tsx`)), 'every step opens a page that exists');
 
 // When a step is done
@@ -27,10 +27,10 @@ ok(guideSteps({ ...t0, phone: '5', address: '1 Elm' }, none).find((s) => s.id ==
 ok(ids(guideSteps({ teamSize: 'team', modules: { team: false } }, none)).endsWith(',team'), 'a business that said it’s a team gets the team step even without the Team tool');
 ok(!ids(guideSteps({ teamSize: 'solo', modules: { team: true } }, none)).includes('team'), 'a business that said “just me” isn’t asked to build a team, even with the Team tool on');
 ok(ids(guideSteps({ teamSize: 'solo', shape: { solo: false }, modules: {} }, none)).endsWith(',team'), 'a business that later says it’s a team (How your business works) gets the step');
-const t1 = { ...t0, logoUrl: 'x', phone: '5', address: '1 Elm', stripeAccountId: 'acct', setupGuide: { done: { booking: '2026-01-01' }, skipped: { changes: '2026-01-01' } } };
+const t1 = { ...t0, logoUrl: 'x', phone: '5', address: '1 Elm', stripeAccountId: 'acct', salesTax: { configured: true }, setupGuide: { done: { booking: '2026-01-01' }, skipped: { changes: '2026-01-01' } } };
 const f1 = { livePriced: 3, teamCount: 1, toPrice: 2 };
 const s1 = guideSteps(t1, f1);
-ok(ids(s1.filter((s) => s.done)) === 'details,services,payments,booking', 'steps that need something real are done when it’s there; hours and the others when the owner looked and pressed Next');
+ok(ids(s1.filter((s) => s.done)) === 'details,services,payments,salestax,booking', 'steps that need something real are done when it’s there; hours and the others when the owner looked and pressed Next');
 ok(s1.find((s) => s.id === 'services')?.note === '3 on your booking page · 2 still need a price' && guideSteps(t0, { ...none, toPrice: 14 }).find((s) => s.id === 'services')?.note === '14 ready for your prices', 'the services step counts what clients can book, and starter services still waiting for a price');
 ok(s1.find((s) => s.id === 'changes')?.skipped === true, 'a skipped step is remembered');
 ok(guideSteps({ ...t0, stripeAccountId: 'a', stripeChargesEnabled: false }, none).find((s) => s.id === 'payments')?.done === false, 'payments aren’t done until the bank account can take cards');
@@ -38,10 +38,10 @@ ok(guideSteps({ ...t0, setupGuide: { done: { details: 'x' } } }, none).find((s) 
 
 // Where the owner is
 const p1 = guideProgress(s1);
-ok(p1.doneCount === 4 && p1.total === 7 && p1.next?.id === 'hours' && !p1.finished, 'the next step skips the ones put off for later');
+ok(p1.doneCount === 5 && p1.total === 8 && p1.next?.id === 'hours' && !p1.finished, 'the next step skips the ones put off for later');
 const all = { booking: 'x', hours: 'x', messages: 'x' };
 const p2 = guideProgress(guideSteps({ ...t1, setupGuide: { done: all, skipped: { changes: 'x', payments: 'x' } } }, f1));
-ok(p2.finished && !p2.allDone && p2.next?.id === 'changes' && p2.doneCount === 6, 'every step done or put off is finished, and the put-off ones are still there to come back to');
+ok(p2.finished && !p2.allDone && p2.next?.id === 'changes' && p2.doneCount === 7, 'every step done or put off is finished, and the put-off ones are still there to come back to');
 const skippedAll = guideProgress(guideSteps(t0, none).map((x) => ({ ...x, skipped: !x.done })));
 ok(skippedAll.finished && !skippedAll.allDone, 'skipping every step finishes the walk-through but not the setup, so the guide stays in Settings');
 ok(guideProgress(guideSteps({ ...t1, stripeAccountId: '', setupGuide: { done: { ...all, changes: 'x' }, skipped: { payments: 'x' } } }, f1)).finished, 'a business that takes cash only skips payments and still finishes');

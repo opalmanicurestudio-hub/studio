@@ -133,6 +133,8 @@ export async function POST(req: NextRequest) {
       businessType: type, teamSize, ...(books !== null ? { shape: { books } } : {}), modules: toTenantModules(tools), signupTools: tools, timezone,
       subscriptionStatus: 'inactive', subscriptionTier: 'none',
       tmhr: 50, employerTaxBurdenPct: 10, createdAt: at, onboardingComplete: false,
+      // No sales tax until the owner sets it (lib/pos-tax): a new business is asked, never charged a guess.
+      salesTax: { configured: false, startsUnset: true },
       maxAutonomousRecoveryAmount: 50, maxAutonomousRecoveryPercent: 25, defaultCancellationMode: 'matrix',
       escalationPolicy: "1. Staff can put small problems right themselves, up to their limit. 2. Use a make-good for waits over 15 minutes or small mistakes. 3. Tell a manager right away about any injury or reaction, damage to property, or a client who becomes hostile. 4. Always note the reason when you apply a make-good at checkout.",
       recoveryPresets: [

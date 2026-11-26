@@ -11,6 +11,7 @@ import { useTransactionsInRange, usePunchesInRange } from '@/hooks/use-transacti
 import { useAppointmentsByIds } from '@/hooks/use-appointments';
 import { RestockingFundCard } from '@/components/money/RestockingFundCard';
 import { AppPayoutsCard } from '@/components/money/AppPayoutsCard';
+import { SalesTaxDueCard } from '@/components/money/SalesTaxDueCard';
 import { MilesCard } from '@/components/money/MilesCard';
 import { TipShareCard } from '@/components/money/TipShareCard';
 import { OwedToClientsCard } from '@/components/money/OwedToClientsCard';
@@ -328,7 +329,7 @@ function buildPrintHtml(
       ${summary.taxPaid ? printLine('Paid to the state', summary.taxPaid, 'sub') : ''}
       ${summary.taxFreeSales ? printLine('Sold tax free to resellers', summary.taxFreeSales, 'sub') : ''}
       ${summary.giftCardsSold ? printLine('Gift cards sold', summary.giftCardsSold) : ''}
-      ${summary.heldForRenters ? printLine('Taken for booth renters', summary.heldForRenters) : ''}
+      ${summary.heldForRenters ? printLine('Taken for renters', summary.heldForRenters) : ''}
       <h3>Card fees</h3>
       ${printLine('Passed on to clients', summary.feesPassedOn)}
       ${printLine('Paid to Stripe', -summary.feesPaid)}
@@ -2606,6 +2607,7 @@ const OverviewTab = ({ onNavigate }: { onNavigate: (tab: HubTab) => void }) => {
           </div>
         </div>
 
+        {tenantId && <SalesTaxDueCard tenantId={tenantId} />}
         {tenantId && <AppPayoutsCard tenantId={tenantId} />}
         {tenantId && <MilesCard tenantId={tenantId} />}
         {tenantId && <RestockingFundCard tenantId={tenantId} />}

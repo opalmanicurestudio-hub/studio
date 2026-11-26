@@ -23,6 +23,7 @@
 // Delivery: SMS first, branded-email fallback, per the messaging layer.
 
 import { bookingPolicyLines } from '@/lib/policy-copy';
+import { taxReminder } from '@/lib/sales-tax-server';
 import { releaseUnpaidHolds } from '@/lib/release-unpaid';
 import { recordCronRun } from '@/lib/cron-heartbeat';
 import { refuseCron } from '@/lib/cron-auth';
@@ -659,7 +660,9 @@ export async function GET(req: NextRequest) {
           } catch { /* skip */ }
           const msg = `Morning brief: ${apptsToday} appointment${apptsToday === 1 ? '' : 's'} today${firstLabel ? `, the first at ${firstLabel}` : ''}. Open maintenance tickets: ${openTickets}${overdueTickets ? ` (${overdueTickets} overdue)` : ''}. Collected yesterday: $${revYesterday.toFixed(0)}.`;
           const ob = resolveMessage(tDoc.data(), 'owner_brief', { appointments: `${apptsToday} appointment${apptsToday === 1 ? '' : 's'}`, first_time: firstLabel || '—', open_maintenance: openTickets, overdue_maintenance: overdueTickets, revenue_yesterday: `$${revYesterday.toFixed(2)}`, studio: (tDoc.data() as any)?.name || '' }, 'sms');
-          const briefText = ob.custom ? tidyBody(ob.body) : msg;
+          // (Sales tax due within the week and not recorded as paid, when the business wants reminding: lib/sales-tax-server.)
+          const taxLine = await taxReminder(db, tid, tDoc.data()).then((r) => (r ? ` ${r.text}.` : '')).catch(() => '');
+          const briefText = (ob.custom ? tidyBody(ob.body) : msg) + taxLine;
           if (smsConfigured() && ob.send) brief = (await sendTenantSms(db, tid, cfg.ownerPhone, briefText)).ok;
         } catch { /* brief is a bonus */ }
       }

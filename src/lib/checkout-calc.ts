@@ -16,6 +16,8 @@ export interface CalcInput {
   tenant: any; visits: CalcVisit[]; staff: any[]; redeemedOffer: { type: string; id: string; itemId?: string } | null; waivedIds: string[];
   items: CalcItem[]; fees: { feeId: string; feeAmount: number }[]; discounts: any[]; client: any | null; memberships: any[];
   tip: number; storeCredit: number; giftCard?: number;
+  /** The location the sale is at, for its own sales tax rates when it has them (lib/pos-tax). */
+  taxAt?: string | null;
   staffDiscount?: { kind: 'pct' | 'amt'; value: number } | null;   // a staff discount — never a price change
   skipGroupDiscount?: boolean;   // "don't apply the team / family discount this time"
   skipMemberDiscount?: boolean;  // "don't apply their member discount this time"
@@ -90,7 +92,7 @@ export function computeCheckout(i: CalcInput) {
     // that names a listing covers its variants.
     if (pct > 0 && !i.skipMemberDiscount) memberDiscount = round2((i.items || []).reduce((s, it) => (it.type === 'product' && (eligible.length === 0 || eligible.includes(String((it as any).itemId || it.id)) || (!!(it as any).listingId && eligible.includes(String((it as any).listingId)))) ? s + num(it.price) * num(it.quantity) * (pct / 100) : s), 0));
   }
-  const tax = posTaxAmount(i.tenant, { services: taxableServices, products: taxableProducts });
+  const tax = posTaxAmount(i.tenant, { services: taxableServices, products: taxableProducts }, i.taxAt);
   const tip = round2(num(i.tip)); const storeCredit = round2(num(i.storeCredit));
   const beforeGift = round2(Math.max(0, subtotal + tax + tip - discount - memberDiscount - storeCredit));
   // Gift cards pay for anything except another gift card.
@@ -101,5 +103,5 @@ export function computeCheckout(i: CalcInput) {
   // A loyalty reward is paid by the business: commission stays on the full price unless the business chose otherwise.
   const commissionCut = i.tenant?.loyalty?.commission === 'paid' ? discount : discount - loyaltyDiscount;
   const discountShare = discountable > 0 ? Math.min(1, commissionCut / discountable) : 0;
-  return { discountShare, memberLabel, visits, renterSub: round2(renterSub), servicesSub: round2(servicesSub), retailSub: round2(retailSub), feeSub: round2(feeSub), subtotal, discount, codeDiscount, staffDiscount, groupDiscount, momentDiscount, loyaltyDiscount, loyaltyLabel: loyaltyDiscount > 0 ? i.loyaltyReward!.label : null, moment: momentDiscount > 0 && i.momentReward ? i.momentReward : null, group: group && groupDiscount > 0 ? { type: group.type, label: group.label, staffId: group.staffId } : null, memberDiscount, tax, taxLabel: posTaxLabel(i.tenant), tip, storeCredit, giftCard, giftable, total };
+  return { discountShare, memberLabel, visits, renterSub: round2(renterSub), servicesSub: round2(servicesSub), retailSub: round2(retailSub), feeSub: round2(feeSub), subtotal, discount, codeDiscount, staffDiscount, groupDiscount, momentDiscount, loyaltyDiscount, loyaltyLabel: loyaltyDiscount > 0 ? i.loyaltyReward!.label : null, moment: momentDiscount > 0 && i.momentReward ? i.momentReward : null, group: group && groupDiscount > 0 ? { type: group.type, label: group.label, staffId: group.staffId } : null, memberDiscount, tax, taxLabel: posTaxLabel(i.tenant, i.taxAt), taxableServices: round2(taxableServices), taxableProducts: round2(taxableProducts), tip, storeCredit, giftCard, giftable, total };
 }

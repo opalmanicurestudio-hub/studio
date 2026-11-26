@@ -71,6 +71,8 @@ export function orderBookLines(o: any, ctx: {
   if (p.taxCents > 0) out.push({ id: taxLineId(ctx.orderId), data: {
     ...base, id: taxLineId(ctx.orderId), type: 'income', category: 'Tax Collected', taxBucket: 'tax_collected',
     description: `Sales tax collected — ${label}`, amount: p.taxCents / 100, taxMode: o?.taxMode || 'flat', paymentMethod: how,
+    // (The online shop's, on the filing report, with what it was on: lib/sales-tax-report.)
+    taxLocationId: 'online', ...(p.itemsCents > 0 ? { taxedAmount: p.itemsCents / 100 } : {}),
   } });
   return out;
 }

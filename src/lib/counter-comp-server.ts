@@ -33,7 +33,7 @@ function notNow(o: any): Fail | null {
 
 const saveMoney = (tx: any, ref: any, tenant: any, o: any, next: OrderLine[], extra: Record<string, unknown>) => {
   const after = { ...o, lines: next }; const md = markdownCentsOf(after); const money = moneyWith(tenant, after, md);
-  tx.set(ref, { lines: next, subtotal: money.subtotal, tax: money.tax, taxLabel: money.taxLabel, total: money.total, discount: money.discount, itemsTotal: money.itemsTotal,
+  tx.set(ref, { lines: next, subtotal: money.subtotal, tax: money.tax, taxLabel: money.taxLabel, taxedAmount: money.taxedAmount, taxPct: money.taxPct, total: money.total, discount: money.discount, itemsTotal: money.itemsTotal,
     ...(o.markdown ? { markdown: { ...o.markdown, cents: md } } : {}), ...extra, updatedAt: new Date().toISOString() }, { merge: true });
   return money;
 };

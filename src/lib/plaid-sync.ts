@@ -344,8 +344,11 @@ async function syncBody(db: any, tenantId: string): Promise<SyncResult> {
     const onAccount = (t: any) => outflow && t.type === 'expense' && /on account/i.test(String(t.paymentMethod || ''))
       && (t.context || 'Business') === (bt.__context || 'Business') && sameVendor(String(t.clientOrVendor || t.description || ''), vendorName)
       && (() => { const tDate = new Date(String(t.date).slice(0, 10) + 'T00:00:00Z').getTime(); return btDate >= tDate - 2 * DAY && btDate <= tDate + 60 * DAY; })();
+    // (Sales tax recorded as paid on the Settings page, then paid to the state: up to 30 days apart, either way.)
     const hit = exact || (payout || appCode || cashDeposit ? null : ledger.find((t: any) => (onAccount(t) || (outflow && t.source === 'platform_invoice' && t.type === 'expense'
-      && Math.abs(new Date(String(t.date).slice(0, 10) + 'T00:00:00Z').getTime() - btDate) <= 10 * DAY)) && Math.round((t.amount || 0) * 100) === cents));
+      && Math.abs(new Date(String(t.date).slice(0, 10) + 'T00:00:00Z').getTime() - btDate) <= 10 * DAY)
+      || (outflow && t.type === 'expense' && t.category === 'Sales Tax Paid' && !t.reconciled && Math.abs(new Date(String(t.date).slice(0, 10) + 'T00:00:00Z').getTime() - btDate) <= 30 * DAY))
+      && Math.round((t.amount || 0) * 100) === cents));
 
     const record: any = {
       id: btId, tenantId,

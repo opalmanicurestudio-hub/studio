@@ -132,7 +132,7 @@ export async function takeOffSent(db: any, tenantId: string, tenant: any, orderI
     const off = { lineId, name: line.name, qty: q, made, by: who.name, ...(approver ? { approvedBy: approver.name } : {}), at: nowIso };
     // Its item stickers (lib/item-stickers): gone with it, or the first ones kept for what's left.
     const stk = stickersOf(o) ? stickersAfter(o, tix.map((d: any) => { const t: any = d.data() || {}; return { id: String(d.id), quantity: whole ? 0 : Math.max(1, num(t.quantity) - q), cancelled: whole }; })) : null;
-    tx.set(ref, { lines: next, ...(stk ? { stickers: { list: stk.list, scanned: stk.scanned } } : {}), subtotal: money.subtotal, tax: money.tax, taxLabel: money.taxLabel, total: money.total, discount: money.discount, itemsTotal: money.itemsTotal,
+    tx.set(ref, { lines: next, ...(stk ? { stickers: { list: stk.list, scanned: stk.scanned } } : {}), subtotal: money.subtotal, tax: money.tax, taxLabel: money.taxLabel, taxedAmount: money.taxedAmount, taxPct: money.taxPct, total: money.total, discount: money.discount, itemsTotal: money.itemsTotal,
       ...(o.markdown ? { markdown: { ...o.markdown, cents: mdCents } } : {}), stockTaken,
       ...(made ? { takenOffWaste, takenOffWastedQty: num(o.takenOffWastedQty) + q, wastedAt: nowIso } : { takenOffReturnedQty: num(o.takenOffReturnedQty) + returned }),
       // (What's left of what came off the location's own number: a void later gives back no more than that.)

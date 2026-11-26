@@ -23,6 +23,8 @@ export const GUIDE_STEPS: GuideStepDef[] = [
   { id: 'hours', title: 'Hours and locations', meaning: 'When you’re open, and where', href: '/settings?tab=hours' },
   { id: 'services', title: 'Services and prices', meaning: 'What clients can book, how long it takes and what it costs', href: '/services', checked: true },
   { id: 'payments', title: 'Take payments', meaning: 'Connect your bank so you can take cards and get paid', href: '/settings?tab=payments', checked: true },
+  // Nothing is added at checkout until it's set (lib/pos-tax): done once the rates are saved, 0% included.
+  { id: 'salestax', title: 'Sales tax', meaning: 'Your rate, and how often you pay the state. Nothing is added at checkout until it’s set', href: '/settings?tab=payments#sales-tax', checked: true },
   { id: 'booking', title: 'How clients book', meaning: 'Book right away, ask you first, or pay a deposit', href: '/settings/booking#rules' },
   { id: 'changes', title: 'Cancellations and no-shows', meaning: 'What happens when plans change', href: '/settings/policies' },
   { id: 'messages', title: 'Messages clients get', meaning: 'Confirmations and reminders, already written for you', href: '/settings/messages' },
@@ -38,7 +40,7 @@ const stepOf = (id: string) => GUIDE_STEPS.find((s) => s.id === id)!;
 export const FOOD_GUIDE_STEPS: GuideStepDef[] = [
   stepOf('details'), stepOf('hours'),
   { id: 'menu', title: 'Your menu and prices', meaning: 'What you sell, what goes into each, and its price', href: '/menu', checked: true },
-  stepOf('payments'),
+  stepOf('payments'), stepOf('salestax'),
   { id: 'ordering', title: 'Ordering ahead', meaning: 'Guests order and pay on their phone, then pick up', href: '/menu#order-ahead', module: 'hospitality' },
   { id: 'tables', title: 'Your tables', meaning: 'The floor plan the host stand seats from', href: '/settings/hosting', module: 'hospitality' },
   { id: 'kitchen', title: 'Kitchen screens and printers', meaning: 'A screen or a printer at each station, so orders reach them', href: '/settings/printers', module: 'hospitality' },
@@ -55,7 +57,7 @@ const OPEN_STEP: GuideStepDef = { id: 'open', title: 'Open your online shop', me
  *  prices products; sign-up switches them on for a business that sells). */
 export const SELL_GUIDE_STEPS: GuideStepDef[] = [
   { ...stepOf('details'), meaning: 'Name, phone and address customers see, and your logo if you have one' },
-  stepOf('hours'), PRODUCTS_STEP, stepOf('payments'),
+  stepOf('hours'), PRODUCTS_STEP, stepOf('payments'), stepOf('salestax'),
   { ...stepOf('shop'), title: 'How customers get their orders' }, OPEN_STEP,
   { ...stepOf('team'), meaning: 'Add the people who work with you.' },
 ];
@@ -75,6 +77,7 @@ function isReallyDone(id: string, t: any, f: GuideFacts): boolean {
     case 'details': return !!(t?.name && t?.phone && t?.address);   // a logo is welcome, not required
     case 'services': return f.livePriced > 0;
     case 'payments': return !!(t?.stripeAccountId && t?.stripeChargesEnabled !== false);
+    case 'salestax': return t?.salesTax?.configured === true;
     case 'team': return f.teamCount > 1;
     case 'menu': return (f.menuLive || 0) > 0;
     case 'products': return (f.productsPriced || 0) > 0;

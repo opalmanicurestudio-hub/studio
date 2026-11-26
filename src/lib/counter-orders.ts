@@ -5,7 +5,7 @@
 // never less than the slowest thing on it takes to make. The kitchen screen orders its work by that time, drive-thru
 // first, so the line that can't wait doesn't.
 import { priceChoices, choicesText, itemSoldOut, type PickedChoice } from '@/lib/menu-choices';
-import { posTaxAmount, posTaxLabel } from '@/lib/pos-tax';
+import { posTaxAmount, posTaxLabel, posTaxRates } from '@/lib/pos-tax';
 import { offeredOnMenu } from '@/lib/menu-stock';
 import { priceNow, servedNow } from '@/lib/menu-time';
 import { byWeightOf, cleanWeight, stockAmountOf, weightText, perText, type WeightUnit } from '@/lib/menu-weight';
@@ -139,7 +139,7 @@ const keptOf = (item: any) => { const es = nameEsOf(item); const sec = sectionOf
  *  the items' own total is kept beside it. Something rung in as not taxed (lib/counter-oneoff) is left out of what's
  *  taxed, with its share of the reward. A gift card sold with it (lib/counter-gift) is money held for the guest: never in
  *  the subtotal (what's sold), never discounted or taxed, only in the total (`giftCards`, beside it). */
-export function totalsOf(tenant: any, lines: OrderLine[], off = 0): { subtotal: number; tax: number; taxLabel: string; total: number; discount?: number; itemsTotal?: number; giftCards?: number } {
+export function totalsOf(tenant: any, lines: OrderLine[], off = 0, at: string | null = null): { subtotal: number; tax: number; taxLabel: string; total: number; taxedAmount: number; taxPct: number; discount?: number; itemsTotal?: number; giftCards?: number } {
   const sold = lines.filter((l) => !l.giftCard);
   const gift = Math.round(lines.reduce((s, l) => s + (l.giftCard ? l.unitPrice * l.quantity : 0), 0) * 100) / 100;
   const items = Math.round(sold.reduce((s, l) => s + l.unitPrice * l.quantity, 0) * 100) / 100;
@@ -147,8 +147,10 @@ export function totalsOf(tenant: any, lines: OrderLine[], off = 0): { subtotal: 
   const subtotal = Math.round((items - discount) * 100) / 100;
   const untaxed = Math.round(sold.reduce((s, l) => s + (l.untaxed ? l.unitPrice * l.quantity : 0), 0) * 100) / 100;
   const taxed = untaxed > 0 && items > 0 ? Math.round(subtotal * ((items - untaxed) / items) * 100) / 100 : subtotal;
-  const tax = posTaxAmount(tenant, { services: 0, products: taxed });
-  return { subtotal, tax, taxLabel: posTaxLabel(tenant), total: Math.round((subtotal + tax + gift) * 100) / 100, ...(discount > 0 ? { discount, itemsTotal: items } : {}), ...(gift > 0 ? { giftCards: gift } : {}) };
+  // (At the order's location, which may have its own rate: lib/pos-tax. What was taxed and at what rate are kept on the
+  // order, for its sales tax line and the filing report.)
+  const tax = posTaxAmount(tenant, { services: 0, products: taxed }, at);
+  return { subtotal, tax, taxLabel: posTaxLabel(tenant, at), taxedAmount: posTaxRates(tenant, at).productsPct > 0 ? taxed : 0, taxPct: posTaxRates(tenant, at).productsPct, total: Math.round((subtotal + tax + gift) * 100) / 100, ...(discount > 0 ? { discount, itemsTotal: items } : {}), ...(gift > 0 ? { giftCards: gift } : {}) };
 }
 
 /** When it should be ready: the channel's target from when it was sent, but never sooner than its slowest line takes. */

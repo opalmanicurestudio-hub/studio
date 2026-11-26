@@ -190,6 +190,12 @@ const SRC = path.resolve('src');
   check('the switch is on the Automations page, on unless turned off', SW.AUTOMATION_SWITCHES.some((x: any) => x.id === 'bank-sort' && x.field === 'automations.bankAutoSort' && x.defaultOn === true && x.who === 'you')
     && SW.automationOn({}, 'bank-sort') && !SW.automationOn({ automations: { bankAutoSort: false } }, 'bank-sort'));
 
+  // Sales tax recorded as paid on the Settings page, and paid to the state a few weeks apart: matched, never twice.
+  await db.doc('tenants/b1/transactions/salestax_2026-10').set({ id: 'salestax_2026-10', type: 'expense', context: 'Business', category: 'Sales Tax Paid', taxBucket: 'tax_remitted', amount: 393.9, date: `${day(22)}T15:00:00.000Z` });
+  feed = [bank('b_state', { amount: 393.9, name: 'TX COMPTROLLER SALES TAX', personal_finance_category: { primary: 'GOVERNMENT_AND_NON_PROFIT', detailed: 'GOVERNMENT_AND_NON_PROFIT_TAX_PAYMENT', confidence_level: 'HIGH' } })];
+  await P.syncTenantBankFeed(db, 'b1');
+  check('sales tax recorded as paid is matched to the payment to the state weeks later, never booked again', (await bt('b_state'))?.status === 'matched' && (await bt('b_state'))?.matchedTxnId === 'salestax_2026-10', await bt('b_state'));
+
   console.log('money already in the books, arriving at the bank');
   {
     const AO = await import('../../src/lib/app-orders');

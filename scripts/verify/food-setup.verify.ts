@@ -59,10 +59,10 @@ const src = (p: string) => fs.readFileSync(p, 'utf8');
   const ids = (s: any[]) => s.map((x) => x.id).join(',');
   const none = { livePriced: 0, teamCount: 1, menuLive: 0, menuToPrice: 14 };
   const cafeSteps = G.guideSteps({ foodSetup: { kind: 'cafe', ways: ['counter', 'ahead'], team: 'solo', primary: true }, shape: { solo: true } }, none);
-  check('a café that orders ahead: its menu in place of services, ordering ahead, kitchen screens and closing; no booking or cancellation steps', ids(cafeSteps) === 'details,hours,menu,payments,ordering,kitchen,closing', ids(cafeSteps));
-  check('…a restaurant with a team: its tables and its team too', ids(G.guideSteps({ foodSetup: { kind: 'restaurant', ways: ['table'], team: 'mid', primary: true }, shape: { solo: false } }, none)) === 'details,hours,menu,payments,tables,kitchen,closing,team');
+  check('a café that orders ahead: its menu in place of services, ordering ahead, kitchen screens and closing; no booking or cancellation steps', ids(cafeSteps) === 'details,hours,menu,payments,salestax,ordering,kitchen,closing', ids(cafeSteps));
+  check('…a restaurant with a team: its tables and its team too', ids(G.guideSteps({ foodSetup: { kind: 'restaurant', ways: ['table'], team: 'mid', primary: true }, shape: { solo: false } }, none)) === 'details,hours,menu,payments,salestax,tables,kitchen,closing,team');
   check('the menu step is done once something is on the menu with a price, and counts what’s still to price', cafeSteps.find((s) => s.id === 'menu')!.note === '14 ready for your prices' && G.guideSteps({ foodSetup: { kind: 'cafe', ways: ['counter'], primary: true } }, { ...none, menuLive: 3, menuToPrice: 11 }).find((s) => s.id === 'menu')!.done);
-  check('a food business that hasn’t said how guests order sees ordering ahead and tables both', ids(G.guideSteps({ niche: 'hospitality', shape: { solo: true } }, none)) === 'details,hours,menu,payments,ordering,tables,kitchen,closing', ids(G.guideSteps({ niche: 'hospitality', shape: { solo: true } }, none)));
+  check('a food business that hasn’t said how guests order sees ordering ahead and tables both', ids(G.guideSteps({ niche: 'hospitality', shape: { solo: true } }, none)) === 'details,hours,menu,payments,salestax,ordering,tables,kitchen,closing', ids(G.guideSteps({ niche: 'hospitality', shape: { solo: true } }, none)));
   check('every food step opens a page that exists', G.FOOD_GUIDE_STEPS.every((s) => fs.existsSync(`src/app/(app)${s.href.split(/[?#]/)[0]}/page.tsx`)) && G.ALL_GUIDE_STEP_IDS.has('menu') && G.ALL_GUIDE_STEP_IDS.has('booking'));
 
   console.log('applying it');

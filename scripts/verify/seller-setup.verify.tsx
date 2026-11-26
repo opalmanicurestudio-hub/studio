@@ -42,9 +42,9 @@ const ids = (s: { id: string }[]) => s.map((x) => x.id).join(',');
   console.log('a seller’s steps');
   const seller = { shape: { books: false, solo: true }, modules: { retail: true } };
   let s = S.guideSteps(seller, none);
-  check('with the shop: details, hours, products, payments, how customers get their orders, opening the shop; no booking steps', ids(s) === 'details,hours,products,payments,shop,open', ids(s));
+  check('with the shop: details, hours, products, payments, sales tax, how customers get their orders, opening the shop; no booking steps', ids(s) === 'details,hours,products,payments,salestax,shop,open', ids(s));
   check('…in a seller’s words', s.find((x) => x.id === 'details')!.meaning.includes('customers see') && s.find((x) => x.id === 'shop')!.title === 'How customers get their orders' && s.find((x) => x.id === 'products')!.title === 'Your products and prices');
-  check('…with the shop’s tools off (they’re what prices products): details, hours, payments', ids(S.guideSteps({ shape: { books: false }, teamSize: 'solo', modules: { retail: false } }, none)) === 'details,hours,payments');
+  check('…with the shop’s tools off (they’re what prices products): details, hours, payments, sales tax', ids(S.guideSteps({ shape: { books: false }, teamSize: 'solo', modules: { retail: false } }, none)) === 'details,hours,payments,salestax');
   const team = S.guideSteps({ shape: { books: false, solo: false }, modules: { retail: true } }, { livePriced: 0, teamCount: 3 });
   check('…a team: the team step last, with nothing about booking people', ids(team).endsWith(',open,team') && team.at(-1)!.meaning === 'Add the people who work with you.' && team.at(-1)!.done);
   check('…every step opens a page that exists', s.every((x) => fs.existsSync(`src/app/(app)${x.href.split(/[?#]/)[0]}/page.tsx`)), s.map((x) => x.href));
@@ -63,8 +63,8 @@ const ids = (s: { id: string }[]) => s.map((x) => x.id).join(',');
   check('the guide’s Next and Skip keep these steps (the mark action knows them)', S.ALL_GUIDE_STEP_IDS.has('products') && S.ALL_GUIDE_STEP_IDS.has('open'));
 
   console.log('a business that books');
-  check('one that chose the shop: products after services, opening after the shop’s ways', ids(S.guideSteps({ modules: { retail: true, team: false } }, none)) === 'details,hours,services,products,payments,booking,changes,messages,shop,open');
-  check('one that never said (the shop’s tools only never switched off): its list as it was', ids(S.guideSteps({ modules: { team: false } }, none)) === 'details,hours,services,payments,booking,changes,messages,shop');
+  check('one that chose the shop: products after services, opening after the shop’s ways', ids(S.guideSteps({ modules: { retail: true, team: false } }, none)) === 'details,hours,services,products,payments,salestax,booking,changes,messages,shop,open');
+  check('one that never said (the shop’s tools only never switched off): its list as it was', ids(S.guideSteps({ modules: { team: false } }, none)) === 'details,hours,services,payments,salestax,booking,changes,messages,shop');
   const food = (t: any) => ids(S.guideSteps({ businessType: 'hospitality', modules: { team: false }, ...t }, none));
   check('food and drink: its own list, whatever was said about booking', food({ shape: { books: false } }) === food({}) && food({}).startsWith('details,hours,menu,payments') && !food({}).includes('products'), food({}));
 

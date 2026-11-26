@@ -38,7 +38,7 @@ function notNow(o: any, what: 'tip' | 'discount' | 'tender'): Fail | null {
 export function moneyWith(tenant: any, o: any, markdownCents: number) {
   const lines = Array.isArray(o.lines) ? o.lines : [];
   const off = rewardCentsOf(o) + Math.max(0, Math.round(markdownCents));
-  const t = totalsOf(tenant, lines, off / 100);
+  const t = totalsOf(tenant, lines, off / 100, String(o?.locationId || '') || null);
   return { ...t, total: r2(t.total + tipCentsOf(o) / 100), discount: t.discount ?? 0, itemsTotal: t.itemsTotal ?? null };
 }
 
