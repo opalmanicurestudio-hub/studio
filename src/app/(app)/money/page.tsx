@@ -83,10 +83,11 @@ import { useToast } from '@/hooks/use-toast';
 import { useTenant } from '@/context/TenantContext';
 import { OwedToClients } from '@/components/money/OwedToClients';
 import { BankScreen } from '@/components/money/BankScreen';
+import { BooksScreen, wayOf, type BooksFilters } from '@/components/money/BooksScreen';
+import { bucketFor } from '@/lib/categories';
 import { useInventory } from '@/context/InventoryContext';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { useIsMobile } from '@/hooks/use-mobile';
-import { collection, doc, writeBatch, increment, arrayUnion, getDoc, getDocs, getCountFromServer, query, where, onSnapshot, orderBy, limit, runTransaction } from 'firebase/firestore';
+import { collection, doc, writeBatch, increment, arrayUnion, getDoc, getDocs, getCountFromServer, query, where, onSnapshot, orderBy, limit, runTransaction, setDoc } from 'firebase/firestore';
 import { Separator } from '@/components/ui/separator';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Switch } from '@/components/ui/switch';
@@ -138,91 +139,6 @@ const useAuditActor = () => {
       role: member?.role || undefined,
     };
   }, [currentUser?.uid, currentUser?.displayName, currentUser?.email, staff]);
-};
-
-// ─── TransactionIcon ──────────────────────────────────────────────────────────
-
-const TransactionIcon = ({ type }: { type: Transaction['type'] }) => {
-  switch (type) {
-    case 'income':  return <TrendingUp className="h-5 w-5 text-green-500" />;
-    case 'expense': return <TrendingDown className="h-5 w-5 text-red-500" />;
-    case 'payment': return <BookOpen className="h-5 w-5 text-primary" />;
-    case 'reversal':return <RefreshCw className="h-5 w-5 text-muted-foreground" />;
-    default:        return null;
-  }
-};
-
-// ─── Sparkline ────────────────────────────────────────────────────────────────
-// Minimal inline SVG bar chart showing daily revenue over the period.
-
-const Sparkline = ({ data, color = '#22c55e' }: { data: number[]; color?: string }) => {
-  if (!data.length) return null;
-  const max = Math.max(...data, 1);
-  const W = 120;
-  const H = 32;
-  const barW = Math.max(2, Math.floor((W - data.length) / data.length));
-  const gap = Math.floor((W - barW * data.length) / Math.max(data.length - 1, 1));
-
-  return (
-    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="shrink-0 opacity-70">
-      {data.map((v, i) => {
-        const barH = Math.max(2, Math.round((v / max) * H));
-        const x = i * (barW + gap);
-        return (
-          <rect
-            key={i}
-            x={x} y={H - barH}
-            width={barW} height={barH}
-            rx={1}
-            fill={v === 0 ? '#e5e7eb' : color}
-          />
-        );
-      })}
-    </svg>
-  );
-};
-
-// ─── KPI Stat Card ────────────────────────────────────────────────────────────
-
-const StatCard = ({
-  label, value, sub, trend, trendLabel, icon: Icon, accent, sparkData,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  trend?: 'up' | 'down' | 'flat';
-  trendLabel?: string;
-  icon: React.ElementType;
-  accent: string;
-  sparkData?: number[];
-}) => {
-  const TrendIcon = trend === 'up' ? ArrowUpRight : trend === 'down' ? ArrowDownRight : Minus;
-  const trendColor = trend === 'up' ? 'text-green-600' : trend === 'down' ? 'text-red-500' : 'text-muted-foreground';
-
-  return (
-    <Card className="border-2 shadow-sm rounded-3xl overflow-hidden bg-card">
-      <CardContent className="p-5">
-        <div className="flex items-start justify-between gap-2 mb-3">
-          <div className={cn('p-2.5 rounded-2xl', accent)}>
-            <Icon className="w-4 h-4" />
-          </div>
-          {sparkData && sparkData.length > 1 && (
-            <Sparkline data={sparkData} color={trend === 'down' ? '#ef4444' : '#22c55e'} />
-          )}
-        </div>
-        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60 mb-1">{label}</p>
-        <p className="text-2xl font-black font-mono tracking-tighter text-foreground leading-none">{value}</p>
-        {(sub || trendLabel) && (
-          <div className="flex items-center gap-1.5 mt-2">
-            {trend && <TrendIcon className={cn('w-3 h-3', trendColor)} />}
-            <p className={cn('text-[10px] font-bold uppercase tracking-widest', trendLabel ? trendColor : 'text-muted-foreground opacity-60')}>
-              {trendLabel || sub}
-            </p>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
 };
 
 // ─── buildPrintHtml — the ledger report, in the app's print look (lib/print-style) ─────────────────────────────
@@ -630,297 +546,12 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
   );
 };
 
-// ─── TransactionDossierSheet (unchanged) ─────────────────────────────────────
-
-const TransactionDossierSheet = ({ transaction, staff, open, onOpenChange, onRevert, tenantId }: { transaction: Transaction | null; staff: Staff[]; open: boolean; onOpenChange: (o: boolean) => void; onRevert: (t: Transaction) => void; tenantId?: string }) => {
-  const { toast } = useToast();
-  if (!transaction) return null;
-  const staffMember = staff.find(s => s.id === transaction.staffId);
-  return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-full sm:max-w-xl p-0 flex flex-col bg-background overflow-hidden">
-        <SheetHeader className="p-8 pb-6 border-b bg-muted/5 flex-shrink-0 text-left">
-          <div className="flex items-center gap-3 mb-2"><ShieldCheck className="w-5 h-5 text-primary" /><span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Audit Intelligence</span></div>
-          <SheetTitle className="text-3xl font-black uppercase tracking-tighter text-foreground leading-none">Record Dossier</SheetTitle>
-          <SheetDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Registry ID: {transaction.id.slice(-8).toUpperCase()}</SheetDescription>
-        </SheetHeader>
-        <ScrollArea className="flex-1">
-          <div className="p-8 space-y-8">
-            <div className="p-8 rounded-[2.5rem] bg-muted/10 border-4 border-border/50 text-center space-y-4 shadow-inner">
-              <p className="text-[10px] font-black uppercase tracking-[0.3em] text-muted-foreground opacity-60">Accounting Entry</p>
-              <p className={cn('text-5xl font-black font-mono tracking-tighter', transaction.type === 'income' ? 'text-green-600' : 'text-destructive')}>
-                {transaction.type === 'income' ? '+' : '-'}${transaction.amount.toFixed(2)}
-              </p>
-              <div className="flex justify-center gap-2">
-                <Badge variant="outline" className="font-black uppercase text-[9px] h-6 px-3 border-2">{transaction.type}</Badge>
-                <Badge className="bg-primary text-white border-none font-black text-[9px] h-6 px-3 uppercase">{transaction.category}</Badge>
-              </div>
-            </div>
-            <div className="space-y-4">
-              <div><p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground opacity-60 mb-1">Entity Reference</p>
-                <p className="text-xl font-black uppercase tracking-tight text-foreground">{transaction.description}</p>
-                <p className="text-xs font-bold text-muted-foreground uppercase">{transaction.clientOrVendor}</p>
-              </div>
-              <div className="grid grid-cols-2 gap-6 pt-4 border-t border-dashed">
-                <div><p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Timestamp</p>
-                  <p className="font-black text-sm uppercase tracking-tight">{fmt(transaction.date, 'MMMM d, yyyy')}</p>
-                  <p className="text-[10px] font-bold text-primary uppercase">{fmt(transaction.date, 'h:mm a')}</p>
-                </div>
-                <div><p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Settlement</p>
-                  <p className="font-black text-sm uppercase tracking-tight">{transaction.paymentMethod}</p>
-                  <p className="text-[10px] font-bold text-muted-foreground uppercase">{transaction.context} Account</p>
-                </div>
-              </div>
-              {staffMember && (
-                <div className="pt-4 border-t border-dashed space-y-3">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Authorized By</p>
-                  <div className="flex items-center gap-3 p-3 rounded-2xl border-2 bg-card shadow-sm">
-                    <Avatar className="h-10 w-10 border shadow-sm rounded-xl"><AvatarImage src={staffMember.avatarUrl} className="object-cover" /><AvatarFallback className="font-black text-xs bg-primary/10 text-primary">{(staffMember.name || 'S').charAt(0)}</AvatarFallback></Avatar>
-                    <div><p className="font-black text-sm uppercase tracking-tight">{staffMember.name}</p><p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">{staffMember.role}</p></div>
-                  </div>
-                </div>
-              )}
-              {(transaction.relatedOrderId || transaction.relatedBillInstanceId || transaction.appointmentId) && (
-                <div className="pt-4 border-t border-dashed space-y-3">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">Protocol Linkages</p>
-                  {transaction.relatedOrderId && <Button variant="outline" asChild className="w-full h-12 rounded-xl border-2 justify-start font-black uppercase text-[10px]"><Link href="/inventory"><ShoppingCart className="mr-3 h-4 w-4 text-primary opacity-40" />View Purchase Order</Link></Button>}
-                  {transaction.appointmentId && <Button variant="outline" asChild className="w-full h-12 rounded-xl border-2 justify-start font-black uppercase text-[10px]"><Link href="/planner"><CalendarCheck className="mr-3 h-4 w-4 text-primary opacity-40" />Examine Session</Link></Button>}
-                  {transaction.relatedBillInstanceId && <Button variant="outline" asChild className="w-full h-12 rounded-xl border-2 justify-start font-black uppercase text-[10px]"><Link href="/bills"><Landmark className="mr-3 h-4 w-4 text-primary opacity-40" />View Bill Context</Link></Button>}
-                </div>
-              )}
-            </div>
-          </div>
-        </ScrollArea>
-        <SheetFooter className="p-8 pt-4 border-t bg-muted/5 flex-shrink-0">
-          <div className="flex flex-col gap-3 w-full">
-            <Button variant="destructive" disabled={transaction.type === 'reversal'} onClick={() => onRevert(transaction)} className="w-full h-14 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-destructive/20">
-              <RefreshCw className="mr-2 h-4 w-4" /> {transaction.type === 'reversal' ? 'Already Reverted' : 'Revert Protocol Entry'}
-            </Button>
-            {(transaction as any).appointmentId && transaction.type !== 'reversal' && <Button variant="outline" onClick={async () => {
-              const tk = await getAuth().currentUser?.getIdToken().catch(() => ''); const r = await fetch(`/api/disputes/pack?tenantId=${encodeURIComponent(String(tenantId || ''))}&appointmentId=${encodeURIComponent(String((transaction as any).appointmentId))}`, { headers: tk ? { Authorization: `Bearer ${tk}` } : {} });
-              if (!r.ok) { const j = await r.json().catch(() => ({})); toast({ variant: 'destructive', title: 'Couldn’t build the pack', description: j.error }); return; }
-              const url = URL.createObjectURL(await r.blob()); const a = document.createElement('a'); a.href = url; a.download = 'dispute-pack.pdf'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 4000);
-            }} className="w-full h-12 rounded-xl text-[14px] font-medium border bg-card">Card dispute pack (PDF)</Button>}
-            <Button variant="outline" onClick={() => onOpenChange(false)} className="w-full h-12 rounded-xl font-black uppercase text-[10px] tracking-widest border-2 bg-card">Close Archive</Button>
-          </div>
-        </SheetFooter>
-      </SheetContent>
-    </Sheet>
-  );
-};
-
-// ─── TransactionFilters ───────────────────────────────────────────────────────
-
-const TransactionFilters = ({ transactions, date, setDate, periodPreset, setPeriodPreset, searchTerm, setSearchTerm, contextFilter, setContextFilter, categoryFilter, setCategoryFilter, financialSummary }: any) => {
-  const categories = useMemo(() => [...new Set((transactions || []).map((t: Transaction) => t.category))], [transactions]);
-  return (
-    <Card className="h-fit border-2 shadow-sm rounded-3xl overflow-hidden">
-      <CardHeader className="hidden md:block border-b bg-muted/5">
-        <CardTitle className="text-sm font-black uppercase tracking-widest">Ledger Filters</CardTitle>
-        <CardDescription className="text-xs font-bold uppercase tracking-tight opacity-60">Filter studio cash flow.</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6 pt-6">
-        <div className="space-y-2">
-          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Analyze Period</Label>
-          <Select value={periodPreset} onValueChange={setPeriodPreset}>
-            <SelectTrigger className="h-12 rounded-2xl border-2 bg-background font-black uppercase text-[10px] tracking-widest shadow-sm"><SelectValue /></SelectTrigger>
-            <SelectContent className="rounded-xl border-2 shadow-2xl">
-              {[['today','Today'],['7days','Last 7 Days'],['30days','Last 30 Days'],['thisMonth','This Month'],['lastMonth','Last Month'],['custom','Custom Range...']].map(([v,l]) => (
-                <SelectItem key={v} value={v} className="font-bold uppercase">{l}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <AnimatePresence>
-          {periodPreset === 'custom' && (
-            <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="grid grid-cols-1 gap-3 overflow-hidden">
-              {['From','To'].map((label, i) => (
-                <div key={label} className="space-y-1">
-                  <Label className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">{label}</Label>
-                  <input type="date" value={i === 0 ? (date?.from ? format(date.from, 'yyyy-MM-dd') : '') : (date?.to ? format(date.to, 'yyyy-MM-dd') : '')}
-                    onChange={e => { const d = e.target.value ? new Date(e.target.value.replace(/-/g, '/')) : undefined; setDate(i === 0 ? { from: d, to: date?.to } : { from: date?.from, to: d }); }}
-                    className="w-full h-10 rounded-xl border-2 bg-background px-3 font-bold text-xs outline-none focus:border-primary shadow-inner" />
-                </div>
-              ))}
-            </motion.div>
-          )}
-        </AnimatePresence>
-        <div className="space-y-2">
-          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Search Records</Label>
-          <div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" /><Input placeholder="Description or entity..." className="pl-9 h-12 rounded-2xl border-2" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} /></div>
-        </div>
-        <RadioGroup value={contextFilter} onValueChange={setContextFilter} className="grid grid-cols-3 gap-2">
-          {[['all','All'],['Business','Biz'],['Personal','Personal']].map(([v,l]) => (
-            <div key={v}><RadioGroupItem value={v} id={v} className="peer sr-only" /><Label htmlFor={v} className="flex items-center justify-center rounded-xl border-2 border-muted bg-popover p-2 h-11 text-[9px] font-black uppercase hover:bg-accent peer-data-[state=checked]:border-primary peer-data-[state=checked]:bg-primary/5 peer-data-[state=checked]:text-primary transition-all cursor-pointer">{l}</Label></div>
-          ))}
-        </RadioGroup>
-        <div className="space-y-2">
-          <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Category</Label>
-          <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-            <SelectTrigger className="h-12 rounded-2xl border-2"><SelectValue placeholder="All Categories" /></SelectTrigger>
-            <SelectContent className="rounded-xl border-2 shadow-2xl">
-              <SelectItem value="all" className="font-bold">All Categories</SelectItem>
-              {(categories as string[]).map(cat => <SelectItem key={cat} value={cat} className="font-bold">{cat}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-        <Separator />
-
-        <div className="p-5 rounded-[2rem] bg-primary/[0.03] border-2 border-primary/10 space-y-3">
-          <p className="text-[10px] font-black uppercase tracking-widest text-primary text-center">Period Performance</p>
-          <div className="space-y-2 text-xs">
-            {([
-              ['Sales', financialSummary.sales, 'text-green-600'],
-              ['Returns', -financialSummary.returns, 'text-destructive'],
-              ['Discounts & deposits used', -financialSummary.discounts, 'text-muted-foreground'],
-              ['Net sales', financialSummary.netSales, 'text-green-600'],
-              ['Tips for the team', financialSummary.tips, 'text-foreground'],
-              ...(financialSummary.otherIncome ? [['Other income', financialSummary.otherIncome, 'text-green-600']] : []),
-              ['Cost of goods', -financialSummary.cogs, 'text-destructive'],
-              ['Card fees', -financialSummary.netFees, 'text-purple-700'],
-              ['Other expenses', -financialSummary.operatingExpenses, 'text-destructive'],
-            ] as [string, number, string][]).map(([label, val, cls]) => (
-              <div key={label} className={cn('flex justify-between font-bold', label === 'Net sales' && 'border-t pt-2')}>
-                <span>{label}</span>
-                <span className={cn('font-mono', cls)}>{val < 0 ? '-' : ''}${Math.abs(val).toFixed(2)}</span>
-              </div>
-            ))}
-            {([
-              ['Sales tax held', financialSummary.taxOwed],
-              ...(financialSummary.taxFreeSales ? [['Sold tax free to resellers', financialSummary.taxFreeSales]] : []),
-              ...(financialSummary.giftCardsSold ? [['Gift cards sold', financialSummary.giftCardsSold]] : []),
-              ...(financialSummary.heldForRenters ? [['Taken for renters', financialSummary.heldForRenters]] : []),
-            ] as [string, number][]).map(([label, val]) => (
-              <div key={label} className="flex justify-between text-[10px] text-muted-foreground italic">
-                <span>{label}</span>
-                <span className="font-mono">{val < 0 ? '-' : ''}${Math.abs(val).toFixed(2)}<span className="text-[8px] ml-1 opacity-50">(held)</span></span>
-              </div>
-            ))}
-            <div className="flex justify-between border-t-4 border-primary/20 pt-3 mt-3">
-              <span className="font-black uppercase text-[11px] text-primary">Net Income</span>
-              <span className={cn('font-black text-xl tracking-tighter font-mono', financialSummary.net >= 0 ? 'text-primary' : 'text-destructive')}>
-                {financialSummary.net < 0 ? '-' : ''}${Math.abs(financialSummary.net).toFixed(2)}
-              </span>
-            </div>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-  );
-};
-
-// ─── TransactionRow / TransactionCard ─────────────────────────────────────────
-
-const TxnActions = ({ transaction, onRevertClick, onPreviewReceipt, onRefundClick, stopProp }: any) => (
-  <DropdownMenu>
-    <DropdownMenuTrigger asChild>
-      <Button aria-haspopup="true" size="icon" variant="ghost" className="h-8 w-8 rounded-full opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity shrink-0" onClick={stopProp}>
-        <MoreHorizontal className="h-4 w-4" />
-      </Button>
-    </DropdownMenuTrigger>
-    <DropdownMenuContent align="end" className="rounded-2xl shadow-xl border-2 p-1">
-      {transaction.type === 'income' && (transaction as any).retailOrderId && (
-        <DropdownMenuItem onClick={(e: any) => { e.stopPropagation(); window.location.href = `/retail-orders?order=${encodeURIComponent(String((transaction as any).retailOrderId))}`; }} className="font-bold uppercase text-[10px] tracking-widest rounded-xl h-10 px-3">
-          <Undo2 className="w-3.5 h-3.5 mr-2" /> Refund on the order
-        </DropdownMenuItem>
-      )}
-      {transaction.type === 'income' && !(transaction as any).retailOrderId && (
-        <DropdownMenuItem onClick={(e: any) => { e.stopPropagation(); onRefundClick(transaction); }} className="font-bold uppercase text-[10px] tracking-widest text-destructive rounded-xl h-10 px-3">
-          <Undo2 className="w-3.5 h-3.5 mr-2" /> Protocol Refund
-        </DropdownMenuItem>
-      )}
-      <DropdownMenuItem onClick={(e: any) => { e.stopPropagation(); onRevertClick(transaction); }} disabled={transaction.type === 'reversal'} className="font-bold uppercase text-[10px] tracking-widest rounded-xl h-10 px-3">
-        <RefreshCw className="w-3.5 h-3.5 mr-2" /> Revert Entry
-      </DropdownMenuItem>
-    </DropdownMenuContent>
-  </DropdownMenu>
-);
-
-const amountColor = (t: Transaction) => t.type === 'income' ? 'text-green-600' : t.type === 'reversal' ? 'text-muted-foreground' : 'text-destructive';
-const amountPrefix = (t: Transaction) => t.type === 'income' ? '+' : t.type === 'reversal' ? '' : '-';
-
-const TransactionRow = ({ transaction, staffMember, onRevertClick, onPreviewReceipt, onViewDetails, onRefundClick }: any) => (
-  <TableRow className="group hover:bg-primary/[0.02] cursor-pointer" onClick={() => onViewDetails(transaction)}>
-    <TableCell>
-      <div className="flex items-center gap-4 py-1">
-        <div className={cn('p-2 rounded-full shrink-0', transaction.type === 'income' ? 'bg-green-500/10' : transaction.type === 'expense' ? 'bg-destructive/10' : 'bg-primary/10')}>
-          <TransactionIcon type={transaction.type} />
-        </div>
-        <div className="min-w-0">
-          <span className="font-black uppercase tracking-tight text-xs md:text-sm text-foreground truncate block">{transaction.description}</span>
-          <span className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest opacity-60 truncate block">{transaction.clientOrVendor}</span>
-        </div>
-      </div>
-    </TableCell>
-    <TableCell className="text-[10px] font-black uppercase text-muted-foreground opacity-70">{fmt(transaction.date, 'MMM d, p')}</TableCell>
-    <TableCell>
-      {staffMember
-        ? <div className="flex items-center gap-2"><Avatar className="h-7 w-7 border-2 shadow-sm rounded-xl shrink-0"><AvatarImage src={staffMember.avatarUrl} className="object-cover" /><AvatarFallback className="text-[9px] bg-primary/10 text-primary font-black">{(staffMember.name||'S').charAt(0)}</AvatarFallback></Avatar><span className="text-[10px] font-black uppercase tracking-tight text-foreground/80 truncate">{staffMember.name.split(' ')[0]}</span></div>
-        : <span className="text-[9px] font-black uppercase text-muted-foreground italic opacity-40">System</span>}
-    </TableCell>
-    <TableCell><Badge className={cn('text-[9px] h-5 px-2 font-black uppercase tracking-widest border-none', transaction.context === 'Business' ? 'bg-indigo-100 text-indigo-800' : 'bg-purple-100 text-purple-800')}>{transaction.context}</Badge></TableCell>
-    <TableCell className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider"><div className="flex items-center gap-2"><CreditCard className="w-3.5 h-3.5 opacity-40 shrink-0" /><span className="truncate">{transaction.paymentMethod}</span></div></TableCell>
-    <TableCell className="text-[10px] font-black text-muted-foreground uppercase tracking-widest opacity-60">{transaction.category}</TableCell>
-    <TableCell className="text-right">
-      <div className="flex items-center justify-end gap-2">
-        {(transaction as any).receiptId && (
-          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full hover:bg-primary/10 shrink-0" onClick={e => { e.stopPropagation(); onPreviewReceipt(transaction); }}>
-            <Receipt className="h-4 w-4 text-primary/40" />
-          </Button>
-        )}
-        <span className={cn('font-mono text-sm md:text-base font-black tracking-tighter shrink-0', amountColor(transaction))}>
-          {amountPrefix(transaction)}${transaction.amount.toFixed(2)}
-        </span>
-      </div>
-    </TableCell>
-    <TableCell><TxnActions transaction={transaction} onRevertClick={onRevertClick} onPreviewReceipt={onPreviewReceipt} onRefundClick={onRefundClick} stopProp={(e: any) => e.stopPropagation()} /></TableCell>
-  </TableRow>
-);
-
-// v66 — compacted for mobile: single tighter block, badges inline with the
-// meta row, ~35% less vertical space per card so more entries fit on screen.
-const TransactionCard = ({ transaction, staffMember, onRevertClick, onPreviewReceipt, onViewDetails, onRefundClick }: any) => (
-  <Card className="border-2 shadow-sm rounded-2xl overflow-hidden group cursor-pointer active:scale-[0.99] transition-transform" onClick={() => onViewDetails(transaction)}>
-    <CardContent className="p-3.5 space-y-2">
-      <div className="flex items-start gap-3">
-        <div className={cn('p-2 rounded-xl shadow-inner shrink-0', transaction.type === 'income' ? 'bg-green-500/10' : transaction.type === 'expense' ? 'bg-destructive/10' : 'bg-muted')}>
-          <TransactionIcon type={transaction.type} />
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="font-black text-[13px] uppercase tracking-tight text-foreground truncate leading-tight">{transaction.description}</p>
-          <p className="text-[9px] text-muted-foreground font-black uppercase tracking-widest opacity-60 truncate">
-            {transaction.clientOrVendor} · {fmt(transaction.date, 'MMM d, p')}
-            {staffMember ? <span className="text-primary opacity-100"> · {staffMember.name.split(' ')[0]}</span> : null}
-          </p>
-        </div>
-        <div className="text-right shrink-0 flex items-center gap-1">
-          {(transaction as any).receiptId && (
-            <Button variant="ghost" size="icon" className="h-7 w-7 rounded-full hover:bg-primary/10 shrink-0" onClick={e => { e.stopPropagation(); onPreviewReceipt(transaction); }}>
-              <Receipt className="h-3.5 w-3.5 text-primary opacity-40" />
-            </Button>
-          )}
-          <p className={cn('font-black font-mono text-base tracking-tighter', amountColor(transaction))}>{amountPrefix(transaction)}${transaction.amount.toFixed(2)}</p>
-        </div>
-      </div>
-      <div className="flex items-center justify-between gap-2 pt-2 border-t border-dashed">
-        <div className="flex items-center gap-1.5 min-w-0 overflow-hidden">
-          <Badge className={cn('text-[8px] h-5 px-1.5 font-black uppercase tracking-widest border-none shrink-0', transaction.context === 'Business' ? 'bg-indigo-100 text-indigo-800' : 'bg-purple-100 text-purple-800')}>{transaction.context}</Badge>
-          <Badge variant="outline" className="text-[8px] h-5 px-1.5 uppercase font-black tracking-widest text-muted-foreground/60 border-2 truncate">{transaction.category}</Badge>
-          <span className="text-[8px] text-muted-foreground font-black uppercase tracking-widest opacity-50 flex items-center gap-1 truncate"><CreditCard className="w-3 h-3 shrink-0" />{transaction.paymentMethod}</span>
-        </div>
-        <TxnActions transaction={transaction} onRevertClick={onRevertClick} onPreviewReceipt={onPreviewReceipt} onRefundClick={onRefundClick} stopProp={(e: any) => e.stopPropagation()} />
-      </div>
-    </CardContent>
-  </Card>
-);
-
 // ─── LedgerTab (formerly LedgerPage) ──────────────────────────────────────────
 
 const LedgerTab = () => {
   const { firestore } = useFirebase();
   const { selectedTenant } = useTenant();
   const tenantId = selectedTenant?.id;
-  const isMobile = useIsMobile();
   const { toast } = useToast();
 
   const { staff, services, inventory, isLoading: ctxLoading } = useInventory();
@@ -950,11 +581,10 @@ const LedgerTab = () => {
 
   const [searchTerm, setSearchTerm] = useState('');
   const [contextFilter, setContextFilter] = useState<'all' | 'Business' | 'Personal'>('all');
+  const [way, setWay] = useState<'all' | 'in' | 'out'>('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [isAddTxnOpen, setIsAddTxnOpen] = useState(false);
-  const [transactionToRevert, setTransactionToRevert] = useState<Transaction | null>(null);
   const [previewTransaction, setPreviewTransaction] = useState<Transaction | null>(null);
-  const [selectedDossier, setSelectedDossier] = useState<Transaction | null>(null);
   const [transactionToRefund, setTransactionToRefund] = useState<Transaction | null>(null);
   const { appointments: refundVisit } = useAppointmentsByIds(transactionToRefund?.appointmentId ? [String(transactionToRefund.appointmentId)] : []);   // just the visit being refunded
 
@@ -970,23 +600,24 @@ const LedgerTab = () => {
     if (periodPreset !== 'custom') setDate(presets[periodPreset]);
   }, [periodPreset]);
 
+  const ledgerById = useMemo(() => lookupOf(transactions || []), [transactions]);
   const filteredTransactions = useMemo(() => {
     if (!transactions) return [];
     return transactions.filter(t => {
       const d = safeDate(t.date);
       if (date?.from && d < startOfDay(date.from)) return false;
       if (date?.to && d > endOfDay(date.to)) return false;
-      if (searchTerm && !t.description.toLowerCase().includes(searchTerm.toLowerCase()) && !t.clientOrVendor.toLowerCase().includes(searchTerm.toLowerCase())) return false;
+      if (searchTerm && ![t.description, t.clientOrVendor, t.category, (t as any).notes].some((x) => String(x || '').toLowerCase().includes(searchTerm.toLowerCase()))) return false;
       if (contextFilter !== 'all' && t.context !== contextFilter) return false;
       if (categoryFilter !== 'all' && t.category !== categoryFilter) return false;
+      if (way !== 'all' && wayOf(t, ledgerById) !== way) return false;
       return true;
     }).sort((a, b) => safeDate(b.date).getTime() - safeDate(a.date).getTime());
-  }, [transactions, date, searchTerm, contextFilter, categoryFilter]);
+  }, [transactions, date, searchTerm, contextFilter, categoryFilter, way, ledgerById]);
 
   // ── Financial summary: one reading of the ledger (lib/books-summary), shared with the printed reports. Sales less
   // returns and discounts; tips beside them (the team's pay includes them); sales tax and gift cards held, never income.
   // Reversals and voids find the line they undo across the whole ledger, not just this period.
-  const ledgerById = useMemo(() => lookupOf(transactions || []), [transactions]);
   const financialSummary = useMemo(() => {
     const b = booksSummary(filteredTransactions, { lookup: transactions || [] });
     return {
@@ -996,28 +627,6 @@ const LedgerTab = () => {
       processingFeesPaid: b.netFees, processingFeesCollected: b.feesPassedOn, netFeeImpact: b.feesPassedOn - b.netFees,
     };
   }, [filteredTransactions, transactions]);
-
-  // ── Daily revenue sparkline data ──────────────────────────────────────────
-  const dailyRevenueData = useMemo(() => {
-    if (!date?.from || !date?.to) return [];
-    const days = eachDayOfInterval({ start: date.from, end: date.to });
-    if (days.length > 60) return []; // too many days — skip sparkline
-    return days.map(day =>
-      filteredTransactions
-        .filter(t => isSameDay(safeDate(t.date), day))
-        .reduce((s, t) => s + netSalesOf(t, ledgerById), 0)
-    );
-  }, [filteredTransactions, date, ledgerById]);
-
-  // ── KPI stats ─────────────────────────────────────────────────────────────
-  const kpiStats = useMemo(() => {
-    const txnCount = financialSummary.salesCount;
-    const avgTicket = txnCount > 0 ? financialSummary.netSales / txnCount : 0;
-    const totalTips = financialSummary.tips;
-    const refundTotal = financialSummary.returns;
-    const margin = financialSummary.netSales > 0 ? (financialSummary.net / financialSummary.netSales) * 100 : 0;
-    return { txnCount, avgTicket, totalTips, refundTotal, margin };
-  }, [filteredTransactions, financialSummary]);
 
   const openPrintWindow = useCallback((html: string) => {
     const win = window.open('', '_blank', 'width=900,height=700');
@@ -1081,18 +690,34 @@ const LedgerTab = () => {
     setIsAddTxnOpen(false);
   };
 
-  const handleRevertTransaction = (target?: Transaction) => {
-    const t = target || transactionToRevert;
-    if (!t || !firestore || !tenantId) return;
-    if (t.type === 'reversal') { toast({ variant: 'destructive', title: 'Cannot revert a reversal.' }); setTransactionToRevert(null); return; }
-    handleAddTransaction({ ...t, date: new Date().toISOString(), description: `Reversal of: ${t.description}`, type: 'reversal', reversalOf: t.id, reversedType: t.type } as any);
-    writeAudit(firestore, tenantId, {
-      action: 'transaction.revert', targetType: 'transaction', targetId: t.id,
-      summary: `Reverted: ${t.description}`, amount: t.amount, actor: auditActor,
-    });
-    toast({ title: 'Transaction Reverted' });
-    setTransactionToRevert(null);
-    setSelectedDossier(null);
+  // Undo a line: a line taking it back goes in today (the line stays, so the books show both), once: it's written as
+  // undo_{line}, refused when there is one already. It carries what the line was and where it was sold (so the books and
+  // the sales tax report read it as the line taken back), never its links (its bank match, its refund, its payment, its
+  // receipt).
+  const UNDO_KEEP = ['context', 'category', 'taxBucket', 'clientOrVendor', 'clientId', 'staffId', 'appointmentId', 'locationId', 'taxLocationId', 'taxRates', 'taxedAmount', 'taxFree', 'appKey', 'appTaxCents', 'retailOrderId', 'paymentMethod'];
+  const undoLine = async (t: any): Promise<boolean | string> => {
+    if (!t || !firestore || !tenantId) return false;
+    if (t.type === 'reversal') return 'A line that takes another back can’t be undone itself.';
+    const ref = doc(firestore, `tenants/${tenantId}/transactions`, `undo_${String(t.id)}`);
+    const nowIso = new Date().toISOString();
+    const data: any = { ...Object.fromEntries(UNDO_KEEP.filter((k) => t[k] !== undefined && t[k] !== null).map((k) => [k, t[k]])),
+      id: ref.id, type: 'reversal', undo: true, reversalOf: t.id, reversedType: t.type, amount: Number(t.amount) || 0,
+      description: `Undo: ${t.description || t.category}`, hasReceipt: false, date: nowIso, createdAt: nowIso, enteredBy: auditActor?.name || null };
+    try {
+      await runTransaction(firestore, async (tx) => {
+        if ((await tx.get(ref)).exists()) throw Object.assign(new Error('already'), { code: 'already' });
+        tx.set(ref, data);
+      });
+    } catch (e: any) { return e?.code === 'already' ? 'It was undone already.' : false; }
+    writeAudit(firestore, tenantId, { action: 'transaction.revert', targetType: 'transaction', targetId: t.id, summary: `Undone: ${t.description || t.category}`, amount: t.amount, actor: auditActor });
+    return true;
+  };
+  // (An Undo from before they were written as undo_{line}: a line taking the whole of it back, found by what it takes back.)
+  const isUndone = async (t: any) => {
+    if (!firestore || !tenantId) return false;
+    if ((await getDoc(doc(firestore, `tenants/${tenantId}/transactions`, `undo_${String(t.id)}`))).exists()) return true;
+    const q = await getDocs(query(collection(firestore, `tenants/${tenantId}/transactions`), where('reversalOf', '==', String(t.id)), limit(20)));
+    return q.docs.some((d) => { const u: any = d.data(); return u.type === 'reversal' && !u.correctionOf && (u.undo || /^reversal of:/i.test(String(u.description || ''))) && Math.round((Number(u.amount) || 0) * 100) >= Math.round((Number(t.amount) || 0) * 100); });
   };
 
   const handleRefundConfirm = async (data: any) => {
@@ -1193,235 +818,81 @@ const LedgerTab = () => {
     }
   };
 
-  const sharedRowProps = (transaction: Transaction) => ({
-    transaction, staffMember: (staff || []).find(s => s.id === transaction.staffId),
-    onRevertClick: () => setTransactionToRevert(transaction),
-    onPreviewReceipt: (t: Transaction) => setPreviewTransaction(t),
-    onViewDetails: (t: Transaction) => setSelectedDossier(t),
-    onRefundClick: setTransactionToRefund,
-  });
-
-  const filterProps = { transactions: transactions || [], date, setDate, periodPreset, setPeriodPreset, searchTerm, setSearchTerm, contextFilter, setContextFilter, categoryFilter, setCategoryFilter, financialSummary };
+  // The Books screen's writing (components/money/BooksScreen): a line's category (an open month), its receipt (any
+  // month), undoing it, and a correction dated today for a line in a closed month.
+  const lineRef = (t: any) => doc(firestore, `tenants/${tenantId}/transactions`, String(t.id));
+  const changeCategory = async (t: any, category: string) => {
+    if (!firestore || !tenantId || inClosedMonth(selectedTenant, t.date)) return false;
+    const type = String(t.type) === 'income' ? 'income' : 'expense';
+    await setDoc(lineRef(t), { category, taxBucket: bucketFor(category, type), updatedAt: new Date().toISOString() }, { merge: true });
+    writeAudit(firestore, tenantId, { action: 'transaction.recategorize', targetType: 'transaction', targetId: t.id, summary: `${t.description || t.category} moved from ${t.category} to ${category}`, amount: t.amount, actor: auditActor });
+    return true;
+  };
+  const attachReceipt = async (t: any, url: string) => {
+    if (!firestore || !tenantId) return false;
+    await setDoc(lineRef(t), { receiptUrl: url, hasReceipt: true, updatedAt: new Date().toISOString() }, { merge: true });
+    return true;
+  };
+  const correct = async (t: any, lines: any[], summary: string) => {
+    if (!firestore || !tenantId || !lines.length) return false;
+    const nowIso = new Date().toISOString(); const b = writeBatch(firestore);
+    for (const l of lines) { const r = doc(collection(firestore, `tenants/${tenantId}/transactions`)); b.set(r, { ...l, id: r.id, date: nowIso, createdAt: nowIso, enteredBy: auditActor?.name || null }); }
+    await b.commit();
+    writeAudit(firestore, tenantId, { action: 'transaction.correct', targetType: 'transaction', targetId: t.id, summary: `Correction dated today: ${summary}`, amount: t.amount, actor: auditActor });
+    return true;
+  };
+  const disputePack = async (t: any) => {
+    const tk = await getAuth().currentUser?.getIdToken().catch(() => ''); const r = await fetch(`/api/disputes/pack?tenantId=${encodeURIComponent(String(tenantId || ''))}&appointmentId=${encodeURIComponent(String(t.appointmentId))}`, { headers: tk ? { Authorization: `Bearer ${tk}` } : {} });
+    if (!r.ok) { const j = await r.json().catch(() => ({})); toast({ variant: 'destructive', title: 'Couldn’t build the pack', description: j.error }); return; }
+    const url = URL.createObjectURL(await r.blob()); const a = document.createElement('a'); a.href = url; a.download = 'dispute-pack.pdf'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 4000);
+  };
+  const categoriesUsed = useMemo(() => [...new Set((transactions || []).map((t: any) => String(t.category || '')).filter(Boolean))].sort((a, b) => a.localeCompare(b)), [transactions]);
+  const booksFilters: BooksFilters = {
+    preset: periodPreset, setPreset: setPeriodPreset, from: date?.from, to: date?.to, setRange: (from, to) => setDate({ from, to }),
+    search: searchTerm, setSearch: setSearchTerm, way, setWay, books: contextFilter, setBooks: setContextFilter,
+    hasPersonal: (transactions || []).some((t: any) => t.context === 'Personal'), category: categoryFilter, setCategory: setCategoryFilter, categories: categoriesUsed,
+  };
+  const reportsMenu = (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button type="button" className="inline-flex min-h-[44px] items-center justify-center rounded-full border border-[#ececee] bg-white px-4 text-[14px] font-semibold text-[#16171a] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2">Print or export</button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-80 rounded-2xl p-1">
+        <DropdownMenuItem asChild className="min-h-[44px] rounded-xl px-3 text-[14px] font-semibold">
+          <Link href="/records/pnl">Profit and loss, month by month</Link>
+        </DropdownMenuItem>
+        <p className="px-3 pb-1 pt-2 text-[12px] text-muted-foreground">For the dates picked here, to print:</p>
+        <DropdownMenuItem onClick={handlePrint} className="min-h-[44px] rounded-xl px-3 text-[14px] font-medium">Every line, in full detail</DropdownMenuItem>
+        <DropdownMenuItem onClick={() => openReport('pnl')} className="min-h-[44px] rounded-xl px-3 text-[14px] font-medium">Profit and loss for these dates</DropdownMenuItem>
+        <DropdownMenuItem onClick={() => openReport('tax')} className="min-h-[44px] rounded-xl px-3 text-[14px] font-medium">Tax summary (Schedule C)</DropdownMenuItem>
+        <DropdownMenuItem onClick={() => openReport('payroll')} className="min-h-[44px] rounded-xl px-3 text-[14px] font-medium">Payroll register</DropdownMenuItem>
+        <DropdownMenuItem onClick={() => openReport('audit')} className="min-h-[44px] rounded-xl px-3 text-[14px] font-medium">Audit trail</DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 
   return (
     <div className="w-full overflow-x-hidden">
-      <div className="p-4 md:p-10 w-full max-w-7xl mx-auto">
+      <div className="mx-auto w-full max-w-6xl p-4 md:p-8">
         <OwedToClientsCard />
-
-        <div className="flex flex-row items-center justify-between gap-3 mb-5 md:mb-8">
-          <div className="min-w-0">
-            <h1 className="text-2xl md:text-4xl font-black uppercase tracking-tighter text-foreground leading-none truncate">The Ledger</h1>
-            <p className="hidden sm:block text-sm text-muted-foreground font-black uppercase tracking-[0.2em] opacity-60">Official financial audit trail</p>
-          </div>
-          <div className="flex items-center gap-2 md:gap-3 shrink-0">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" aria-label="Reports" className="h-11 w-11 p-0 md:h-14 md:w-auto md:px-8 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest shadow-sm bg-card">
-                  <Printer className="h-4 w-4 md:mr-2" /><span className="hidden md:inline">Reports</span>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="rounded-2xl shadow-xl border-2 p-1 w-80">
-                <DropdownMenuItem asChild className="rounded-xl min-h-[44px] px-3 text-[14px] font-semibold">
-                  <Link href="/records/pnl"><TrendingUp className="w-4 h-4 mr-2 text-green-600" /> Profit and loss, month by month</Link>
-                </DropdownMenuItem>
-                <p className="px-3 pb-1 pt-2 text-[12px] text-muted-foreground">For the dates picked here, to print:</p>
-                <DropdownMenuItem onClick={handlePrint} className="rounded-xl min-h-[44px] px-3 text-[14px] font-medium">
-                  <BookOpen className="w-4 h-4 mr-2 text-primary opacity-60" /> The ledger, in full detail
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => openReport('pnl')} className="rounded-xl min-h-[44px] px-3 text-[14px] font-medium">
-                  <TrendingUp className="w-4 h-4 mr-2 text-green-600 opacity-60" /> Profit and loss for these dates
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => openReport('tax')} className="rounded-xl min-h-[44px] px-3 text-[14px] font-medium">
-                  <Landmark className="w-4 h-4 mr-2 text-orange-600 opacity-60" /> Tax summary (Schedule C)
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => openReport('payroll')} className="rounded-xl min-h-[44px] px-3 text-[14px] font-medium">
-                  <Users className="w-4 h-4 mr-2 text-sky-600 opacity-60" /> Payroll register
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => openReport('audit')} className="rounded-xl min-h-[44px] px-3 text-[14px] font-medium">
-                  <ShieldCheck className="w-4 h-4 mr-2 text-muted-foreground opacity-60" /> Audit trail
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <Button onClick={() => setIsAddTxnOpen(true)} aria-label="New Entry" className="h-11 w-11 p-0 md:h-14 md:w-auto md:px-8 rounded-2xl shadow-xl font-black uppercase tracking-widest text-[10px] shadow-primary/20">
-              <PlusCircle className="h-4 w-4 md:mr-2" /><span className="hidden md:inline">New Entry</span>
-            </Button>
-          </div>
-        </div>
-
-
-        <div className="flex md:grid md:grid-cols-4 gap-3 md:gap-4 mb-5 md:mb-8 overflow-x-auto md:overflow-visible snap-x snap-mandatory -mx-4 px-4 md:mx-0 md:px-0 pb-1 md:pb-0 [&>*]:min-w-[190px] [&>*]:snap-start [&>*]:shrink-0 md:[&>*]:min-w-0 md:[&>*]:shrink">
-          <StatCard
-            label="Net Sales"
-            value={fmtCurrency(financialSummary.netSales)}
-            icon={TrendingUp}
-            accent="bg-green-100 text-green-700"
-            sparkData={dailyRevenueData}
-            trend={financialSummary.net >= 0 ? 'up' : 'down'}
-            trendLabel={`${kpiStats.margin.toFixed(1)}% margin`}
-          />
-          <StatCard
-            label="Net Income"
-            value={fmtCurrency(financialSummary.net)}
-            icon={DollarSign}
-            accent={financialSummary.net >= 0 ? 'bg-primary/10 text-primary' : 'bg-destructive/10 text-destructive'}
-            trend={financialSummary.net >= 0 ? 'up' : 'down'}
-            trendLabel={financialSummary.net >= 0 ? 'Profitable' : 'Net loss'}
-          />
-          <StatCard
-            label="Avg. Ticket"
-            value={fmtCurrency(kpiStats.avgTicket)}
-            icon={Receipt}
-            accent="bg-indigo-100 text-indigo-700"
-            sub={`${kpiStats.txnCount} ${kpiStats.txnCount === 1 ? 'sale' : 'sales'}`}
-          />
-          <StatCard
-            label="Sales Tax Owed"
-            value={fmtCurrency(financialSummary.taxOwed)}
-            icon={AlertCircle}
-            accent="bg-muted text-muted-foreground"
-            sub={[financialSummary.taxRefunded > 0 ? `Held for the state · ${fmtCurrency(financialSummary.taxRefunded)} given back` : 'Held for the state, not income', financialSummary.taxFreeSales ? `${fmtCurrency(financialSummary.taxFreeSales)} sold tax free to resellers` : ''].filter(Boolean).join(' · ')}
-          />
-        </div>
-        <OwedToClients tenantId={tenantId} />
-
-        <div className="md:hidden flex gap-1.5 p-1.5 bg-muted border-2 border-muted rounded-2xl shadow-inner mb-5 overflow-x-auto">
-          {([['today', 'Today'], ['7days', '7D'], ['30days', '30D'], ['thisMonth', 'Month'], ['lastMonth', 'Last Mo']] as [string, string][]).map(([v, l]) => (
-            <Button key={v} variant="ghost" size="sm" onClick={() => setPeriodPreset(v)}
-              className={cn('flex-1 text-[9px] font-black uppercase h-8 px-3 rounded-xl transition-all whitespace-nowrap',
-                periodPreset === v ? 'bg-card shadow-sm border border-border/50' : 'hover:bg-card/50')}>
-              {l}
-            </Button>
-          ))}
-        </div>
-
-        <div className="grid md:grid-cols-3 lg:grid-cols-4 gap-8 items-start">
-
-          <div className="md:col-span-1">
-            {isMobile ? (
-              <Accordion type="single" collapsible className="w-full mb-6">
-                <AccordionItem value="filters" className="border-none">
-                  <AccordionTrigger className="p-5 bg-primary/5 rounded-[2rem] border-2 border-primary/10 hover:no-underline shadow-sm">
-                    <div className="flex items-center gap-3"><Filter className="w-5 h-5 text-primary" /><span className="font-black uppercase text-xs tracking-widest text-primary">Summary & Filters</span></div>
-                  </AccordionTrigger>
-                  <AccordionContent className="pt-6"><TransactionFilters {...filterProps} /></AccordionContent>
-                </AccordionItem>
-              </Accordion>
-            ) : <TransactionFilters {...filterProps} />}
-          </div>
-
-          <div className="md:col-span-2 lg:col-span-3 space-y-5 min-w-0">
-
-            <BadDebtAgingCard clients={clients || []} tenantId={tenantId || ''} actor={auditActor} />
-
-            {(kpiStats.totalTips > 0 || kpiStats.refundTotal > 0) && (
-              <div className="flex gap-2.5 overflow-x-auto pb-1">
-                {kpiStats.totalTips > 0 && (
-                  <div className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-amber-50 border-2 border-amber-200 shrink-0">
-                    <DollarSign className="w-3.5 h-3.5 text-amber-800" />
-                    <span className="text-[10px] font-black uppercase tracking-widest text-amber-800">Tips</span>
-                    <span className="font-mono font-black text-sm text-amber-800">{fmtCurrency(kpiStats.totalTips)}</span>
-                  </div>
-                )}
-                {kpiStats.refundTotal > 0 && (
-                  <div className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-red-50 border-2 border-red-200 shrink-0">
-                    <Undo2 className="w-3.5 h-3.5 text-red-700" />
-                    <span className="text-[10px] font-black uppercase tracking-widest text-red-700">Refunds</span>
-                    <span className="font-mono font-black text-sm text-red-700">-{fmtCurrency(kpiStats.refundTotal)}</span>
-                  </div>
-                )}
-              </div>
-            )}
-
-            <Card className="hidden md:block border-2 shadow-2xl rounded-[2.5rem] overflow-hidden bg-card">
-              <CardContent className="p-0 overflow-x-auto">
-                <Table>
-                  <TableHeader className="bg-muted/30 border-b-2">
-                    <TableRow>
-                      {['Description & Entity','Timestamp','Provider','Context','Account','Category'].map(h => (
-                        <TableHead key={h} className="font-black text-[10px] uppercase tracking-[0.2em] p-6 text-foreground">{h}</TableHead>
-                      ))}
-                      <TableHead className="text-right font-black text-[10px] uppercase tracking-[0.2em] text-primary pr-10">Amount</TableHead>
-                      <TableHead><span className="sr-only">Actions</span></TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {isLoading && (
-                      <TableRow>
-                        <TableCell colSpan={8} className="h-64 text-center">
-                          <div className="flex flex-col items-center gap-4">
-                            <Loader className="w-10 h-10 animate-spin text-primary" />
-                            <p className="font-black uppercase text-[10px] tracking-widest text-primary opacity-60">Synchronizing Ledger...</p>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    )}
-                    {!isLoading && filteredTransactions.map(t => <TransactionRow key={t.id} {...sharedRowProps(t)} />)}
-                    {!isLoading && filteredTransactions.length === 0 && (
-                      <TableRow>
-                        <TableCell colSpan={8} className="h-64 text-center">
-                          <div className="space-y-2 opacity-30"><BookOpen className="w-12 h-12 mx-auto" /><p className="uppercase font-black tracking-widest text-xs">No records found</p></div>
-                        </TableCell>
-                      </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-
-            <div className="md:hidden space-y-4">
-              {isLoading && (
-                <div className="flex flex-col items-center justify-center py-24">
-                  <Loader className="w-10 h-10 animate-spin text-primary mb-4" />
-                  <p className="text-[10px] font-black uppercase tracking-widest text-primary">Syncing...</p>
-                </div>
-              )}
-              {!isLoading && filteredTransactions.length > 0 && (
-                <div className="grid gap-4">{filteredTransactions.map(t => <TransactionCard key={t.id} {...sharedRowProps(t)} />)}</div>
-              )}
-              {!isLoading && filteredTransactions.length === 0 && (
-                <div className="text-center py-24 opacity-30 border-4 border-dashed rounded-[3rem] flex flex-col items-center gap-4">
-                  <BookOpen className="w-16 h-16" />
-                  <p className="text-sm font-black uppercase tracking-widest">No entries found</p>
-                </div>
-              )}
-            </div>
-
-          </div>
+        <BooksScreen lines={filteredTransactions} byId={ledgerById} loading={isLoading} biz={selectedTenant} staff={staff || []} tenantId={tenantId || ''}
+          filters={booksFilters} reports={reportsMenu} onNew={() => setIsAddTxnOpen(true)}
+          onChangeCategory={changeCategory} onReceipt={attachReceipt} onPreviewReceipt={(t) => setPreviewTransaction(t)} onRefund={(t) => setTransactionToRefund(t)}
+          onUndo={undoLine} isUndone={isUndone} onCorrect={correct} onDisputePack={disputePack}
+          summary={{ netSales: financialSummary.netSales, returns: financialSummary.returns, tips: financialSummary.tips, net: financialSummary.net }} />
+        <div className="mt-5 space-y-5">
+          <OwedToClients tenantId={tenantId} />
+          <BadDebtAgingCard clients={clients || []} tenantId={tenantId || ''} actor={auditActor} />
         </div>
       </div>
 
-
       <AddTransactionDialog open={isAddTxnOpen} onOpenChange={setIsAddTxnOpen} staff={staff || []} onConfirm={handleAddTransaction} />
-
-      <AlertDialog open={!!transactionToRevert} onOpenChange={() => setTransactionToRevert(null)}>
-        <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl bg-background">
-          <AlertDialogHeader className="p-6 pb-0">
-            <AlertDialogTitle className="font-black uppercase tracking-tighter text-2xl">Confirm Reversal</AlertDialogTitle>
-            <AlertDialogDescription className="font-bold text-sm text-foreground/80 leading-relaxed uppercase tracking-tight">
-              Create an audit-trail reversal for &quot;{transactionToRevert?.description}&quot;?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3">
-            <Button onClick={() => handleRevertTransaction()} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20">Yes, Revert Entry</Button>
-            <AlertDialogCancel onClick={() => setTransactionToRevert(null)} className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none bg-transparent">Cancel</AlertDialogCancel>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       <ReceiptPreviewDialog
         transaction={previewTransaction}
         tenantId={tenantId || ''}
         open={!!previewTransaction}
         onOpenChange={o => { if (!o) setPreviewTransaction(null); }}
-      />
-
-      <TransactionDossierSheet
-        tenantId={tenantId || undefined}
-        open={!!selectedDossier}
-        onOpenChange={o => { if (!o) setSelectedDossier(null); }}
-        transaction={selectedDossier}
-        staff={staff || []}
-        onRevert={handleRevertTransaction}
       />
 
       <RefundProtocolDialog

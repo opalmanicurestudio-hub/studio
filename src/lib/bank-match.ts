@@ -9,7 +9,7 @@
 import { normalizeLine } from './books-summary';
 import { bucketFor, canonicalCategory } from './categories';
 
-const NOT_MONEY_PM = /internal|deducted from payout|already.?charged|store credit|gift ?card|kept from|security deposit|add.?to.?balance|free plan|^deposit$|stripe refund/i;
+const NOT_MONEY_PM = /internal|deducted from payout|already.?charged|store credit|gift ?card|kept from|security deposit|add.?to.?balance|free plan|^deposit$|stripe refund|^correction$/i;
 const CARD_PM = /card|stripe|online|terminal|tap to pay|apple ?pay|google ?pay/i;
 const NOT_MONEY_CATS = new Set(['comp & redemption cost', 'service recovery', 'bad debt', 'cash variance', 'delivery app fees', 'spoilage']);
 /** Lines that go with a sale and never stand for it alone, or money given back: never "the same, a little different". */
@@ -32,6 +32,8 @@ export function notBankMoney(t: any, dir: 'in' | 'out', context = 'Business'): s
     ? `${what(t)} is in your business books, and this money came into your personal account. If a client paid you there for a visit, Skip this line: the sale is in your books already.`
     : OTHER_BOOKS;
   if (t.reconciled || t.bankTransactionId) return `${what(t)} is matched to another bank line already.`;
+  // (A correction to a line in a closed month moves nothing at the bank.)
+  if (t.correctionOf) return `${what(t)} is a correction in your books, not money that moved.`;
   const pm = String(t.paymentMethod || ''); const b = bucketOf(t);
   if (b === 'adjustment' || NOT_MONEY_PM.test(pm) || NOT_MONEY_CATS.has(canonicalCategory(String(l.category)).toLowerCase())) return `${what(t)} isn’t money that moved (a discount, a credit or the like).`;
   if (dir === 'out' && b === 'processing_fee') return 'Card fees come off your card payouts, not out of the bank.';

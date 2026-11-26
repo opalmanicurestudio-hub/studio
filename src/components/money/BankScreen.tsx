@@ -303,7 +303,7 @@ export function BankScreen({ tenantId, firestore, actor }: { tenantId: string; f
                     : cands.length === 0 ? <p className="mt-2 text-[14px]" style={{ color: MUTED }}>Nothing in your books from the {reach === 45 ? 'six weeks' : reach === 14 ? 'two weeks' : 'week'} before it is waiting for this money.</p>
                     : <div className="mt-2">{cands.map((p) => (
                       <label key={p.key} className="flex min-h-[48px] cursor-pointer items-center gap-3" style={{ borderTop: `1px solid ${LINE}` }}>
-                        <input type="checkbox" checked={picked.includes(p.key)} onChange={(e) => setPicked((x) => e.target.checked ? [...x, p.key] : x.filter((k) => k !== p.key))} className="h-5 w-5" />
+                        <input type="checkbox" checked={picked.includes(p.key)} onChange={(e) => setPicked((x) => e.target.checked ? [...x, p.key] : x.filter((k) => k !== p.key))} className="h-5 w-5" style={{ accentColor: INK }} />
                         <span className="min-w-0 flex-1"><span className="block truncate text-[14px]">{p.label}</span>
                           <span className="block text-[13px]" style={{ color: MUTED }}>{p.sub}</span></span>
                         <span className="shrink-0 text-[14px] tabular-nums">{usd(p.cents)}</span>

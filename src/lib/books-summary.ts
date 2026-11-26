@@ -135,11 +135,15 @@ function undo(t: any, amount: number, o: any | null, byId: Map<string, any> | un
   // What the undone line did (itself a reversal, now and then: undoing that puts the first line back).
   const done = effectOf({ ...orig, amount }, byId, depth + 1);
   if (done.side === 'skip') return done;
-  // Undoing a sale is a return; undoing anything else takes it back off where it was.
+  // Undoing a sale is a return; undoing anything else takes it back off where it was. (A correction of a line in a closed
+  // month, components/money/BooksScreen, isn't a return: what was booked wrong comes off the sales it was booked as.)
+  if (done.side === 'sales' && t?.correctionOf) return { side: 'sales', amount: -amount, tax: 0, category: canonicalCategory(String(orig?.category || category)) };
   if (done.side === 'sales') return { side: 'returns', amount, tax: taxIn(amount), category: isVoid ? 'Void' : REFUND_CATS.has(lc(t?.category)) ? category : 'Reversals' };
   if (done.side === 'returns') {
     const tax = Math.min(amount, Math.max(0, n(t?.taxRefunded ?? orig?.taxRefunded)));
-    return { side: 'returns', amount: -amount, tax: -tax, category: canonicalCategory(String(orig?.category || category)), ...(done.tip ? { tip: -done.tip, tipBooked: done.tipBooked } : {}) };
+    // (Its own tip, when it says, as its own tax: the refund it takes back may not be read.)
+    const tip = t?.tipRefunded !== undefined ? Math.min(amount - tax, Math.max(0, n(t.tipRefunded))) : done.tip || 0;
+    return { side: 'returns', amount: -amount, tax: -tax, category: canonicalCategory(String(orig?.category || category)), ...(tip ? { tip: -tip, tipBooked: t?.tipBooked ?? done.tipBooked } : {}) };
   }
   return { side: done.side, amount: -done.amount, tax: -done.tax, category: canonicalCategory(String(orig?.category || category)) };
 }
