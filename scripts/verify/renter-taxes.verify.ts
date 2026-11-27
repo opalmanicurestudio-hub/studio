@@ -124,7 +124,7 @@ const sentMail: any[] = []; let failMail = false; let throwMail = false;
 
   const tr = src('src/app/api/portal/renter-taxes/route.ts');
   check('until April 15, last year’s payments are listed and can be taken off', /lastYearPayments: today <= dueDay\(year, 4\)/.test(tr) && /const uRef = Number\(b\.forYear\) === year - 1 && today <= dueDay\(year, 4\)/.test(tr)
-    && /action: 'unpay', id: p\.id, forYear: g\.y/.test(src('src/components/rent/RenterTaxes.tsx')));
+    && /action: 'unpay', id: p\.id, forYear: g\.y/.test(src('src/components/money/TaxSetAside.tsx')));
   check('payments saved and taken off in a transaction; until April 15 one can be for last year', (tr.match(/db\.runTransaction/g) || []).length === 2 && /Number\(b\.forYear\) === year - 1 && today <= dueDay\(year, 4\)/.test(tr));
 
   console.log('Reminders');
@@ -163,7 +163,7 @@ const sentMail: any[] = []; let failMail = false; let throwMail = false;
   const PM = await import('../../src/components/rent/portal-map');
   const base = { booksHere: false, hasRenter: true, hasLease: true, swapsOn: false };
   check('Money, Your business, Taxes to set aside: for anyone with a renter record', PM.viewAllowed('taxes', base) && !PM.viewAllowed('taxes', { ...base, hasRenter: false }) && PM.placeRows('money', base).some((g: any) => g.views.includes('taxes')));
-  const page = src('src/app/rent/[tenantId]/page.tsx'); const screen = src('src/components/rent/RenterTaxes.tsx'); const route = src('src/app/api/portal/renter/route.ts');
+  const page = src('src/app/rent/[tenantId]/page.tsx'); const screen = src('src/components/money/TaxSetAside.tsx'); const route = src('src/app/api/portal/renter/route.ts');
   check('the portal opens it with their session; the screen says it’s an estimate and their accountant works out what they owe', /case 'taxes': return <RenterTaxes tenantId=\{tenantId\} token=\{token\} \/>/.test(page)
     && /An estimate to set money aside by, not your tax bill: your accountant works out what you owe\./.test(screen) && /href="https:\/\/www\.irs\.gov\/payments"/.test(screen));
   check('Earnings and expenses reads what they earned the same way', /const \{ visits, packages \} = await renterEarned\(db, tenantId, String\(session\.renterId \|\| ''\), from, to\);/.test(route) && /renterAppointments\(db, tenantId, ids, fromIso, toIso\)/.test(route));

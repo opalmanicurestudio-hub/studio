@@ -192,7 +192,7 @@ const tenant = { timezone: 'America/New_York', workweekStartsOn: 1, payroll: { c
   console.log('who can run payroll and approve time');
   const page = src('src/app/(app)/money/page.tsx'), side = src('src/components/shared/AppSidebar.tsx'), ts = src('src/app/(app)/timesheets/page.tsx'), teamPage = src('src/app/(app)/team/page.tsx');
   check('Money: every tab for the books, Payday alone for someone who only runs payroll, and a plain note for anyone else',
-    /const seesAll = can\('money\.view'\); const pays = can\('money\.payroll'\); const paysOnly = !seesAll && pays;/.test(page) && /HUB_TABS\.filter\(\(t\) => t\.key !== 'payday' \|\| pays\)/.test(page) && /tabs\.map\(\(\{ key, label \}\)/.test(page)
+    /const seesAll = can\('money\.view'\); const pays = can\('money\.payroll'\); const paysOnly = !seesAll && pays;/.test(page) && /HUB_TABS\.filter\(\(t\) => \(t\.key !== 'payday' \|\| pays\) && \(t\.key !== 'taxes' \|\| isOwner\)\)/.test(page) && /tabs\.map\(\(\{ key, label \}\)/.test(page)
     && /\{pays && visitedTabs\.has\('payday'\)/.test(page) && /if \(tab === 'payday' && !pays\) return;/.test(page)
     && /if \(paysOnly && activeTab !== 'payday'\) handleTabChange\('payday'\)/.test(page) && /Money is for the owner and people whose role includes the books or payroll\./.test(page)
     && (page.match(/\{seesAll && visitedTabs\.has\('/g) || []).length === 7);

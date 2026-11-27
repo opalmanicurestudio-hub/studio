@@ -17,6 +17,7 @@ import { MoneyOverview } from '@/components/money/MoneyOverview';
 import { closeOf, inClosedMonth, monthName } from '@/lib/books-close';
 import { MilesCard } from '@/components/money/MilesCard';
 import { WriteOffsScreen } from '@/components/money/WriteOffsScreen';
+import { OwnerTaxes, OwnerTaxDueCard } from '@/components/money/OwnerTaxes';
 import { TipShareCard } from '@/components/money/TipShareCard';
 import { OwedToClientsCard } from '@/components/money/OwedToClientsCard';
 import React, { useState, useMemo, useRef, useEffect, useCallback, Suspense } from 'react';
@@ -1316,7 +1317,7 @@ const BillsTab = () => {
 
 // ─── OverviewTab (new) ────────────────────────────────────────────────────────
 
-type HubTab = 'overview' | 'ledger' | 'bank' | 'payday' | 'bills' | 'writeoffs' | 'reports' | 'activity';
+type HubTab = 'overview' | 'ledger' | 'bank' | 'payday' | 'bills' | 'writeoffs' | 'taxes' | 'reports' | 'activity';
 
 // ─── ActivityTab — the latest actions, live (components/money/ActivityScreen lays them out) ──
 
@@ -1374,11 +1375,12 @@ const HUB_TABS: { key: HubTab; label: string }[] = [
   { key: 'payday',   label: 'Payday' },
   { key: 'bills',    label: 'Bills' },
   { key: 'writeoffs', label: 'Write-offs' },
+  { key: 'taxes',    label: 'Taxes' },
   { key: 'reports',  label: 'Reports' },
   { key: 'activity', label: 'Activity' },
 ];
 
-const VALID_TABS: HubTab[] = ['overview', 'ledger', 'bank', 'payday', 'bills', 'writeoffs', 'reports', 'activity'];
+const VALID_TABS: HubTab[] = ['overview', 'ledger', 'bank', 'payday', 'bills', 'writeoffs', 'taxes', 'reports', 'activity'];
 
 function MoneyHubContent() {
   // Deep-linking: /money?tab=payday opens the Payday tab directly, so old
@@ -1408,7 +1410,9 @@ function MoneyHubContent() {
   const seesAll = can('money.view'); const pays = can('money.payroll'); const paysOnly = !seesAll && pays;
   // (Booking a personal-account line as the business's, from Write-offs, names who did it, as the Bank tab does.)
   const writeOffsActor = useAuditActor();
-  const tabs = seesAll ? HUB_TABS.filter((t) => t.key !== 'payday' || pays) : paysOnly ? HUB_TABS.filter((t) => t.key === 'payday') : [];
+  // (Taxes is the owner's own: their tax set-aside, about their own return.)
+  const isOwner = hubRole === 'owner';
+  const tabs = seesAll ? HUB_TABS.filter((t) => (t.key !== 'payday' || pays) && (t.key !== 'taxes' || isOwner)) : paysOnly ? HUB_TABS.filter((t) => t.key === 'payday') : [];
   const [latestAuditAt, setLatestAuditAt] = useState<string | null>(null);
   const [seenAuditAt, setSeenAuditAt] = useState<string | null>(null);
   useEffect(() => {
@@ -1427,6 +1431,7 @@ function MoneyHubContent() {
 
   const handleTabChange = (tab: HubTab) => {
     if (tab === 'payday' && !pays) return;
+    if (tab === 'taxes' && !isOwner) return;
     setActiveTab(tab);
     setVisitedTabs(prev => (prev.has(tab) ? prev : new Set(prev).add(tab)));
     // Keep the URL shareable without triggering a Next.js navigation
@@ -1480,6 +1485,7 @@ function MoneyHubContent() {
       <main className="flex-1 w-full">
         {seesAll && visitedTabs.has('overview') && <div className={cn(activeTab !== 'overview' && 'hidden')}>
           <MoneyOverview bankCount={bankWaiting} onNavigate={(t) => handleTabChange(t as HubTab)} more={tenantId ? <>
+            {isOwner && <OwnerTaxDueCard tenantId={tenantId} onOpen={() => handleTabChange('taxes')} />}
             <MonthCloseCard tenantId={tenantId} />
             <AppPayoutsCard tenantId={tenantId} />
             <MilesCard tenantId={tenantId} />
@@ -1491,6 +1497,7 @@ function MoneyHubContent() {
         {seesAll && visitedTabs.has('bank')     && <div className={cn(activeTab !== 'bank'     && 'hidden')}><BankTab /></div>}
         {pays && visitedTabs.has('payday')   && <div className={cn(activeTab !== 'payday'   && 'hidden')}><PaydayTab onNavigate={seesAll ? handleTabChange : undefined} /></div>}
         {seesAll && visitedTabs.has('bills')    && <div className={cn(activeTab !== 'bills'    && 'hidden')}><BillsTab /></div>}
+        {isOwner && visitedTabs.has('taxes') && tenantId && <div className={cn(activeTab !== 'taxes' && 'hidden')}><OwnerTaxes tenantId={tenantId} onWriteOffs={() => handleTabChange('writeoffs')} /></div>}
         {seesAll && visitedTabs.has('writeoffs') && tenantId && <div className={cn(activeTab !== 'writeoffs' && 'hidden')}><WriteOffsScreen tenantId={tenantId} canLog={can('money.manage')} business={String((hubTenant as any)?.name || '')} actor={writeOffsActor} /></div>}
         {seesAll && visitedTabs.has('reports')  && <div className={cn(activeTab !== 'reports'  && 'hidden')}><ReportsTab /></div>}
         {seesAll && visitedTabs.has('activity') && <div className={cn(activeTab !== 'activity' && 'hidden')}><ActivityTab onNavigate={handleTabChange} /></div>}

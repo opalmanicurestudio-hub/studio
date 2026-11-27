@@ -17,7 +17,7 @@
 // never income. Lines marked Personal are left out of the profit and loss and the tax summary.
 
 import { scheduleCFor } from './categories';
-import { countsOf, isMeal, isGift, originalOf } from './write-offs';
+import { countsOf, isMeal, isGift, originalOf, dayOf } from './write-offs';
 import { booksSummary, effectOf, lookupOf, type BooksSummary } from './books-summary';
 import { esc, printLine, printMoney, printPage } from './print-style';
 import { format } from 'date-fns';
@@ -98,7 +98,10 @@ export function buildPnlHtml(txns: Txn[], range: Range, currency = 'USD', opts: 
 
 // ─── Tax summary (Schedule C map) ─────────────────────────────────────────────
 
-export function taxSummaryRows(txns: Txn[], opts: ReportOptions = {}): ReportRow[] {
+/** Schedule C's figures for a set of lines: the books' summary, expenses by line (meals and gifts only in part), what
+ *  isn't deductible, and the tentative profit (line 7 less expenses). The tax summary prints them; a tax set-aside
+ *  (lib/renter-taxes taxPlan, api/owner-taxes) works from the profit month by month. */
+export function scheduleCTotals(txns: Txn[], opts: ReportOptions = {}) {
   const s = booksSummary(txns, { lookup: opts.lookup, businessOnly: true });
   // Expenses by Schedule C line, each net of what came back on it (a reversal, a fee Stripe returned, a postage refund).
   const byId = lookupOf(opts.lookup, txns);
@@ -122,6 +125,21 @@ export function taxSummaryRows(txns: Txn[], opts: ReportOptions = {}): ReportRow
   const sortedLines = [...lines.entries()].filter(([, v]) => Math.abs(v) >= 0.005).sort((a, b) => a[0].localeCompare(b[0], 'en', { numeric: true }));
   const deductions = sortedLines.reduce((a, [, v]) => a + v, 0);
   const line1 = s.sales + s.tips; const line2 = s.returns + s.discounts; const line5 = line1 - line2 - s.cogs; const line7 = line5 + s.otherIncome;
+  return { s, sortedLines, notDeductible, deductions, line1, line2, line5, line7, profit: line7 - deductions };
+}
+
+/** Schedule C's tentative profit for each month of a year ('2026-03' → cents), from the year's lines (`lookup`: every
+ *  line read, so a take-back reads the line it takes back). */
+export function profitByMonth(txns: Txn[], year: number, lookup: Txn[] = txns): Record<string, number> {
+  const by = new Map<string, Txn[]>();
+  for (const t of txns) { const d = dayOf((t as any)?.date); if (d.slice(0, 4) !== String(year)) continue; const m = d.slice(0, 7); if (!by.has(m)) by.set(m, []); by.get(m)!.push(t); }
+  const out: Record<string, number> = {};
+  for (const [m, list] of by) out[m] = Math.round(scheduleCTotals(list, { lookup }).profit * 100);
+  return out;
+}
+
+export function taxSummaryRows(txns: Txn[], opts: ReportOptions = {}): ReportRow[] {
+  const { s, sortedLines, notDeductible, deductions, line1, line2, line5, line7 } = scheduleCTotals(txns, opts);
   return [
     H('Income'),
     L('Line 1 — Gross receipts', line1), ...(s.tips ? [L('Includes tips collected for the team', s.tips, 'sub')] : []),
