@@ -69,5 +69,23 @@ export async function geocode(address: string, opts: { keep?: boolean; fetcher?:
   } finally { clearTimeout(timer); }
 }
 
+/** The street address at a point on the map (the end of a drive in the mileage log, lib/trip-log-server), kept with
+ *  the trip, so asked for as a result that may be stored. Not found: null; the map can't be reached: 'down'. */
+export async function reverseGeocode(p: { lat: number; lng: number }, opts: { fetcher?: typeof fetch; timeoutMs?: number } = {}): Promise<Geo | null | 'down'> {
+  const token = String(process.env.MAPBOX_TOKEN || '').trim();
+  if (!token) return 'down';
+  if (!Number.isFinite(p?.lat) || !Number.isFinite(p?.lng)) return null;
+  const url = `https://api.mapbox.com/search/geocode/v6/reverse?longitude=${p.lng.toFixed(5)}&latitude=${p.lat.toFixed(5)}&types=address&limit=1&permanent=true&access_token=${encodeURIComponent(token)}`;
+  const ctl = new AbortController(); const timer = setTimeout(() => ctl.abort(), opts.timeoutMs ?? 6000);
+  try {
+    const r = await (opts.fetcher || fetch)(url, { signal: ctl.signal, cache: 'no-store' } as any);
+    if (!r.ok) { console.warn('[geocode] reverse lookup refused', r.status); return r.status === 404 || r.status === 422 ? null : 'down'; }
+    return readFeature(await r.json());
+  } catch (e: any) {
+    console.warn('[geocode] reverse lookup failed', String(e?.name === 'AbortError' ? 'timeout' : e?.message || e).slice(0, 80));
+    return 'down';
+  } finally { clearTimeout(timer); }
+}
+
 /** Good enough to measure a delivery from: the street address itself was found, not just the town. */
 export const preciseEnough = (g: Geo | null | 'down'): g is Geo => !!g && g !== 'down' && (g.confidence === 'exact' || g.confidence === 'high' || g.confidence === 'medium');

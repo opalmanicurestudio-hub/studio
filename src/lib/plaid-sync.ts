@@ -33,6 +33,17 @@ function plaidUrl(path: string) {
   return `${PLAID_BASE[env] || PLAID_BASE.sandbox}${path}`;
 }
 
+
+/** Where a card purchase made in a store was made, from the bank's own data: the store's address and its place on the
+ *  map. Only for purchases in person (never online), and only what the bank gave. */
+export function storePlace(bt: any): { address: string; lat: number; lng: number } | null {
+  if (String(bt?.payment_channel || '') !== 'in store' || !(Number(bt?.amount) > 0)) return null;
+  const l = bt?.location || {}; const lat = Number(l.lat), lng = Number(l.lon);
+  if (l.lat == null || l.lon == null || !Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180 || (lat === 0 && lng === 0)) return null;
+  const address = [l.address, l.city, [l.region, l.postal_code].filter(Boolean).join(' ')].map((x: any) => String(x || '').trim()).filter(Boolean).join(', ').slice(0, 160);
+  return { address, lat: Math.round(lat * 1e5) / 1e5, lng: Math.round(lng * 1e5) / 1e5 };
+}
+
 export async function plaid(path: string, body: any) {
   const res = await fetch(plaidUrl(path), {
     method: 'POST',
@@ -539,6 +550,9 @@ async function syncBody(db: any, tenantId: string): Promise<SyncResult> {
       plaidCategory: bt.personal_finance_category?.primary || null,
       suggestedCategory: sugg.category, suggestedTaxBucket: sugg.taxBucket, suggestedType: sugg.type,
       plaidDetailed: pfc.detailed || null, plaidConfidence: pfc.confidence_level || null, accountId: bt.account_id || null,
+      // (Where a purchase made in a store was made: the mileage log suggests the drive there, lib/trip-log-server.)
+      // (With the day it was bought: a posted line's date is the day it posted, a day or more later.)
+      ...(storePlace(bt) ? { place: storePlace(bt), boughtOn: /^\d{4}-\d{2}-\d{2}$/.test(String(bt.authorized_date || '')) ? String(bt.authorized_date) : null } : {}),
       // (A deposit bigger than the cash and checks taken lately: it may be a sale nobody rang up, or her own money.)
       // (Which payroll tax it marked paid: taken back if the line is sorted as something else, lib/payroll-tax-marks.)
       ...(taxPayKey ? { taxPayKey } : {}),

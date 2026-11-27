@@ -26,7 +26,7 @@ check('the period runs to the end of the month or year, and today moves on while
 check('the latest lines in the books, and the way to all of them', /Latest in your books/.test(ov) && /See everything/.test(ov));
 
 console.log('the page');
-check('the tabs: Overview, Books, Bank, Payday, Bills, Reports, Activity', /\{ key: 'ledger',\s+label: 'Books' \}/.test(page) && /\{ key: 'bank',\s+label: 'Bank' \}/.test(page) && /VALID_TABS: HubTab\[\] = \['overview', 'ledger', 'bank', 'payday', 'bills', 'reports', 'activity'\]/.test(page));
+check('the tabs: Overview, Books, Bank, Payday, Bills, Write-offs, Reports, Activity', /\{ key: 'ledger',\s+label: 'Books' \}/.test(page) && /\{ key: 'bank',\s+label: 'Bank' \}/.test(page) && /\{ key: 'writeoffs', label: 'Write-offs' \}/.test(page) && /VALID_TABS: HubTab\[\] = \['overview', 'ledger', 'bank', 'payday', 'bills', 'writeoffs', 'reports', 'activity'\]/.test(page));
 check('the Bank tab has the bank’s lines, with how many wait counted once for the tab and the overview (never every line read)', /const BankTab = \(\) =>/.test(page) && /<BankScreen tenantId=\{tenantId\}/.test(page) && /key === 'bank' && !!bankWaiting/.test(page)
   && /getCountFromServer\(query\(collection\(hubFirestore, `tenants\/\$\{hubTenantId\}\/bankTransactions`\)/.test(page) && /bankCount=\{bankWaiting\}/.test(page) && !/getCountFromServer/.test(ov));
 check('the overview carries the page’s own cards after it', /<MoneyOverview bankCount=\{bankWaiting\} onNavigate=/.test(page) && /<MonthCloseCard tenantId=\{tenantId\} \/>/.test(page) && /<AppPayoutsCard tenantId=\{tenantId\} \/>/.test(page) && /<MilesCard tenantId=\{tenantId\} \/>/.test(page));

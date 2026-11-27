@@ -16,6 +16,7 @@ import { MonthCloseCard } from '@/components/money/MonthCloseCard';
 import { MoneyOverview } from '@/components/money/MoneyOverview';
 import { closeOf, inClosedMonth, monthName } from '@/lib/books-close';
 import { MilesCard } from '@/components/money/MilesCard';
+import { WriteOffsScreen } from '@/components/money/WriteOffsScreen';
 import { TipShareCard } from '@/components/money/TipShareCard';
 import { OwedToClientsCard } from '@/components/money/OwedToClientsCard';
 import React, { useState, useMemo, useRef, useEffect, useCallback, Suspense } from 'react';
@@ -1306,7 +1307,7 @@ const BillsTab = () => {
 
 // ─── OverviewTab (new) ────────────────────────────────────────────────────────
 
-type HubTab = 'overview' | 'ledger' | 'bank' | 'payday' | 'bills' | 'reports' | 'activity';
+type HubTab = 'overview' | 'ledger' | 'bank' | 'payday' | 'bills' | 'writeoffs' | 'reports' | 'activity';
 
 // ─── ActivityTab — the latest actions, live (components/money/ActivityScreen lays them out) ──
 
@@ -1363,11 +1364,12 @@ const HUB_TABS: { key: HubTab; label: string }[] = [
   { key: 'bank',     label: 'Bank' },
   { key: 'payday',   label: 'Payday' },
   { key: 'bills',    label: 'Bills' },
+  { key: 'writeoffs', label: 'Write-offs' },
   { key: 'reports',  label: 'Reports' },
   { key: 'activity', label: 'Activity' },
 ];
 
-const VALID_TABS: HubTab[] = ['overview', 'ledger', 'bank', 'payday', 'bills', 'reports', 'activity'];
+const VALID_TABS: HubTab[] = ['overview', 'ledger', 'bank', 'payday', 'bills', 'writeoffs', 'reports', 'activity'];
 
 function MoneyHubContent() {
   // Deep-linking: /money?tab=payday opens the Payday tab directly, so old
@@ -1478,6 +1480,7 @@ function MoneyHubContent() {
         {seesAll && visitedTabs.has('bank')     && <div className={cn(activeTab !== 'bank'     && 'hidden')}><BankTab /></div>}
         {pays && visitedTabs.has('payday')   && <div className={cn(activeTab !== 'payday'   && 'hidden')}><PaydayTab onNavigate={seesAll ? handleTabChange : undefined} /></div>}
         {seesAll && visitedTabs.has('bills')    && <div className={cn(activeTab !== 'bills'    && 'hidden')}><BillsTab /></div>}
+        {seesAll && visitedTabs.has('writeoffs') && tenantId && <div className={cn(activeTab !== 'writeoffs' && 'hidden')}><WriteOffsScreen tenantId={tenantId} canLog={can('money.manage')} /></div>}
         {seesAll && visitedTabs.has('reports')  && <div className={cn(activeTab !== 'reports'  && 'hidden')}><ReportsTab /></div>}
         {seesAll && visitedTabs.has('activity') && <div className={cn(activeTab !== 'activity' && 'hidden')}><ActivityTab onNavigate={handleTabChange} /></div>}
       </main>

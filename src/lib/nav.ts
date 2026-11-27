@@ -45,7 +45,7 @@ export const NAV_SECTIONS: { id: NavSectionId; label: string; pages: string[] }[
   { id: 'rentals', label: 'Rentals', pages: ['/rentals', '/booths', '/pipeline', '/renters', '/rent', '/rental-policies'] },
   { id: 'events', label: 'Events and classes', pages: ['/events', '/classes', '/quotes', '/academy'] },
   { id: 'team', label: 'Team', pages: ['/team', '/practice', '/pay-calculator'] },
-  { id: 'money', label: 'Money', pages: ['/money', '/financials', '/activity', '/records', '/disputes', '/reports'] },
+  { id: 'money', label: 'Money', pages: ['/money', '/mileage', '/financials', '/activity', '/records', '/disputes', '/reports'] },
 ];
 
 /** A section's pages at this business, in order (none: the section isn't shown). */

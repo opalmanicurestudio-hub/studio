@@ -195,7 +195,7 @@ const tenant = { timezone: 'America/New_York', workweekStartsOn: 1, payroll: { c
     /const seesAll = can\('money\.view'\); const pays = can\('money\.payroll'\); const paysOnly = !seesAll && pays;/.test(page) && /HUB_TABS\.filter\(\(t\) => t\.key !== 'payday' \|\| pays\)/.test(page) && /tabs\.map\(\(\{ key, label \}\)/.test(page)
     && /\{pays && visitedTabs\.has\('payday'\)/.test(page) && /if \(tab === 'payday' && !pays\) return;/.test(page)
     && /if \(paysOnly && activeTab !== 'payday'\) handleTabChange\('payday'\)/.test(page) && /Money is for the owner and people whose role includes the books or payroll\./.test(page)
-    && (page.match(/\{seesAll && visitedTabs\.has\('/g) || []).length === 6);
+    && (page.match(/\{seesAll && visitedTabs\.has\('/g) || []).length === 7);
   check('Payday is recorded through the server, not line by line from the browser', /fetch\('\/api\/payroll\/record'/.test(page) && !/`payday_\$\{periodKey\}_\$\{obligation\.id\}`/.test(page));
   check('the menu: Payday (or Money) for a role that runs payroll, Team for a role that approves time', /can\('money\.view'\) \? \{ href: '\/money', icon: Wallet, label: 'Money' \} : \{ href: '\/money\?tab=payday', icon: Wallet, label: 'Payday' \}/.test(side)
     && /\(isAdmin \|\| can\('time\.approve'\) \|\| can\('team\.manage'\)\)/.test(side));

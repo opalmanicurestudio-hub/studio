@@ -67,7 +67,7 @@ export const MODULES: Record<ModuleId, {
   },
   money: {
     label: 'Financial suite',
-    pages: ['/financials', '/ledger', '/payday', '/bills', '/ai-cfo', '/money'],
+    pages: ['/financials', '/ledger', '/payday', '/bills', '/ai-cfo', '/money', '/mileage'],
     messageKinds: [],
   },
   // Guest experience (live updates, self check-in, forms) is part of every

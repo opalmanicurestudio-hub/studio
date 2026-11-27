@@ -150,6 +150,8 @@ const TEAM_ADMIN = [
 const FINANCIAL_SUITE = [
   { href: '/financials', icon: Landmark,      label: 'Pricing foundation' },
   { href: '/money',      icon: Wallet,        label: 'Money'         },
+  // Business drives, logged as they happen, with the year's log for the accountant (/mileage).
+  { href: '/mileage',    icon: Car,           label: 'Mileage'       },
   // Every money moment from every screen, as it happens, and who can do each (/activity).
   { href: '/activity',   icon: ScrollText,    label: 'Activity'      },
   // What the accountant, a payroll check or the IRS asks for, a month at a time (/records).
@@ -593,7 +595,7 @@ export function AppSidebar() {
             </>
           )}
           {!isOwner && !viaPortal && (can('money.view') || can('money.payroll')) && (
-            <NavSection label="Money" items={[can('money.view') ? { href: '/money', icon: Wallet, label: 'Money' } : { href: '/money?tab=payday', icon: Wallet, label: 'Payday' }]} />
+            <NavSection label="Money" items={[can('money.view') ? { href: '/money', icon: Wallet, label: 'Money' } : { href: '/money?tab=payday', icon: Wallet, label: 'Payday' }, ...(can('money.manage') ? [{ href: '/mileage', icon: Car, label: 'Mileage' }] : [])]} />
           )}
 
           {isOwner && tenantId && (
