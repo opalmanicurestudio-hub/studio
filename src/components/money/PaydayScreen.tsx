@@ -52,8 +52,11 @@ export type SelfRun = {
   onForms?: (id: string) => void;
   /** Settings > Payroll. */
   payrollHref: string;
-  /** The tax tables are older than the payday's year. */
-  stale?: boolean;
+  /** The year of the tables used ("2026"). */
+  tablesYear?: number;
+  /** The tax tables are for another year than the payday's ("This payday is in 2027, and the tax tables here are 2026’s."),
+   *  and whether the business has ticked that it'll check the taxes with its accountant (recording waits for it). */
+  stale?: { words: string; ok: boolean; onOk: (ok: boolean) => void } | null;
   /** No state unemployment rate to use: the state's depends on the industry, and none is in Settings yet. */
   suiMissing?: boolean;
   /** The state has programs that depend on the business's size, and Settings doesn't say how many employees. */
@@ -233,8 +236,36 @@ export type PaydayScreenProps = {
   onBonus?: () => void;
   /** Print the checks for the people paid by check this payday (payroll run in ClarityFlow), and how many. */
   onPrintChecks?: () => void; checks?: number;
+  /** Payroll run in ClarityFlow, before the business has agreed to how it works (lib/payroll-terms): the points, and
+   *  "I agree" for the owner or an admin (left out for anyone else). Payday can't be recorded until then. */
+  terms?: { points: { title: string; text: string }[]; href: string; business: string; also: string; onAgree?: () => Promise<string | null> } | null;
   now?: Date;
 };
+
+/** Before payroll is run here: what the business agrees to, once. */
+function TermsCard({ t }: { t: NonNullable<PaydayScreenProps['terms']> }) {
+  const [busy, setBusy] = React.useState(false); const [error, setError] = React.useState<string | null>(null);
+  const agree = async () => { if (!t.onAgree) return; setBusy(true); setError(null); const e = await t.onAgree().catch(() => 'Not saved. Try again.'); setBusy(false); if (e) setError(e); };
+  return (
+    <section aria-label="Before you run payroll here" className={card} style={{ border: `1px solid ${INK}` }}>
+      <h3 className="text-[17px] font-semibold">Before you run payroll here</h3>
+      <p className="text-[14px]" style={{ color: MUTED }}>ClarityFlow works out your team’s taxes, and you pay them and file. Here’s what that means.</p>
+      <ul className="mt-2">
+        {t.points.map((x) => <li key={x.title} className="py-2" style={{ borderTop: `1px solid ${LINE}` }}>
+          <span className="block text-[15px] font-semibold">{x.title}</span>
+          <span className="block text-[14px]" style={{ color: MUTED }}>{x.text}</span></li>)}
+      </ul>
+      <p className="py-2 text-[13px]" style={{ color: MUTED, borderTop: `1px solid ${LINE}` }}>The full wording is in section 10 of the <a href={t.href} target="_blank" rel="noreferrer" className={`font-semibold underline underline-offset-2 ${RING}`} style={{ color: INK }}>platform terms</a>. {t.also}</p>
+      {t.onAgree
+        ? <div className="flex flex-wrap items-center gap-3 pb-2 pt-1">
+            <button type="button" onClick={agree} disabled={busy} className={btn} style={solid}>{busy ? 'Saving' : 'I agree'}</button>
+            <span className="min-w-[180px] flex-1 text-[13px]" style={{ color: MUTED }}>For {t.business}, once. Payday can be recorded here after that.</span>
+          </div>
+        : <Note>The owner or an admin agrees to this once, for {t.business}. Until then, payday can’t be recorded here.</Note>}
+      {error && <p role="alert" className="pb-2 text-[13px] font-semibold" style={{ color: AMBER }}>{error}</p>}
+    </section>
+  );
+}
 
 export function PaydayScreen(p: PaydayScreenProps) {
   const now = p.now || new Date();
@@ -254,6 +285,9 @@ export function PaydayScreen(p: PaydayScreenProps) {
   const later = self ? Math.round((self.employeeTaxes + self.employerTaxes) * 100) / 100 : 0;
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const parts = PART_ORDER.map((k) => p.parts.find((x) => x.key === k)).filter(Boolean) as SetAsidePart[];
+  // (Payroll run here: recording waits for the agreement, and for the tick when the tables are another year's.)
+  const waits = runBy === 'clarityflow' && p.terms ? 'Agree to how payroll works here first, at the top of Payday.'
+    : self?.stale && !self.stale.ok && employees.length > 0 ? 'Tick that you’ll check the taxes with your accountant first, under Your team.' : null;
   const toTeam = () => { teamRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); teamRef.current?.focus({ preventScroll: true }); };
 
   const period = (
@@ -375,8 +409,13 @@ export function PaydayScreen(p: PaydayScreenProps) {
       {runBy === 'gusto' && p.gusto.connected && !!p.gustoUnmatched?.length && <Note warn>Match {peopleOf(p.gustoUnmatched)} to Gusto first, below, then send payroll.</Note>}
       {runBy !== 'clarityflow' && p.onExport && <div className="mt-2 flex flex-wrap items-center gap-2"><button type="button" onClick={p.onExport} disabled={!!p.blocked} className={btn} style={runBy === 'company' ? solid : plain}>Download for {runBy === 'company' ? 'your' : 'another'} payroll company</button>
         <span className="text-[13px]" style={{ color: MUTED }}>Hours and pay for these dates, as a spreadsheet for ADP, Paychex, QuickBooks Payroll or your bookkeeper.</span></div>}
-      {runBy === 'clarityflow' && <p className="mt-3 text-[13px]" style={{ color: MUTED }}>Taxes worked out here, using the IRS’s{self?.stateTax ? ` and ${self.stateName}’s` : ''} tables. You send the pay and the taxes from your bank, and file the forms or hand them to your accountant. <a href={self?.payrollHref || '/settings?tab=payroll'} className="underline underline-offset-2" style={{ color: INK }}>Use Gusto or another payroll company instead</a></p>}
-      {self?.stale && <Note warn>The tax tables are from an earlier year. Check each person’s taxes with your accountant until this year’s are in.</Note>}
+      {runBy === 'clarityflow' && <p className="mt-3 text-[13px]" style={{ color: MUTED }}>Taxes worked out here, using the IRS’s{self?.stateTax ? ` and ${self.stateName}’s` : ''}{self?.tablesYear ? ` ${self.tablesYear}` : ''} tables. They’re estimates for you to check: you’re the employer, so you send the pay and the taxes from your bank, and file the forms or hand them to your accountant. <a href={self?.payrollHref || '/settings?tab=payroll'} className="underline underline-offset-2" style={{ color: INK }}>Use Gusto or another payroll company instead</a></p>}
+      {self?.stale && <div className="mt-2 rounded-2xl px-4 py-3 text-[14px]" style={{ background: AMBER_TINT, color: AMBER }}>
+        <p>{self.stale.words} Until that year’s are added, each person’s taxes may be off. Check them with your accountant before you pay.</p>
+        {!p.recordedOn && <label className="mt-1 flex min-h-[44px] cursor-pointer items-center gap-3 font-semibold">
+          <input type="checkbox" checked={self.stale.ok} onChange={(e) => self.stale!.onOk(e.target.checked)} className="h-5 w-5 shrink-0 accent-[#b45309]" />
+          I’ll check these taxes with my accountant</label>}
+      </div>}
       {self?.teamSizeMissing && <Note>Some of {self.stateName}’s paid leave programs depend on how many employees you have. Until you say, the people paid each payday are counted. <a href={self.payrollHref} className={`font-semibold underline underline-offset-2 ${RING}`}>Set it in Settings</a></Note>}
       {self?.suiMissing && <Note warn>{self.stateName} unemployment isn’t worked out yet: its rate for a new business depends on your industry. <a href={self.payrollHref} className={`font-semibold underline underline-offset-2 ${RING}`}>Put in the rate from your state’s letter</a></Note>}
       {contractors > 0 && <Note>Contractors aren’t on payroll: nothing is withheld for them, and no employer taxes are owed. Pay them directly, then record payday.{runBy !== 'clarityflow' ? ' If your payroll company pays them, book its withdrawal for them as Contract Labor.' : ''}</Note>}
@@ -442,9 +481,10 @@ export function PaydayScreen(p: PaydayScreenProps) {
           ? <p role="status" className="mt-3 rounded-2xl px-4 py-3 text-[14px] font-medium" style={{ background: GREEN_TINT, color: GREEN }}>{p.recordedSpan ? `Payday for ${p.recordedSpan} is in your books, recorded ${p.recordedOn.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}. These dates overlap it, so it can’t be recorded again.` : `Payday for these dates is in your books, recorded ${p.recordedOn.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}.`}</p>
           : <>
             {p.blocked && <Note warn>{p.blocked}</Note>}
+            {!p.blocked && waits && <Note warn>{waits}</Note>}
             {runBy === 'company' && employees.length > 0 && <Note>Recording payday puts what you paid in your books. It doesn’t withhold or file anyone’s taxes: your payroll company does that.</Note>}
             {runBy === 'gusto' && !p.gusto.connected && employees.length > 0 && <Note>Recording payday puts what you paid in your books. It doesn’t withhold or file anyone’s taxes: for employees, Gusto does that once it’s connected.</Note>}
-            <button type="button" onClick={p.onRecord} disabled={(p.setAside <= 0 && !p.team.length) || p.recording || !!p.blocked} className={`${btn} mt-3`} style={solid}>{p.recording ? 'Recording' : 'Record payday in your books'}</button>
+            <button type="button" onClick={p.onRecord} disabled={(p.setAside <= 0 && !p.team.length) || p.recording || !!p.blocked || !!waits} className={`${btn} mt-3`} style={solid}>{p.recording ? 'Recording' : 'Record payday in your books'}</button>
             <p className="mt-2 text-[13px]" style={{ color: MUTED }}>
               {self && employees.length > 0 ? `Adds each person’s pay (${usd(p.teamTotal + cashOut)} in all${cashOut > 0 ? ', cash tips taken home included' : ''}) and ${usd(self.employerTaxes)} in payroll taxes you pay as the employer to your books, dated today, and keeps each person’s taxes for their pay stub.${p.setAside > 0 ? ' The set-asides too.' : ''} It’s recorded once for these dates.`
                 : p.setAside > 0
@@ -488,7 +528,8 @@ export function PaydayScreen(p: PaydayScreenProps) {
             <button type="button" onClick={r.onOpen} className={`${btn} shrink-0`} style={plain}>{r.action}</button>
           </div>))}
       </div>}
-      <p className="mt-2 pb-1 text-[13px]" style={{ color: MUTED }}>When you pay one, its bank line is sorted as Payroll Tax Deposit: it’s in your books from payday already, so it isn’t counted twice.</p>
+      <p className="mt-2 text-[13px]" style={{ color: MUTED }}>When you pay one, its bank line is sorted as Payroll Tax Deposit: it’s in your books from payday already, so it isn’t counted twice.</p>
+      <p className="mt-2 pb-1 text-[13px]" style={{ color: MUTED }}>Amounts and due days are worked out from your paydays here. If a notice from the IRS or {self?.stateName || 'your state'} says something different, go by the notice and ask your accountant.</p>
     </section>
   ) : null;
 
@@ -521,7 +562,7 @@ export function PaydayScreen(p: PaydayScreenProps) {
         </section>
       )}
       <div className="grid items-start gap-4 lg:grid-cols-[1.1fr_1fr]">
-        <div className="space-y-4">{period}{team}{p.gustoSlot}</div>
+        <div className="space-y-4">{runBy === 'clarityflow' && p.terms && <TermsCard t={p.terms} />}{period}{team}{p.gustoSlot}</div>
         <div className="space-y-4">{keep}{aside}{bills}</div>
       </div>
     </div>

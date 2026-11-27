@@ -106,7 +106,7 @@ const bonus = (date: string, id: string, extra: any = {}) => ({ periodKey: `bonu
   console.log('The bonus screen');
   const dlg = src('src/components/money/BonusDialog.tsx'); const screen = src('src/components/money/PaydayScreen.tsx'); const page = src('src/app/(app)/money/page.tsx');
   check('worked out as the server will: off-cycle, bonus rates, the last regular payday’s team', /paydayTaxes\(\{[\s\S]*?offCycle: true, supplemental: how === 'bonus', teamSize: teamOnLastPayday/.test(dlg));
-  check('Payday offers it only when payroll is run here', /\{self && p\.onBonus && /.test(screen) && /onBonus=\{selfRunOn && !adjustmentsError \?/.test(page));
+  check('Payday offers it only when payroll is run here, once the business has agreed to how it works', /\{self && p\.onBonus && /.test(screen) && /onBonus=\{selfRunOn && termsOk && !adjustmentsError \?/.test(page));
   check('never asks for a Social Security number', !/\bssn\b|social security number/i.test(dlg));
   check('house style', !/className="[^"]*uppercase/.test(dlg) && !/ · /.test(dlg) && !/>[^<{}]*[A-Za-z]'[A-Za-z][^<{}]*</.test(dlg) && !/\{\/\*/.test(dlg));
 

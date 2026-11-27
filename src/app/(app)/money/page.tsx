@@ -98,7 +98,8 @@ import { PrintChecksDialog } from '@/components/money/PrintChecksDialog';
 import { addressLines, checksHtml, type CheckData, type CheckLayout, type Nudge } from '@/lib/payroll-checks';
 import { w2sFor, form940, stateAnnual, form1099s, yearEndDue } from '@/lib/payroll-yearend';
 import { runByOf, runByChosen, paydayTaxes, ytdFrom, payDateFor, dueDates, owedRunsFrom, quarterWords, stateFilingOf, stubTaxes } from '@/lib/payroll-taxes';
-import type { TaxForms } from '@/lib/withholding';
+import { staleWords, tablesInfo, type TaxForms } from '@/lib/withholding';
+import { PAYROLL_TERMS, PAYROLL_TERMS_ALSO, PAYROLL_TERMS_HREF, PAYROLL_TERMS_VERSION, payrollTermsOk, canAgreeFor } from '@/lib/payroll-terms';
 import { saveStaffPay } from '@/lib/staff-pay-client';
 import { payOverlayReady } from '@/firebase/firestore/pay-overlay';
 import { BillsScreen, PAY_WAYS } from '@/components/money/BillsScreen';
@@ -825,6 +826,13 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
   const methodsKey = tenantId ? `cf_paymethods_${tenantId}_${periodKey}` : '';
   useEffect(() => { let kept = {}; try { kept = JSON.parse(sessionStorage.getItem(methodsKey) || '{}') || {}; } catch { kept = {}; } setMethods(kept); }, [methodsKey]);
   useEffect(() => { if (!methodsKey) return; try { if (Object.keys(methods).length) sessionStorage.setItem(methodsKey, JSON.stringify(methods)); else sessionStorage.removeItem(methodsKey); } catch { /* private browsing */ } }, [methods, methodsKey]);
+  // Payroll run here waits for the business to agree to how it works (lib/payroll-terms), once; and a payday worked out
+  // with another year's tax tables, for the tick that they'll be checked with the accountant (for these dates only).
+  // (Agreed just now, for this business: until its record says so. Another business picked here starts over.)
+  const [termsAgreedFor, setTermsAgreedFor] = useState<string | null>(null);
+  const termsOk = !selfRunOn || payrollTermsOk(selectedTenant) || (!!tenantId && termsAgreedFor === tenantId);
+  const [staleOk, setStaleOk] = useState(false);
+  useEffect(() => { setStaleOk(false); }, [periodKey, tenantId]);
   const methodsNow = useMemo(() => Object.fromEntries(staffObligations.map((o) => { const m: any = (staff || []).find((x: any) => x.id === o.id);
       return [o.id, methods[o.id] || { method: (m?.taxForms?.payMethod || 'transfer') as PayMethod, checkNo: '' }]; })), [staffObligations, staff, methods]);
   const [formsFor, setFormsFor] = useState<string | null>(null);   // whose tax forms are open
@@ -862,11 +870,12 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
           owed, owedTotal: o.total, stateName: hasTaxLocation ? stateProfile.name : '', stateForm: spec && !spec.noTax && spec.form?.name && !spec.form.federal ? spec.form.name : null, stateTax: !!spec && !spec.noTax,
           methods: methodsNow, onMethod: (id, method, checkNo) => setMethods((m) => ({ ...m, [id]: { method, checkNo } })),
           onForms: canEditForms ? (id) => setFormsFor(id) : undefined, payrollHref: '/settings?tab=payroll',
-          stale: Object.values(selfTaxes.by).some((w) => w.flags.includes('stale_tables')),
+          tablesYear: (() => { const ti = tablesInfo(taxYear); return ti.federal === ti.state ? ti.federal : undefined; })(),
+          stale: Object.values(selfTaxes.by).some((w) => w.flags.includes('stale_tables')) ? { words: staleWords(taxYear), ok: staleOk, onOk: setStaleOk } : null,
           suiMissing: Object.values(selfTaxes.by).some((w) => w.flags.includes('sui_rate_missing')),
           teamSizeMissing: Object.values(selfTaxes.by).some((w) => w.flags.includes('team_size_missing')),
       };
-  }, [selfTaxes, selectedTenant, payDate, taxState, stateName, hasTaxLocation, stateProfile, methodsNow, canEditForms]);
+  }, [selfTaxes, selectedTenant, payDate, taxState, stateName, hasTaxLocation, stateProfile, methodsNow, canEditForms, taxYear, staleOk]);
   // Payroll taxes owed and paid across paydays, and the quarter's forms (lib/payroll-owed).
   const todayBiz = selectedTenant ? todayIn(selectedTenant) : payToYmd;
   const owedList = useMemo(() => (selfRunOn && selectedTenant ? owedItems(yearRuns || [], selectedTenant, todayBiz, stateName) : []), [selfRunOn, selectedTenant, yearRuns, todayBiz, stateName]);
@@ -964,6 +973,7 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
       if (!tenantId) return 'Not recorded. Try again.';
       const res = await fetch('/api/payroll/record', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, ...body }) }).catch(() => null);
       const r: any = res ? await res.json().catch(() => ({})) : {};
+      if (r?.code === 'payroll_terms') setTermsAgreedFor(null);
       if (!res || !res.ok || !r?.ok) return r?.error || 'Not recorded. Nothing was added to your books. Try again.';
       const who = body.people[0]; const day = new Date(`${body.offCycle.date}T12:00:00`).toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
       toast({ title: body.offCycle.supplemental || who.contractor ? 'Bonus recorded' : 'Pay recorded', description: r.taxes
@@ -998,13 +1008,14 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
     setIsSubmitting(true);
     try {
         const res = await fetch('/api/payroll/record', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ tenantId, periodKey, from: payFromYmd, to: payToYmd, people, setAsides }) });
+            body: JSON.stringify({ tenantId, periodKey, from: payFromYmd, to: payToYmd, people, setAsides, ...(selfRun?.stale?.ok ? { staleOk: true } : {}) }) });
         const r: any = await res.json().catch(() => ({}));
         if (res.status === 409) {
             toast({ title: 'Payday for these dates is already in your books', description: 'Nothing was added twice.' });
             if (r?.recorded) setRecorded(r.recorded); else recordedFor().then(x => setRecorded(x)).catch(() => {});
             return;
         }
+        if (r?.code === 'payroll_terms') setTermsAgreedFor(null);
         if (!res.ok || !r?.ok) { toast({ variant: 'destructive', title: 'Payday wasn’t recorded', description: r?.error || 'Nothing was added to your books. Try again.' }); return; }
         setRecorded({ on: String(r.recordedAt || new Date().toISOString()), from: payFromYmd, to: payToYmd });
         const viaBank = Number(r.viaBankCents) || 0;
@@ -1139,7 +1150,13 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
         statementFor={statementFor} onStatement={setStatementFor}
         statement={(o) => tenantId ? <PayStatement tenantId={tenantId} staffId={o.id} from={dateRange.from.toISOString()} to={dateRange.to.toISOString()} title={`${o.name}, pay statement`} /> : null}
         onSeeBills={onNavigate ? () => { onNavigate('bills'); if (typeof window !== 'undefined') window.scrollTo({ top: 0 }); } : undefined}
-        onBonus={selfRunOn && !adjustmentsError ? () => setBonusOpen(true) : undefined}
+        onBonus={selfRunOn && termsOk && !adjustmentsError ? () => setBonusOpen(true) : undefined}
+        terms={selfRunOn && selectedTenant && !termsOk ? { points: PAYROLL_TERMS, href: PAYROLL_TERMS_HREF, business: String((selectedTenant as any)?.name || 'your business'), also: PAYROLL_TERMS_ALSO,
+          onAgree: canAgreeFor({ role: payRole }) && tenantId ? async () => {
+            const r: any = await payrollForms({ action: 'agreeTerms', version: PAYROLL_TERMS_VERSION });
+            if (!r?.ok) return r?.error || 'Not saved. Try again.';
+            setTermsAgreedFor(tenantId); toast({ title: 'Agreed', description: 'Payroll can be run here now. Have your accountant check your first payday.' }); return null;
+          } : undefined } : null}
         onPrintChecks={selfRunOn ? () => setChecksOpen(true) : undefined} checks={checkPeople.length}
       />
       {formsPerson && <TaxFormsDialog open={!!formsFor} onOpenChange={(o) => { if (!o) setFormsFor(null); }} name={String(formsPerson.name || 'Team member')} forms={formsPerson.taxForms || null}

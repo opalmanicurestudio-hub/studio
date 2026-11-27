@@ -5,7 +5,9 @@
 //   Pay between paydays (a bonus): { …, periodKey: 'bonus_{date}_{id}', offCycle: { date, supplemental } }, only when
 //   payroll is run in ClarityFlow (a payroll company runs its own).
 //   → { ok, recordedAt, viaBankCents, taxes? } | 409 { recorded: { on, from, to } } when payday for those dates is in already.
-// When payroll is run in ClarityFlow, each employee's taxes are worked out here from their tax forms (staffPay).
+// When payroll is run in ClarityFlow, each employee's taxes are worked out here from their tax forms (staffPay), once the
+// business has agreed to how that works (lib/payroll-terms; else 428 { code: 'payroll_terms' }), and with tax tables
+// from another year than the payday's only with { staleOk: true } (else 428 { code: 'stale_tables' }: lib/payday-record).
 // For the owner and anyone whose role runs payroll.
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -13,6 +15,7 @@ import { requireCan } from '@/lib/route-guard';
 import { logAuditAdmin } from '@/lib/audit';
 import { cleanPayday, recordPayday } from '@/lib/payday-record';
 import { runByOf } from '@/lib/payroll-taxes';
+import { payrollTermsOk } from '@/lib/payroll-terms';
 import type { TaxForms } from '@/lib/withholding';
 
 const usd = (n: number) => `$${(Math.round(n * 100) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -24,6 +27,7 @@ export async function POST(req: NextRequest) {
   const input = cleanPayday(b); if (typeof input === 'string') return NextResponse.json({ ok: false, error: input }, { status: 400 });
   const db = getAdminDb(); const tenant = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
   if (input.offCycle && runByOf(tenant) !== 'clarityflow') return NextResponse.json({ ok: false, error: 'Pay a bonus through your payroll company: it works out the taxes.' }, { status: 400 });
+  if (runByOf(tenant) === 'clarityflow' && !payrollTermsOk(tenant)) return NextResponse.json({ ok: false, code: 'payroll_terms', error: 'Before payroll is run here, the owner or an admin agrees to how it works, at the top of Payday. Nothing was recorded.' }, { status: 428 });
   try {
     // (Each employee's W-4 and state form, from their pay: only when payroll is run here.)
     const forms: Record<string, TaxForms | null> = {};

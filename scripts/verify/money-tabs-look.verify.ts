@@ -75,7 +75,7 @@ const src = (f: string) => fs.readFileSync(f, 'utf8');
     && /where\('paydayTo', '>=', from\)/.test(rec) && /String\(t\.paydayFrom \|\| ''\) <= to/.test(rec) && /const mark = off \? \{ paydayPeriod: periodKey, offCycle: true \} : \{ paydayPeriod: periodKey, paydayFrom: from, paydayTo: to \};/.test(rec)
     && /where\('paydayTo', '>=', payFromYmd\)/.test(tab) && /if \(res\.status === 409\)/.test(tab)
     && /Payday for these dates is in your books, recorded/.test(pay) && /These dates overlap it, so it can’t be recorded again/.test(pay) && /recordedOn=\{recorded \? safeDate\(recorded\.on\) : null\}/.test(tab));
-  check('the team’s pay can be recorded with nothing to split', /disabled=\{\(p\.setAside <= 0 && !p\.team\.length\) \|\| p\.recording \|\| !!p\.blocked\}/.test(pay) && /Put in an amount to split to add the set-asides too/.test(pay));
+  check('the team’s pay can be recorded with nothing to split', /disabled=\{\(p\.setAside <= 0 && !p\.team\.length\) \|\| p\.recording \|\| !!p\.blocked \|\| !!waits\}/.test(pay) && /Put in an amount to split to add the set-asides too/.test(pay));
 
   console.log('bills');
   const d = (m: number, x: number) => new Date(2026, m, x);

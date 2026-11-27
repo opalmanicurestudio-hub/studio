@@ -14,14 +14,17 @@
 //   the IRS later is a Payroll Tax Deposit, never a second expense.
 import { datedFor } from './books-close';
 import { periodOf, todayIn } from './pay-periods';
-import { keepOf, type PayMethod, type TaxForms } from './withholding';
+import { keepOf, staleWords, type PayMethod, type TaxForms } from './withholding';
 import { runByOf, paydayTaxes, ytdFrom, payDateFor, dueDates, yearRunsFrom, setupOf, stateFilingOf, teamOnLastPayday } from './payroll-taxes';
 
 export type PaydayPerson = { staffId: string; name: string; amount: number; cash: number; contractor: boolean; method?: PayMethod; checkNo?: string; tips?: number };
 export type PaydayInput = { periodKey: string; from: string; to: string; people: PaydayPerson[]; setAsides: { key: 'tax' | 'owner' | 'profit'; label: string; amount: number }[];
   /** Pay between paydays (a bonus, a last paycheck, pay that was missed): paid on `date`, any number of times, never
    *  claimed against the regular paydays' dates. `supplemental`: taxed at the bonus rates, else as a paycheck of its own. */
-  offCycle?: { date: string; supplemental: boolean } };
+  offCycle?: { date: string; supplemental: boolean };
+  /** Recorded with tax tables from another year than the payday's (lib/withholding `stale`): the business ticked that it
+   *  will check the taxes with its accountant. Without it, such a payday isn't recorded. */
+  staleOk?: boolean };
 
 const DAY = 86400000;
 const ymd = (s: any) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ''));
@@ -63,7 +66,7 @@ export function cleanPayday(b: any): PaydayInput | string {
     if (amount > 0) asides.push({ key: key as any, label: String(a?.label || '').replace(/[^\w ()&,.'-]/g, '').trim().slice(0, 40) || ASIDE[key], amount });
   }
   if (!people.some((p) => p.amount > 0 || p.cash > 0) && !asides.length) return 'There’s nothing to record.';
-  return { periodKey: `${from}_${to}`, from, to, people, setAsides: asides };
+  return { periodKey: `${from}_${to}`, from, to, people, setAsides: asides, ...(b?.staleOk === true ? { staleOk: true } : {}) };
 }
 
 /** The days a payroll company's withdrawal for these dates can fall on: from a few days before the period ends to its
@@ -79,7 +82,7 @@ export const bankPayrollLine = (t: any) => (t?.type || 'expense') === 'expense' 
   && !t?.paydayPeriod && (t?.context || 'Business') === 'Business' && t?.voided !== true;
 
 export type RecordResult = { ok: true; recordedAt: string; viaBankCents: number; lines: number; taxes?: { employee: number; employer: number; takeHome: number; owed: number } }
-  | { ok: false; status: number; error: string; recorded?: { on: string; from: string; to: string } };
+  | { ok: false; status: number; error: string; code?: 'stale_tables'; recorded?: { on: string; from: string; to: string } };
 
 /** `forms`: each employee's tax forms (staffPay taxForms), read by the route; used when payroll is run in ClarityFlow. */
 export async function recordPayday(db: any, tenantId: string, tenant: any, input: PaydayInput, actor: { id?: string; name?: string } = {}, nowIso = new Date().toISOString(),
@@ -121,6 +124,9 @@ export async function recordPayday(db: any, tenantId: string, tenant: any, input
       tax = paydayTaxes({ tenant, payDate, forms, ytd: ytdFrom(runs, tenant, year, periodKey, off ? off.date : undefined),
         people: employees.map((p) => ({ staffId: p.staffId, gross: r2(Math.max(0, p.amount + p.cash)), inHand: cash(p) })),
         ...(off ? { offCycle: true, supplemental: off.supplemental, teamSize: teamOnLastPayday(runs, tenant, year, off.date) } : {}) });
+      // (Tables from another year than the payday's: only once the business has ticked that it'll check them.)
+      if (!input.staleOk && Object.values(tax.by).some((w) => w.flags.includes('stale_tables')))
+        return { ok: false as const, status: 428, code: 'stale_tables' as const, error: `${staleWords(year, off ? 'This pay' : 'This payday')} Tick that you’ll check the taxes with your accountant, then record it.` };
     }
     // Pay between paydays the bank booked on its own as payroll, a few days either side of the day it's paid, for one
     // person's pay or take-home: that payment, so it isn't booked twice. (A regular payday's window can reach the same

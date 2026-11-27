@@ -12,7 +12,8 @@
 // -NYC and -Y, New Jersey's withholding tables, South Carolina WH-1603F, Virginia's employer instructions, Wisconsin
 // W-166, Iowa's 2026 formula, Connecticut's Circular CT, Oregon's 150-206-436); unemployment wage limits from the
 // states' 2026 notices (as gathered by Equifax), new-business rates as the states publish them; paid leave and
-// disability rates from the states' 2026 notices. Each January: check every state for the new year (`YEAR`).
+// disability rates from the states' 2026 notices. Each year, December to January: check every state for the new year, and
+// move STATE_TABLES_YEAR on once all are in (until then, a payday in the new year is marked stale: lib/withholding).
 //
 // Pure: no Firebase. A state's tax is worked out for the year (wages × paydays a year) and divided by the paydays, as the
 // states' own formulas do, then rounded the way the state says.

@@ -138,7 +138,7 @@ export function YearEndDialog(p: { open: boolean; onOpenChange: (o: boolean) => 
     const w = window.open('', '_blank'); if (!w) return;
     const body = list.map((x, i) => `<div class="${i ? 'break' : ''}">${w2Html(x, year, p.businessName || '')}</div>`).join('');
     w.document.open(); w.document.write(printPage({ title: `W-2${list.length === 1 ? `, ${list[0].name}` : 's'}, ${year}`, heading: `W-2${list.length === 1 ? `, ${esc(list[0].name)}` : 's'}`, subtitle: String(year), shopName: p.businessName, body, css: W2_CSS,
-      footNote: 'Copies B, C and 2 for the employee, on plain paper. Copy A goes to Social Security through Business Services Online. The Social Security number and EIN are written in by hand: ClarityFlow never keeps them.', autoPrint: true }));
+      footNote: 'Copies B, C and 2 for the employee, on plain paper. Copy A goes to Social Security through Business Services Online. The Social Security number and EIN are written in by hand: ClarityFlow never keeps them. Worked out from the paydays recorded in ClarityFlow: the employer checks them before giving or filing them.', autoPrint: true }));
     w.document.close(); w.focus();
   };
   const printForm = () => {
@@ -146,7 +146,7 @@ export function YearEndDialog(p: { open: boolean; onOpenChange: (o: boolean) => 
     const body = tab === 'nec' ? `<table><thead><tr><th>Contractor</th><th class="r">Box 1, nonemployee compensation</th><th>1099-NEC</th></tr></thead><tbody>${necs.map((x) => `<tr><td>${esc(x.name)}</td><td class="r">${esc(usd(x.amount))}</td><td>${x.due ? 'Due' : 'None due'}</td></tr>`).join('')}</tbody></table>`
       : `<table><thead><tr><th>Line</th><th>What it is</th><th class="r">Amount</th></tr></thead><tbody>${lines.map((l) => `<tr><td>${esc(l.line)}</td><td>${esc(l.label)}${l.detail ? `<div class="muted">${esc(l.detail)}</div>` : ''}</td><td class="r">${esc(amt(l))}</td></tr>`).join('')}</tbody></table>`;
     w.document.open(); w.document.write(printPage({ title: `${title}, ${year}`, heading: esc(title), subtitle: String(year), shopName: p.businessName, body,
-      footNote: 'Worked out from the paydays recorded in ClarityFlow. Your EIN, account numbers and tax ID numbers go on the form itself.', autoPrint: true }));
+      footNote: 'Worked out from the paydays recorded in ClarityFlow, as estimates to check before you file: you’re responsible for what’s filed. Your EIN, account numbers and tax ID numbers go on the form itself.', autoPrint: true }));
     w.document.close(); w.focus();
   };
 
@@ -215,6 +215,7 @@ export function YearEndDialog(p: { open: boolean; onOpenChange: (o: boolean) => 
                 : tab === '940' ? `File it with the IRS by ${longDay(f940.due)}, or by February 10 if every federal unemployment payment was made on time. Your EIN goes on it.${f940.total > 500 ? ' Over $500 for the year: line 16 is what was owed each quarter.' : ' $500 or less for the year: line 16 isn’t needed.'}${pr ? ' If health coverage came out of your old payroll’s pay before taxes, add it to line 4.' : ''}`
                 : `File it with ${spec?.filing?.agency || 'the state'} by ${st ? longDay(st.due) : ''}, with the W-2s where it asks for them. Your withholding account number goes on it.`}</p>
             </>}
+            <p className="mt-3 text-[13px]" style={{ color: MUTED }}>Worked out from your paydays here, so they’re only as right as what was recorded. Check them against your bank and payroll records, or have your accountant check them, before you give or file them: as the employer, you’re responsible for what’s filed.</p>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2 px-5 py-4 sm:px-6" style={{ borderTop: `1px solid ${LINE}`, background: SOFT }}>
             {tab === 'w2' && cur && <button type="button" onClick={() => print([cur])} className={btn} style={plain}>Print {first}’s W-2</button>}

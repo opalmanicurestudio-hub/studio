@@ -19,7 +19,7 @@
 // individual business. The company name, address, support email and governing
 // state come from settings (lib/legal); until each is set, the wording stays
 // accurate without it, and an empty address or phone is simply left out.
-import { LEGAL, TERMS_EFFECTIVE } from '@/lib/legal';
+import { LEGAL, TERMS_EFFECTIVE, TERMS_CHANGES } from '@/lib/legal';
 
 const PLATFORM = LEGAL.platform;
 const LEGAL_ENTITY = LEGAL.entity;
@@ -49,6 +49,10 @@ export default function PlatformTermsPage() {
           <p className="text-[14px] font-semibold text-slate-500">{PLATFORM}</p>
           <h1 className="text-3xl font-black tracking-tight mt-1">Platform Terms of Service</h1>
           <p className="text-xs font-bold text-slate-400 mt-1">Effective date: {EFFECTIVE_DATE}</p>
+          <p className="text-xs font-medium text-slate-500 mt-1 leading-relaxed">
+            For a business that accepted an earlier version of these terms, the changes made {EFFECTIVE_DATE} ({TERMS_CHANGES.what})
+            take effect {TERMS_CHANGES.existingFrom}, or sooner if it agrees to them in the Service.
+          </p>
           <p className="text-xs font-medium text-slate-500 mt-3 leading-relaxed">
             This is the agreement between you — the studio, salon, spa, or professional subscribing to {PLATFORM} —
             and {PLATFORM}{LEGAL_ENTITY ? <> (“{LEGAL_ENTITY}”, “we”, “us”)</> : <> (“we”, “us”)</>}. How we handle
@@ -183,8 +187,8 @@ export default function PlatformTermsPage() {
         <section className="space-y-2">
           <h2 className="text-[16px] font-bold">9. Payments, payroll &amp; third-party integrations</h2>
           <p className="text-sm leading-relaxed">
-            Card payments, bank connections, and payroll features are provided through third parties — currently
-            Stripe, Plaid, and Gusto — and your use of them is also subject to their own terms and to their
+            Card payments, bank connections, and payroll through a payroll provider are provided by third parties —
+            currently Stripe, Plaid, and Gusto — and your use of them is also subject to their own terms and to their
             approval. We are not a bank, a money transmitter, a payment processor, a payroll provider, or a tax
             adviser. Amounts you collect from your clients, the fees you charge them, refunds, disputes and
             chargebacks, rent you collect from renters, worker classification, wage calculations, and tax filings
@@ -195,8 +199,53 @@ export default function PlatformTermsPage() {
           </p>
         </section>
 
+        <section id="payroll-taxes" className="space-y-3 rounded-2xl border-2 border-slate-200 bg-white p-4">
+          <h2 className="text-[16px] font-bold">10. Payroll and tax figures — you are the employer</h2>
+          <p className="text-sm leading-relaxed">
+            If you run payroll in the Service instead of through a payroll provider, the Service works out pay,
+            withholding, employer taxes, amounts to deposit, printed checks, pay stubs, and year-end forms from the
+            federal and state tables built into it and from the information you and your people enter. These figures
+            are estimates to help you. They are not a payroll service, tax preparation, or tax, legal, or accounting
+            advice.
+          </p>
+          <ul className="list-disc space-y-1.5 pl-5 text-sm leading-relaxed">
+            <li>
+              <strong>You are responsible for your payroll.</strong> As the employer, you alone are responsible for
+              paying your people correctly and on time, for withholding, depositing, and paying every tax, for filing
+              every return and form with each agency and giving forms to your people, and for any taxes, penalties,
+              interest, or fees that result, including when you relied on figures from the Service.
+            </li>
+            <li>
+              <strong>We don’t move money or file for you.</strong> Unless a feature clearly says it does, the Service
+              does not pay your people, deposit or pay taxes, or file anything with any agency, and we do not act as
+              your payroll provider, tax preparer, reporting agent, or representative.
+            </li>
+            <li>
+              <strong>Tables change, and updates can lag.</strong> Federal and state tables, wage limits, and rates
+              change every year and sometimes during the year. We update the built-in tables as new ones are
+              published, but an update can arrive after the change takes effect, and the Service tells you when a
+              payday is worked out with another year’s tables. Some local taxes, special programs, and unusual situations are not
+              covered, and the Service may not know about every rule that applies to you.
+            </li>
+            <li>
+              <strong>Figures are only as good as what’s entered.</strong> Wrong or missing hours, pay rates, tips,
+              withholding forms, addresses, or earlier payroll will produce wrong results.
+            </li>
+            <li>
+              <strong>Check before you rely on it.</strong> Have a qualified accountant or tax professional review your
+              payroll, deposits, and filings, or check them against the official instructions from the IRS and each
+              state, especially your first payroll, the first payroll of each year, and anything unusual. Confirm that
+              printed checks and forms meet your bank’s and each agency’s requirements before you use them.
+            </li>
+          </ul>
+          <p className="text-sm leading-relaxed">
+            Before you run payroll in the Service, you’re asked to agree to these points there. Sections 15, 16, and 17
+            (disclaimers, limitation of liability, and indemnity) apply in full to payroll and tax figures.
+          </p>
+        </section>
+
         <section className="space-y-2">
-          <h2 className="text-[16px] font-bold">10. Your relationships with your people</h2>
+          <h2 className="text-[16px] font-bold">11. Your relationships with your people</h2>
           <p className="text-sm leading-relaxed">
             The Service helps you manage employees, independent booth renters, contractors, and clients, but it does
             not make us a party to any of those relationships. Rental agreements, employment and contractor
@@ -206,7 +255,7 @@ export default function PlatformTermsPage() {
         </section>
 
         <section className="space-y-2">
-          <h2 className="text-[16px] font-bold">11. Our intellectual property, and your feedback</h2>
+          <h2 className="text-[16px] font-bold">12. Our intellectual property, and your feedback</h2>
           <p className="text-sm leading-relaxed">
             The Service — its software, design, name, and content — belongs to us and our licensors, and nothing here
             transfers ownership of it. You receive a limited, non-exclusive, non-transferable right to use it while
@@ -216,7 +265,7 @@ export default function PlatformTermsPage() {
         </section>
 
         <section className="space-y-2">
-          <h2 className="text-[16px] font-bold">12. Availability, support &amp; new features</h2>
+          <h2 className="text-[16px] font-bold">13. Availability, support &amp; new features</h2>
           <p className="text-sm leading-relaxed">
             We work to keep the Service available and to fix problems promptly, but we do not promise uninterrupted
             availability, and maintenance, provider outages, and events beyond our control will occasionally
@@ -227,34 +276,37 @@ export default function PlatformTermsPage() {
         </section>
 
         <section className="space-y-2">
-          <h2 className="text-[16px] font-bold">13. Term, termination &amp; what happens to your data</h2>
+          <h2 className="text-[16px] font-bold">14. Term, termination &amp; what happens to your data</h2>
           <p className="text-sm leading-relaxed">
             These terms apply while you have an account. You may cancel as described above. We may suspend or
             terminate your account for material breach, non-payment, or unlawful use, and will give notice and a
             chance to cure where the circumstances reasonably allow it. After termination you will have a reasonable
             window to export your Customer Data, after which we may delete it as described in the Platform Privacy
-            Policy. Sections that by their nature should survive — ownership, fees already owed, disclaimers,
-            liability limits, indemnity, and governing law — survive termination.
+            Policy. Sections that by their nature should survive — ownership, fees already owed, payroll and tax
+            responsibilities, disclaimers, liability limits, indemnity, and governing law — survive termination.
           </p>
         </section>
 
         <section className="space-y-2">
-          <h2 className="text-[16px] font-bold">14. Disclaimers</h2>
+          <h2 className="text-[16px] font-bold">15. Disclaimers</h2>
           <p className="text-sm leading-relaxed">
             The Service is provided as it is and as available, without warranties of any kind, whether express or
             implied, including implied warranties of merchantability, fitness for a particular purpose, and
             non-infringement. We do not warrant that the Service will be error-free, that data will always be
-            available or perfectly accurate, or that every message will be delivered. You are responsible for
-            keeping your own backups of data that matters to your business.
+            available or perfectly accurate, or that every message will be delivered. We do not warrant that pay,
+            withholding, tax, or deposit figures, tax tables, or forms the Service produces are complete, current, or
+            correct for your situation. You are responsible for keeping your own backups of data that matters to your
+            business.
           </p>
         </section>
 
         <section className="space-y-2">
-          <h2 className="text-[16px] font-bold">15. Limitation of liability</h2>
+          <h2 className="text-[16px] font-bold">16. Limitation of liability</h2>
           <p className="text-sm leading-relaxed">
             To the fullest extent the law allows, we are not liable for indirect, incidental, special, punitive, or
-            consequential damages, or for lost profits, lost revenue, lost bookings, lost goodwill, or lost or
-            corrupted data, even if we were told such damages were possible. Our total liability for all claims
+            consequential damages, for lost profits, lost revenue, lost bookings, lost goodwill, or lost or
+            corrupted data, or for taxes, penalties, interest, fines, or back pay you owe, including amounts that
+            arise from payroll or tax figures the Service produced, even if we were told such damages were possible. Our total liability for all claims
             arising out of or relating to the Service is limited to the amount you paid us for the Service in the
             twelve months before the event giving rise to the claim. Some jurisdictions do not allow certain
             limitations, so parts of this section may not apply to you, and nothing here limits liability that
@@ -263,17 +315,18 @@ export default function PlatformTermsPage() {
         </section>
 
         <section className="space-y-2">
-          <h2 className="text-[16px] font-bold">16. Indemnity</h2>
+          <h2 className="text-[16px] font-bold">17. Indemnity</h2>
           <p className="text-sm leading-relaxed">
             You will defend and indemnify us against claims, penalties, and costs arising from your Customer Data,
             your messages and the consents behind them, your relationships with your clients, staff, and renters,
-            your services, and your use of the Service in breach of these terms — including claims under
-            telemarketing, messaging, privacy, wage, or consumer protection law that arise from your conduct.
+            your services, the payroll you run and the taxes and forms you pay and file, and your use of the Service
+            in breach of these terms — including claims under telemarketing, messaging, privacy, wage, tax, or consumer
+            protection law that arise from your conduct.
           </p>
         </section>
 
         <section className="space-y-2">
-          <h2 className="text-[16px] font-bold">17. Governing law &amp; disputes</h2>
+          <h2 className="text-[16px] font-bold">18. Governing law &amp; disputes</h2>
           <p className="text-sm leading-relaxed">
             These terms are governed by {lawPhrase}, without regard to its conflict-of-law rules. Before filing
             anything, both of us agree to try to resolve the dispute informally by contacting the other and allowing
@@ -284,7 +337,7 @@ export default function PlatformTermsPage() {
         </section>
 
         <section className="space-y-2">
-          <h2 className="text-[16px] font-bold">18. Changes, notices &amp; general</h2>
+          <h2 className="text-[16px] font-bold">19. Changes, notices &amp; general</h2>
           <p className="text-sm leading-relaxed">
             We may update these terms; the current version always lives at this address with the effective date at
             the top, and we will notify Subscribers of material changes before they take effect — continuing to use
@@ -298,7 +351,7 @@ export default function PlatformTermsPage() {
         </section>
 
         <section className="space-y-2">
-          <h2 className="text-[16px] font-bold">19. Contact us</h2>
+          <h2 className="text-[16px] font-bold">20. Contact us</h2>
           <p className="text-sm leading-relaxed">
             <strong>{LEGAL_ENTITY || PLATFORM}</strong><br />
             {BUSINESS_ADDRESS ? <>{BUSINESS_ADDRESS}<br /></> : null}

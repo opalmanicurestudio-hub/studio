@@ -10,7 +10,7 @@ import * as React from 'react';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { paydayTaxes, ytdFrom, teamOnLastPayday, dueDates, afterQuarter } from '@/lib/payroll-taxes';
 import { stateSpec, supplementalRate } from '@/lib/state-payroll';
-import type { TaxForms, PayMethod, Withholding } from '@/lib/withholding';
+import { staleWords, tablesInfo, type TaxForms, type PayMethod, type Withholding } from '@/lib/withholding';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
 const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
@@ -27,7 +27,9 @@ const key6 = () => Math.random().toString(36).slice(2, 10).padEnd(6, '0');
 
 export type BonusPerson = { id: string; name: string; contractor: boolean; forms: TaxForms | null; left?: boolean };
 export type BonusBody = { periodKey: string; offCycle: { date: string; supplemental: boolean };
-  people: { staffId: string; name: string; amount: number; cash: 0; contractor: boolean; method: PayMethod; checkNo?: string }[] };
+  people: { staffId: string; name: string; amount: number; cash: 0; contractor: boolean; method: PayMethod; checkNo?: string }[];
+  /** Taxed with another year's tables, and ticked that they'll be checked with the accountant (lib/payday-record). */
+  staleOk?: boolean };
 
 const Line = ({ label, sub, value, total }: { label: string; sub?: string; value: string; total?: boolean }) => (
   <div className="flex min-h-[44px] items-center justify-between gap-3 py-2" style={{ borderTop: `1px solid ${total ? INK : LINE}`, fontWeight: total ? 600 : undefined }}>
@@ -52,8 +54,8 @@ export function BonusDialog(p: {
   const [who, setWho] = React.useState(''); const [amount, setAmount] = React.useState(''); const [date, setDate] = React.useState(p.today);
   const [how, setHow] = React.useState<'bonus' | 'regular'>('bonus'); const [method, setMethod] = React.useState<PayMethod>('transfer'); const [checkNo, setCheckNo] = React.useState('');
   const [busy, setBusy] = React.useState(false); const [error, setError] = React.useState<string | null>(null);
-  const [id6, setId6] = React.useState(key6);
-  React.useEffect(() => { if (p.open) { setWho(''); setAmount(''); setDate(p.today); setHow('bonus'); setMethod('transfer'); setCheckNo(''); setError(null); setId6(key6()); } }, [p.open]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [id6, setId6] = React.useState(key6); const [staleOk, setStaleOk] = React.useState(false);
+  React.useEffect(() => { if (p.open) { setWho(''); setAmount(''); setDate(p.today); setHow('bonus'); setMethod('transfer'); setCheckNo(''); setError(null); setId6(key6()); setStaleOk(false); } }, [p.open]); // eslint-disable-line react-hooks/exhaustive-deps
   const person = p.people.find((x) => x.id === who) || null;
   const pick = (id: string) => { setWho(id); const f = p.people.find((x) => x.id === id)?.forms; setMethod((f?.payMethod as PayMethod) || 'transfer'); };
   const first = (person?.name || 'They').split(' ')[0];
@@ -103,7 +105,9 @@ export function BonusDialog(p: {
   const shortBy = w ? Math.round((w.short.federal + w.short.socialSecurity + w.short.medicare + w.short.state) * 100) / 100 : 0;
   const noSui = !!w && w.employer.sui === 0 && w.employer.futa === 0 && !w.flags.includes('sui_rate_missing');
   const missing = w ? (w.flags.includes('no_w4') && how === 'regular' ? `No W-4 on file for ${first}: taxed as single, as the IRS requires.` : w.flags.includes('no_state_form') && stForm ? `No ${stForm} on file for ${first}: ${p.stateName} tax is as single with no allowances.` : w.stateHow === 'missing' ? `${p.stateName} income tax isn’t set up yet, so none is taken out.` : null) : null;
-  const ready = !!person && amt > 0 && dateOk;
+  // (Tables for another year than the day it's paid: recorded once it's ticked that they'll be checked.)
+  const stale = !!w && w.flags.includes('stale_tables'); const ti = dateOk ? tablesInfo(Number(date.slice(0, 4))) : null;
+  const ready = !!person && amt > 0 && dateOk && (!stale || staleOk);
 
   const record = async () => {
     if (!person || !ready) return;
@@ -112,7 +116,8 @@ export function BonusDialog(p: {
     if (win) { win.document.open(); win.document.write('<p style="font-family:sans-serif;padding:24px">Recording the pay…</p>'); win.document.close(); }
     setBusy(true); setError(null);
     const body: BonusBody = { periodKey, offCycle: { date, supplemental: how === 'bonus' },
-      people: [{ staffId: person.id, name: person.name, amount: amt, cash: 0, contractor: person.contractor, method, ...(method === 'check' && checkNo ? { checkNo } : {}) }] };
+      people: [{ staffId: person.id, name: person.name, amount: amt, cash: 0, contractor: person.contractor, method, ...(method === 'check' && checkNo ? { checkNo } : {}) }],
+      ...(stale && staleOk ? { staleOk: true } : {}) };
     const r = await p.onRecord(body).catch(() => 'Not recorded. Try again.');
     if (r) { win?.close(); setBusy(false); setError(r); return; }
     if (method === 'check' && p.onCheck) await p.onCheck(body, w, win).catch(() => { win?.close(); });
@@ -175,6 +180,12 @@ export function BonusDialog(p: {
                   {missing && <p className="mt-2 rounded-2xl px-4 py-3 text-[14px]" style={{ background: AMBER_TINT, color: AMBER }}>{missing}</p>}
                   <p className="mt-2 text-[14px]" style={{ color: MUTED }}>You also pay {usd(w.employerTotal)} as the employer{w.employer.sui > 0 || w.employer.futa > 0 ? ', for Social Security, Medicare and unemployment' : ', for Social Security and Medicare'}.{noSui ? ` No unemployment: ${first}’s pay is past this year’s limits for it.` : ''}</p>
                   <p className="mt-2 text-[14px]" style={{ color: MUTED }}>It counts in {first}’s year: their W-2, the Social Security limit{due?.irs ? `, and the IRS payment due ${longDay(due.irs).replace(/, \d{4}$/, '')}` : ''}.</p>
+                  {stale && <div className="mt-2 rounded-2xl px-4 py-3 text-[14px]" style={{ background: AMBER_TINT, color: AMBER }}>
+                    <p>{staleWords(Number(date.slice(0, 4)), 'This pay')} Until that year’s are added, the taxes on it may be off.</p>
+                    <label className="mt-1 flex min-h-[44px] cursor-pointer items-center gap-3 font-semibold">
+                      <input type="checkbox" checked={staleOk} onChange={(e) => setStaleOk(e.target.checked)} className="h-5 w-5 shrink-0 accent-[#b45309]" />
+                      I’ll check these taxes with my accountant</label></div>}
+                  <p className="mt-2 text-[13px]" style={{ color: MUTED }}>Estimates from the {ti && ti.federal === ti.state ? `${ti.federal} ` : ''}tax tables. You’re the employer, so you pay the taxes and file the forms: check with your accountant when you’re unsure.</p>
                 </> : null}
             </section>
           </div>

@@ -137,6 +137,7 @@ export function TaxFormsDialog(p: {
               </>}
               {(!me || more) && <Check label={me ? 'I claim exemption from withholding: I had no federal income tax last year and expect none this year' : 'They wrote “Exempt” on their W-4'} checked={d.exempt} onChange={set('exempt')} />}
               {d.exempt && <p className="rounded-2xl px-4 py-3 text-[14px]" style={{ background: AMBER_TINT, color: AMBER }}>{me ? 'No federal income tax is withheld. Social Security and Medicare still are. It lasts for this year: send a new one by February 15 next year.' : 'No federal income tax is withheld. Social Security and Medicare still are. An exempt W-4 lasts for the year it’s signed in: ask for a new one each February.'}</p>}
+              {me && <p className="text-[13px]" style={{ color: MUTED }}>What you choose is up to you. Not sure? The IRS’s <a href="https://www.irs.gov/individuals/tax-withholding-estimator" target="_blank" rel="noreferrer" className={`font-semibold underline underline-offset-2 ${RING}`} style={{ color: INK }}>Tax Withholding Estimator</a> helps you fill it in, or ask a tax professional. {p.self!.business || 'Your employer'} withholds from your pay by what you put here.</p>}
             </Section>
 
             {code && noTax && <Section title={`${p.stateName} taxes`} note={`${p.stateName} has no income tax on wages, so there’s no state form to fill in.`} />}

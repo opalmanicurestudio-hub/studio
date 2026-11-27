@@ -6,12 +6,15 @@
 // Security, Medicare, federal and state unemployment. Pure: the Payday screen and the server (lib/payday-record) both
 // run it, from the same inputs, so the screen and the books always agree.
 //
-// Tables are by year. A year with no tables yet uses the latest and says so (`stale`): add the new year's figures here
-// each January (Publication 15-T, the Social Security wage base; each state's in lib/state-payroll).
+// Tables are by year. A payday in a year with no tables here, or in a year the states' (lib/state-payroll,
+// STATE_TABLES_YEAR) aren't for, uses the latest and says so (`stale`): Payday warns, and recording it needs a tick that
+// the business will check it with its accountant (lib/payday-record). Each year: the Social Security wage base in
+// October, Publication 15-T in December, the states from December to January (and any change during the year), each
+// checked against the worked examples the IRS and the states publish (scripts/verify).
 //
 // Never needs or keeps a Social Security number: the business adds those when it files.
 
-import { STATES, STATE_LIST, stateSpec, stateTaxFor, programAmounts, supplementalStateTax, type StateFormIn } from './state-payroll';
+import { STATES, STATE_LIST, STATE_TABLES_YEAR, stateSpec, stateTaxFor, programAmounts, supplementalStateTax, type StateFormIn } from './state-payroll';
 
 export type FilingStatus = 'single' | 'married' | 'hoh';
 /** What the employee wrote on their W-4. 2020 and later: steps 1(c) to 4(c). 2019 or earlier: status and allowances. */
@@ -112,7 +115,15 @@ const Y2026: Year = {
 const YEARS: Record<number, Year> = { 2026: Y2026 };
 const LATEST = Math.max(...Object.keys(YEARS).map(Number));
 export const TABLES_YEAR = LATEST;
-export const tablesFor = (year: number) => ({ t: YEARS[year] || YEARS[LATEST], stale: !YEARS[year] });
+export const tablesFor = (year: number) => ({ t: YEARS[year] || YEARS[LATEST], stale: !YEARS[year] || year !== STATE_TABLES_YEAR });
+/** Which year's tables a payday in `year` is worked out with: the federal and the states', and whether they're for
+ *  another year than the payday's. */
+export const tablesInfo = (year: number) => ({ federal: YEARS[year] ? year : LATEST, state: STATE_TABLES_YEAR, stale: tablesFor(year).stale });
+/** "This payday is in 2027, and the tax tables here are 2026’s." */
+export const staleWords = (year: number, what = 'This payday') => {
+  const i = tablesInfo(year); const yrs = i.federal === i.state ? `${i.federal}’s` : `${i.federal}’s federal and ${i.state}’s state`;
+  return `${what} is in ${year}, and the tax tables here are ${yrs}.`;
+};
 
 /** States with no income tax on wages. */
 export const NO_WAGE_TAX = STATE_LIST.filter((x) => STATES[x.code].noTax).map((x) => x.code as string);

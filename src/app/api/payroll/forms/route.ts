@@ -8,11 +8,17 @@
 //     With a recorded payday's key, each person's number goes on that payday's run too (their pay stub shows it).
 //   - { action: 'giveW2s', year, given }: the year's W-2s shown to each person in their own app (the Pay tab), once
 //     they've been checked; payrollTax.w2Given[year].
+//   - { action: 'agreeTerms', version }: the owner or an admin agrees, for the business, to how payroll run here works
+//     (lib/payroll-terms): payrollTax.termsAgreed { version, at } on the business, and who, when and from where in
+//     tenants/{id}/private/payrollTerms (server only), with the platform terms' version it also accepts. Only the version
+//     shown now counts.
 // → { ok, numbers? }
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { requireCan } from '@/lib/route-guard';
 import { logAuditAdmin } from '@/lib/audit';
+import { PAYROLL_TERMS_VERSION, canAgreeFor } from '@/lib/payroll-terms';
+import { TERMS_VERSION } from '@/lib/legal';
 
 export async function POST(req: NextRequest) {
   let b: any; try { b = await req.json(); } catch { return NextResponse.json({ ok: false, error: 'Invalid request' }, { status: 400 }); }
@@ -53,6 +59,16 @@ export async function POST(req: NextRequest) {
       await tRef.set({ payrollTax: { w2Given: { [String(year)]: given ? new Date().toISOString() : null } } }, { merge: true });
       await logAuditAdmin(db, tenantId, { action: 'payroll.w2s_given', targetType: 'payroll', targetId: `w2_${year}`, summary: given ? `Put the ${year} W-2s in each person’s app` : `Took the ${year} W-2s out of each person’s app`, actor });
       return NextResponse.json({ ok: true });
+    }
+    if (action === 'agreeTerms') {
+      if (!canAgreeFor(g.actor)) return NextResponse.json({ ok: false, error: 'The owner or an admin agrees to this for the business.' }, { status: 403 });
+      if (String(b?.version || '') !== PAYROLL_TERMS_VERSION) return NextResponse.json({ ok: false, error: 'These points changed since the page opened. Reload it and read them again.' }, { status: 409 });
+      const at = new Date().toISOString(); const v = PAYROLL_TERMS_VERSION;
+      const ip = String(req.headers.get('x-forwarded-for') || '').split(',')[0].trim().slice(0, 60) || null;
+      await db.doc(`tenants/${tenantId}/private/payrollTerms`).set({ latest: v, agreed: { [v]: { at, platformTerms: TERMS_VERSION, userId: actor.id || null, name: String(actor.name).slice(0, 80), email: String(g.actor?.email || '').slice(0, 120) || null, ip, userAgent: String(req.headers.get('user-agent') || '').slice(0, 300) } } }, { merge: true });
+      await tRef.set({ payrollTax: { termsAgreed: { version: v, at } } }, { merge: true });
+      await logAuditAdmin(db, tenantId, { action: 'payroll.terms_agreed', targetType: 'payroll', targetId: `terms_${v}`, summary: 'Agreed to how payroll run in ClarityFlow works: the business is the employer, and pays and files', actor });
+      return NextResponse.json({ ok: true, at });
     }
     return NextResponse.json({ ok: false, error: 'Invalid request' }, { status: 400 });
   } catch (e: any) {

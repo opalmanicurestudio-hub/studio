@@ -13,6 +13,7 @@ import { runByOf, payrollStateOf } from '@/lib/payroll-taxes';
 import { todayIn } from '@/lib/pay-periods';
 import { PriorPayRow } from '@/components/settings/PriorPayRow';
 import { NO_WAGE_TAX, BUILT_IN_STATES, suiOf, TABLES_YEAR } from '@/lib/withholding';
+import { payrollTermsOk, PAYROLL_TERMS_HREF } from '@/lib/payroll-terms';
 import { stateSpec } from '@/lib/state-payroll';
 import { getStateProfile, STATE_OPTIONS } from '@/lib/state-tax-profiles';
 import { GuestWifiRows } from '@/components/settings/GuestWifiRows';
@@ -413,6 +414,12 @@ function SettingsPageImpl() {
     for (const m of ['clientNotify', 'retailSettings']) if (changed[m] && typeof changed[m] === 'object') {
       const a = cur[m] || {}, was = base[m] || {}; delete changed[m];
       for (const k of new Set([...Object.keys(a), ...Object.keys(was)])) if (JSON.stringify(a[k] ?? null) !== JSON.stringify(was[k] ?? null)) changed[`${m}.${k}`] = a[k] === undefined ? deleteField() : a[k];
+    }
+    // Payroll's parts the server keeps (the agreement to how payroll works here, the next check number, the check paper,
+    // the W-2s given: api/payroll/forms) are never written back from here: only what changed here, by path.
+    if (changed.payrollTax && typeof changed.payrollTax === 'object') {
+      const a = cur.payrollTax || {}, was = base.payrollTax || {}; delete changed.payrollTax;
+      for (const k of Object.keys(a)) if (!['termsAgreed', 'nextCheckNo', 'checkLayout', 'checkNudge', 'w2Given'].includes(k) && JSON.stringify(a[k] ?? null) !== JSON.stringify(was[k] ?? null)) changed[`payrollTax.${k}`] = a[k] ?? null;
     }
     if (dirty.current.kiosk || changed.kioskSettings) changed.kioskSettings = { ...(tenantData.kioskSettings || {}), kioskSchedule: tenantData.kioskSettings?.useSpecificHours ? localKioskSchedule : null };
     const svcIds = Array.from(dirty.current.svc); const sched = dirty.current.sched && !!activeProfile && !!localSchedule;
@@ -1067,7 +1074,8 @@ function SettingsPageImpl() {
                     </div>
                   </Row>
                 </Section>
-                <p className="px-1 text-[13px] cf-muted">Taxes are worked out from the IRS’s and {builtIn ? stName : 'your state'}’s {TABLES_YEAR} withholding tables. Each person’s W-4 and state form are on their page in Team, or from Payday. ClarityFlow never asks for or keeps Social Security numbers or tax ID numbers: you add those when you file.</p>
+                <p className="px-1 text-[13px] cf-muted">Taxes are worked out from the IRS’s and {builtIn ? stName : 'your state'}’s {TABLES_YEAR} withholding tables, as estimates for you to check: you’re the employer, so you pay and file them. Each person’s W-4 and state form are on their page in Team, or from Payday. ClarityFlow never asks for or keeps Social Security numbers or tax ID numbers: you add those when you file.</p>
+                <p className="px-1 text-[13px] cf-muted">{payrollTermsOk(selectedTenant) ? `Agreed to how payroll works here${(selectedTenant as any)?.payrollTax?.termsAgreed?.at ? ` on ${new Date((selectedTenant as any).payrollTax.termsAgreed.at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}` : ''}. ` : 'Before payday is recorded here, the owner or an admin agrees to how it works, at the top of Payday. '}<a href={PAYROLL_TERMS_HREF} target="_blank" rel="noreferrer" className="font-semibold underline underline-offset-2">Section 10 of the platform terms</a> has the full wording.</p>
                 </>)}
                 </>); })()}
             </TabsContent>
