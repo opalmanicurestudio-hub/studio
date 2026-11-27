@@ -19,7 +19,7 @@ import { renterEarned } from '@/lib/renter-earned';
 import { tripsOf, todayFor } from '@/lib/trip-log-server';
 import { limitByKey } from '@/lib/rate-limit';
 import { writeOffsByMonth, deskTipsByMonth, shopSalesByMonth } from '@/lib/renter-write-offs';
-import { planYearOf, cleanTaxSettings, cleanTaxPayment, tableFor, dueDay, remindChannelOf, REMIND_CHANNELS } from '@/lib/renter-taxes';
+import { planYearOf, cleanTaxSettings, cleanTaxPayment, tableFor, dueDay, remindChannelOf, REMIND_CHANNELS, carriedKept } from '@/lib/renter-taxes';
 import { payrollStateOf } from '@/lib/payroll-taxes';
 import { getStateProfile } from '@/lib/state-tax-profiles';
 
@@ -53,15 +53,19 @@ export async function POST(req: NextRequest) {
       const earnedByMonth: Record<string, number> = {};
       for (const x of [...earned.visits, ...earned.packages]) { const m = String(x.date || '').slice(0, 7); if (m.slice(0, 4) === String(year)) earnedByMonth[m] = (earnedByMonth[m] || 0) + (Number(x.cents) || 0); }
       for (const [m, c] of [...Object.entries(deskTipsByMonth(ledger, year)), ...Object.entries(shopSalesByMonth(ledger, year))]) earnedByMonth[m] = (earnedByMonth[m] || 0) + c;
-      const state = /^[A-Z]{2}$/.test(String(kept.state || '')) ? String(kept.state) : payrollStateOf(tenant) || '';
+      // (A new year starts with what was said before, until it's said again, and keeps it: lib/renter-taxes carriedKept.)
+      const c = await carriedKept((y) => db.doc(`${T}/private/renter_${rid}/taxes/${y}`).get().then((x: any) => x.data() || {}), year, kept, ['filing', 'state', 'otherCents']);
+      if (Object.keys(c.filled).length) await ref.set({ ...c.filled, carriedAt: new Date().toISOString() }, { merge: true }).catch(() => {});
+      const k = c.kept; const prev: any = c.last;
+      const state = /^[A-Z]{2}$/.test(String(k.state || '')) ? String(k.state) : payrollStateOf(tenant) || '';
       const rem: any = (await db.doc(`${T}/private/renter_${rid}/taxes/reminders`).get()).data() || {};
       return reply({ ok: true, year, today, lastYearOpen: today <= dueDay(year, 4), remind: remindChannelOf(rem.channel), hasEmail: String(r.email || '').includes('@'), table: { year: tableFor(year).year, stale: tableFor(year).stale },
         earnedByMonth, writeOffsByMonth: writeOffsByMonth(exp, pays, ledger, trips, year),
-        settings: { filing: kept.filing || 'single', state, statePct: state ? getStateProfile(state).effectiveStateRate : 0, stateName: state ? getStateProfile(state).name : '', stateType: state ? getStateProfile(state).taxType : null,
-          otherCents: Number(kept.otherCents) || 0, outsideCents: Number(kept.outsideCents) || 0, lastYearTaxCents: kept.lastYearTaxCents ?? null, lastYearHigh: kept.lastYearHigh === true },
+        settings: { filing: k.filing || 'single', state, statePct: state ? getStateProfile(state).effectiveStateRate : 0, stateName: state ? getStateProfile(state).name : '', stateType: state ? getStateProfile(state).taxType : null,
+          otherCents: Number(k.otherCents) || 0, outsideCents: Number(kept.outsideCents) || 0, lastYearTaxCents: kept.lastYearTaxCents ?? null, lastYearHigh: kept.lastYearHigh === true },
         payments: Array.isArray(kept.payments) ? kept.payments : [],
         // (Until April 15, last year's payments too, so one saved toward last year can be seen and taken off.)
-        lastYearPayments: today <= dueDay(year, 4) ? (((await db.doc(`${T}/private/renter_${rid}/taxes/${year - 1}`).get()).data() as any)?.payments || []) : [] });
+        lastYearPayments: today <= dueDay(year, 4) && Array.isArray(prev.payments) ? prev.payments : [] });
     }
 
     const limited = await limitByKey('renter-taxes', `${tenantId}|${rid}`, 200, 'That’s a lot of changes this hour. Try again later.'); if (limited) return limited;

@@ -2,7 +2,8 @@
 // lib/renter-taxes). For the owner alone: it's about their own return, how they file and their household's income, so
 // not for others who keep the books. POST { tenantId, action }:
 //   list     { figures?: false, fresh?: true }     → the year's figures and what the owner has said (the plan is worked
-//                                                    out on screen, lib/renter-taxes taxPlan); fresh: the whole year read again
+//                                                    out on screen, lib/renter-taxes taxPlan); fresh: the whole year read again;
+//                                                    through April 30, last year's payments too (lastYearRecorded)
 //   status   {}                                    → the next date when it's a week away (the Money page's reminder)
 //   settings { structure?, filing?, state?, other?, outside?, lastYearTax?, lastYearHigh? } (dollars) → what they've said
 //   pay      { date, amount, to: 'irs'|'state', forYear? } → a payment they made (until April 15, last year's too)
@@ -13,7 +14,7 @@ import { getAdminDb } from '@/lib/firebase-admin';
 import { requireCan } from '@/lib/route-guard';
 import { todayFor } from '@/lib/trip-log-server';
 import { planYearOf, cleanTaxSettings, cleanTaxPayment, tableFor, dueDay, remindChannelOf, REMIND_CHANNELS } from '@/lib/renter-taxes';
-import { ownerTaxFigures, ownerTaxRef, ownerRemindRef, ownerSignInEmail, ownerTaxDueSoon } from '@/lib/owner-taxes-server';
+import { ownerTaxFigures, ownerTaxRef, ownerRemindRef, ownerSignInEmail, ownerTaxDueSoon, ownerYearKept } from '@/lib/owner-taxes-server';
 import { payrollStateOf } from '@/lib/payroll-taxes';
 import { getStateProfile } from '@/lib/state-tax-profiles';
 
@@ -31,12 +32,16 @@ export async function POST(req: NextRequest) {
     const db = getAdminDb(); const tenant: any = g.tenant || (await db.doc(`tenants/${tenantId}`).get()).data() || {};
     const today = todayFor(tenant); const year = planYearOf(today); const ref = ownerTaxRef(db, tenantId, year);
     const lastOpen = today <= dueDay(year, 4);
+    // (Last year's payments are still read through April 30, for closing the year in Reports; they're changed only until
+    // April 15.)
+    const lastRead = today <= `${year}-04-30`;
 
     if (action === 'list') {
       // (The books' figures only when asked: after a save, what was said and paid is enough.)
       const figures = b.figures === false ? null : await ownerTaxFigures(db, tenantId, year, today, b.fresh === true);
-      const [kept, rem, last, email] = await Promise.all([ref.get().then((x: any) => x.data() || {}), ownerRemindRef(db, tenantId).get().then((x: any) => x.data() || {}),
-        lastOpen ? ownerTaxRef(db, tenantId, year - 1).get().then((x: any) => x.data() || {}) : Promise.resolve({}), ownerSignInEmail(String(tenant.ownerId || g.actor?.uid || '')).catch(() => '')]);
+      // (A new year starts with what was said before, until it's said again, and keeps it: owner-taxes-server ownerYearKept.)
+      const [{ kept, before, last }, rem, email] = await Promise.all([ownerYearKept(db, tenantId, year), ownerRemindRef(db, tenantId).get().then((x: any) => x.data() || {}),
+        ownerSignInEmail(String(tenant.ownerId || g.actor?.uid || '')).catch(() => '')]);
       const state = /^[A-Z]{2}$/.test(String(kept.state || '')) ? String(kept.state) : payrollStateOf(tenant) || '';
       const p = state ? getStateProfile(state) : null;
       return reply({ ok: true, year, today, lastYearOpen: lastOpen, remind: remindChannelOf(rem.channel), hasEmail: String(email || tenant.ownerEmail || '').includes('@'),
@@ -44,7 +49,9 @@ export async function POST(req: NextRequest) {
         ...(figures ? { earnedByMonth: figures.earnedByMonth, writeOffsByMonth: figures.writeOffsByMonth, milesLeftOut: figures.milesLeftOut, countedAt: figures.countedAt } : {}),
         settings: { structure: STRUCTURES.includes(kept.structure) ? kept.structure : null, filing: kept.filing || 'single', state, statePct: p ? p.effectiveStateRate : 0, stateName: p ? p.name : '', stateType: p ? p.taxType : null,
           otherCents: Number(kept.otherCents) || 0, outsideCents: Number(kept.outsideCents) || 0, lastYearTaxCents: kept.lastYearTaxCents ?? null, lastYearHigh: kept.lastYearHigh === true },
-        payments: Array.isArray(kept.payments) ? kept.payments : [], lastYearPayments: Array.isArray((last as any).payments) ? (last as any).payments : [] });
+        payments: Array.isArray(kept.payments) ? kept.payments : [], lastYearPayments: lastOpen && Array.isArray((last as any).payments) ? (last as any).payments : [],
+        // (Closing last year in Reports: its payments, and how the business filed then.)
+        ...(lastRead ? { lastYearRecorded: Array.isArray((last as any).payments) ? (last as any).payments : [], lastYearStructure: STRUCTURES.includes(before.structure) ? before.structure : null } : {}) });
     }
 
     if (action === 'status') return reply({ ok: true, soon: await ownerTaxDueSoon(db, tenantId, today) });

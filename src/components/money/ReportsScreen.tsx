@@ -14,6 +14,7 @@ import {
   ledgerCsv, payrollCsv, pnlRows, rowsCsv, salesTaxCsv, statementCsv, taxSummaryRows, periodLabel,
 } from '@/lib/report-builders';
 import { csvName, downloadCsv, type Cell } from '@/lib/csv';
+import { YearEndPacket } from '@/components/money/YearEndPacket';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', AMBER = '#b45309', AMBER_TINT = '#fff7ed', GREEN = '#1f7a4d', GREEN_TINT = '#eaf6ef';
 const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
@@ -37,10 +38,12 @@ export function rangeOf(p: Preset, now = new Date(), from = '', to = ''): { from
   return span(new Date(`${from}T00:00:00`), new Date(`${to}T00:00:00`));
 }
 
-export function ReportsScreen({ tenantId, firestore, tenant, staff, payroll, canManage = true }: {
+export function ReportsScreen({ tenantId, firestore, tenant, staff, payroll, canManage = true, isOwner = false }: {
   tenantId: string; firestore: Firestore; tenant: any; staff: any[]; payroll: { profile: { code: string; employerPayrollTaxPct: number }; hasState: boolean };
   /** A manager or the owner: the sales tax return, the audit trail and the closed months' statements are theirs. */
   canManage?: boolean;
+  /** The owner: closing the year includes their own estimated tax payments and the often-missed write-offs they answer. */
+  isOwner?: boolean;
 }) {
   const [preset, setPreset] = React.useState<Preset>('lastMonth');
   const [from, setFrom] = React.useState(''); const [to, setTo] = React.useState('');
@@ -143,6 +146,7 @@ export function ReportsScreen({ tenantId, firestore, tenant, staff, payroll, can
     <div style={{ color: INK }}>
       <h2 className="text-[24px] font-semibold leading-tight">Reports</h2>
       <p className="mb-4 text-[14px]" style={{ color: MUTED }}>Print one, or download it as a spreadsheet for Excel or Google Sheets. Every figure is the same reading of your books as the Money page.</p>
+      {canManage && <YearEndPacket tenantId={tenantId} firestore={firestore} tenant={tenant} owner={isOwner} shop={shop} />}
       <div className="mb-4 flex flex-wrap items-center gap-2" role="group" aria-label="Dates">
         {PRESETS.map(([k, l]) => (
           <button key={k} type="button" onClick={() => setPreset(k)} aria-pressed={preset === k} className={`min-h-[44px] rounded-full px-4 text-[14px] ${RING}`}

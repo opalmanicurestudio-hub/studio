@@ -10,12 +10,21 @@ import { profitByMonth } from '@/lib/report-builders';
 import { dayOf } from '@/lib/write-offs';
 import { tripsOf, todayFor } from '@/lib/trip-log-server';
 import { amountCents } from '@/lib/trip-log';
-import { dueSoon, paidToward, remindChannelOf } from '@/lib/renter-taxes';
+import { carriedKept, dueSoon, paidToward, remindChannelOf } from '@/lib/renter-taxes';
 import { brandedEmailHtml } from '@/lib/email-template';
 import { sendNotification } from '@/lib/notify';
 
 const IN = 30;
 export const ownerTaxRef = (db: any, t: string, year: number) => db.doc(`tenants/${t}/private/ownerTaxes_${year}`);
+/** A year's own (its payments), with what carries in from the years before until it's said again (lib/renter-taxes
+ *  carriedKept), kept with the year once carried. Also what was said as last year stood (`before`), and last year's own. */
+export async function ownerYearKept(db: any, t: string, year: number): Promise<{ kept: any; before: any; last: any }> {
+  const ref = ownerTaxRef(db, t, year); const cur: any = (await ref.get()).data() || {};
+  const c = await carriedKept((y) => ownerTaxRef(db, t, y).get().then((x: any) => x.data() || {}), year, cur);
+  if (Object.keys(c.filled).length) await ref.set({ ...c.filled, carriedAt: new Date().toISOString() }, { merge: true }).catch(() => {});
+  return { kept: c.kept, before: c.before, last: c.last };
+}
+const yearKept = async (db: any, t: string, year: number) => (await ownerYearKept(db, t, year)).kept;
 export const ownerRemindRef = (db: any, t: string) => db.doc(`tenants/${t}/private/ownerTaxReminders`);
 
 /** The year's lines from a day on (`from`, yyyy-mm-dd), dated as text or (older lines) as a stored time, and the lines
@@ -78,7 +87,7 @@ export async function remindOwnerTaxes(db: any, t: string, tenant: any, today: s
   const soon = dueSoon(today, 7); if (!soon || soon.inDays < 1) return 0;
   const rRef = ownerRemindRef(db, t); const rem: any = (await rRef.get()).data() || {};
   if (remindChannelOf(rem.channel) !== 'email' || rem.mailed?.[soon.due]) return 0;
-  const yr: any = (await ownerTaxRef(db, t, soon.forYear).get()).data() || {};
+  const yr: any = await yearKept(db, t, soon.forYear);
   if (yr.structure !== 'schedule_c' || paidToward(yr.payments, soon.due)) return 0;
   const to = String(await emailOf(String(tenant?.ownerId || '')).catch(() => '') || tenant?.ownerEmail || '').trim();
   if (!EMAIL.test(to)) return 0;
@@ -112,7 +121,7 @@ export async function ownerTaxDueSoon(db: any, t: string, today: string): Promis
   const soon = dueSoon(today, 7); if (!soon) return null;
   const rem: any = (await ownerRemindRef(db, t).get()).data() || {};
   if (remindChannelOf(rem.channel) === 'off') return null;
-  const yr: any = (await ownerTaxRef(db, t, soon.forYear).get()).data() || {};
+  const yr: any = await yearKept(db, t, soon.forYear);
   if (yr.structure !== 'schedule_c' || paidToward(yr.payments, soon.due)) return null;
   return { due: soon.due, inDays: soon.inDays };
 }

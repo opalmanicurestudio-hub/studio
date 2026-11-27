@@ -106,7 +106,9 @@ export async function POST(req: NextRequest) {
       const runs = new Map<string, any>(); for (const d of [...byPayDate.docs, ...byTo.docs, ...prior.docs]) runs.set(d.id, d.data() || {});
       const tc = seesPay ? tipCreditEstimate([...runs.values()], year, kind) : null;
       const loss = stockLossOf(spoilage.docs.map((d: any) => ({ ...(d.data() || {}), id: d.id })), spoiled.docs.map((d: any) => d.data() || {}), year);
-      return reply({ ok: true, year, years: [thisYear, thisYear - 1], found: findWriteOffs(lines, year, personal), checklist: kept.checklist?.[String(year)] || {}, owner: !!a.isTenantOwner,
+      return reply({ ok: true, year, years: [thisYear, thisYear - 1], found: findWriteOffs(lines, year, personal),
+        // (The owner's answers about their own taxes are theirs: others who keep the books see the list, not the answers.)
+        checklist: a.isTenantOwner ? kept.checklist?.[String(year)] || {} : {}, owner: !!a.isTenantOwner,
         tipCredit: tc && tc.tipsCents > 0 ? { creditCents: tc.creditCents, tipsCents: tc.tipsCents, minWage: tc.minWage, paydays: tc.paydays, noHours: tc.noHours, kind: tc.kind,
           ...(nicheOf(tenant) === 'medspa' ? { medspa: true } : {}), ...(tc.priorTips ? { priorLeftOut: true } : {}) } : null,
         stockLoss: loss.bookedCents > 0 || loss.unbooked > 0 ? loss : null,

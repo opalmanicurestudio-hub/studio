@@ -168,6 +168,34 @@ export function taxPlan(p: PlanIn) {
   };
 }
 
+/** What carries into a new plan year until it's said again (each year is kept on its own): how the business files, how
+ *  they file, their state and the household's other income. Never last year's tax or income outside the books so far:
+ *  those are each year's own. */
+export const CARRIED = ['structure', 'filing', 'state', 'otherCents'] as const;
+const unset = (v: unknown) => v === undefined || v === null;
+export function withCarried(cur: any, prev: any, keys: readonly string[] = CARRIED): any {
+  const out: any = { ...(cur || {}) };
+  for (const k of keys) if (unset(out[k]) && !unset(prev?.[k])) out[k] = prev[k];
+  return out;
+}
+const CARRY_BACK = 3;
+/** A year's own, with what carries in from the years before it (each answer from the latest year that has it, up to
+ *  three back, so a year nobody opened doesn't break the chain). `filled`: what was carried, to keep with the year so
+ *  it's its own from then on; `before`: the answers as they stood last year; `last`: last year's own. */
+export async function carriedKept(read: (year: number) => Promise<any>, year: number, cur: any, keys: readonly string[] = CARRIED): Promise<{ kept: any; filled: Record<string, any>; before: any; last: any }> {
+  let before: any = {}; let last: any = {};
+  for (let y = year - 1; y >= year - CARRY_BACK; y--) {
+    // (A year that was never opened reads as nothing; a read that fails throws, so it's never taken for one.)
+    const d: any = (await read(y)) || {};
+    if (y === year - 1) last = d;
+    before = withCarried(before, d, keys);
+    if (keys.every((k) => !unset(before[k]))) break;
+  }
+  const kept = withCarried(cur, before, keys);
+  const filled: Record<string, any> = {}; for (const k of keys) if (unset(cur?.[k]) && !unset(kept[k])) filled[k] = kept[k];
+  return { kept, filled, before, last };
+}
+
 /** Settings and a payment as sent from the portal. */
 export function cleanTaxSettings(b: any): { ok: true; s: any } | { ok: false; error: string } {
   const s: any = {};

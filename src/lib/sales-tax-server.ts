@@ -59,11 +59,14 @@ export async function taxReminder(db: any, tenantId: string, tenant: any, now = 
 /** For the Money page, cheaply: the reminder (while it shows) and what the last period that ended still owes (when it
  *  isn't recorded as paid). Nothing is added up when tax isn't set up or the period is paid; otherwise the figure is
  *  kept for a few hours (tenants/{t}/private/salesTaxOwed_{period}), so opening the page doesn't read months of books. */
-export async function taxStatus(db: any, tenantId: string, tenant: any, now = Date.now()): Promise<{ reminder: { text: string; period: string; cents: number; due: string } | null; owed: { period: string; label: string; due: string; cents: number } | null;
+export async function taxStatus(db: any, tenantId: string, tenant: any, now = Date.now(), forYear?: number): Promise<{ reminder: { text: string; period: string; cents: number; due: string } | null; owed: { period: string; label: string; due: string; cents: number } | null;
   unset?: boolean; last?: { period: string; label: string; due: string; paid: boolean } }> {
   if (posTaxOf(tenant).unset) return { reminder: null, owed: null, unset: true };
-  const f = filingOf(tenant); const today = todayIn(tenantTimeZone(tenant), new Date(now)); const p = lastEnded(today, f);
-  // (The last period that ended, and whether it's paid: the Reports tab's sales tax row.)
+  const f = filingOf(tenant); const today = todayIn(tenantTimeZone(tenant), new Date(now));
+  // (The last period that ended, and whether it's paid: the Reports tab's sales tax row. Closing a year that's over: its
+  // own last period, so a later one's never taken for it.)
+  const yearOver = Number.isInteger(forYear) && `${Number(forYear) + 1}-01-01` <= today;
+  const p = lastEnded(yearOver ? `${Number(forYear) + 1}-01-01` : today, f);
   const last = { period: p.key, label: p.label, due: p.dueLabel, paid: false };
   if (await paidOf(db, tenantId, p.key)) return { reminder: null, owed: null, last: { ...last, paid: true } };
   const cacheRef = db.doc(`tenants/${tenantId}/private/salesTaxOwed_${p.key}`);

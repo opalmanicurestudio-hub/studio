@@ -523,7 +523,7 @@ const ReportsTab = () => {
   const payroll = useMemo(() => ({ profile: tState ? getStateProfile(tState) : GENERIC_US_PROFILE, hasState: !!tState }), [tState]);
   return (
     <div className="mx-auto w-full max-w-[1180px] px-4 py-5 md:px-6" style={{ color: '#16171a' }}>
-      {tenantId && firestore && <ReportsScreen tenantId={tenantId} firestore={firestore} tenant={selectedTenant} staff={staff || []} payroll={payroll} canManage={['owner', 'admin', 'manager'].includes(String(role || ''))} />}
+      {tenantId && firestore && <ReportsScreen tenantId={tenantId} firestore={firestore} tenant={selectedTenant} staff={staff || []} payroll={payroll} canManage={['owner', 'admin', 'manager'].includes(String(role || ''))} isOwner={String(role || '') === 'owner'} />}
     </div>
   );
 };

@@ -195,7 +195,7 @@ export function WriteOffsScreen({ tenantId, canLog, business = '', actor }: { te
             {w.owner ? <div className="flex flex-wrap gap-2">
               {(['ask', 'no'] as const).map((ans) => <button key={ans} type="button" aria-pressed={v === ans} disabled={!!busy} onClick={() => act(`c_${c.id}`, '/api/writeoffs', { action: 'check', year: w.year, item: c.id, answer: v === ans ? null : ans }, 'Saved.')}
                 className={btn} style={v === ans ? { background: INK, color: '#fff' } : { background: '#fff', color: ans === 'ask' ? INK : MUTED, border: `1px solid ${ans === 'ask' ? INK : LINE}` }}>{ans === 'ask' ? 'Ask my accountant' : 'Doesn’t apply'}</button>)}
-            </div> : <span className="text-[13px] font-semibold" style={{ color: v === 'ask' ? INK : MUTED }}>{v === 'ask' ? 'To ask the accountant' : v === 'no' ? 'Doesn’t apply' : 'Not answered yet'}</span>}
+            </div> : <span className="text-[13px] font-semibold" style={{ color: MUTED }}>The owner answers this one.</span>}
           </div>; })}
         </div>
       </section>}

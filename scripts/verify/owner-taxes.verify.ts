@@ -110,6 +110,15 @@ const req = (body: any) => ({ json: async () => ({ tenantId: 't1', ...body }), h
   await db.doc(`tenants/t1/private/ownerTaxes_${Y}`).set({ structure: 'other' }, { merge: true });
   o = await remindOwnerTaxes(db, 't1', tenant, `${Y + 1}-01-10`, own);
   check('not for a business that files its own return', o === 0 && (await ownerTaxDueSoon(db, 't1', `${Y + 1}-01-10`)) === null);
+  // (A new year with nothing said yet: last year's answer carries, so April's reminder still goes.)
+  await db.doc(`tenants/t1/private/ownerTaxes_${Y + 1}`).set({ structure: 'schedule_c', payments: [] }, { merge: true });
+  const { dueDay: dd } = await import('../../src/lib/renter-taxes'); const april = dd(Y + 2, 4); const weekBefore = new Date(Date.parse(`${april}T12:00:00Z`) - 6 * 86400e3).toISOString().slice(0, 10);
+  o = await remindOwnerTaxes(db, 't1', tenant, weekBefore, own);
+  check('a new year carries how the business files: its first reminder still goes', o === 1 && (await ownerTaxDueSoon(db, 't1', weekBefore))?.due === april);
+  check('…and keeps it, so the year after still has it', (await db.doc(`tenants/t1/private/ownerTaxes_${Y + 2}`).get()).data()?.structure === 'schedule_c');
+  const april3 = dd(Y + 3, 4); const wb3 = new Date(Date.parse(`${april3}T12:00:00Z`) - 6 * 86400e3).toISOString().slice(0, 10);
+  await db.doc(`tenants/t1/private/ownerTaxes_${Y + 2}`).set({ structure: null }, { merge: true });
+  check('a year nobody opened doesn’t break the chain', (await ownerTaxDueSoon(db, 't1', wb3))?.due === april3);
   r = await POST(req({ action: 'status' }));
   check('the page asks for it without reading the books', r.status === 200 && 'soon' in r.body);
 

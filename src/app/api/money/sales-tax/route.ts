@@ -26,7 +26,12 @@ export async function POST(req: NextRequest) {
     const action = String(b.action || 'view');
     if (action === 'view') { const r: any = await salesTaxView(db, tenantId, tenant, b.period); return reply(r, r.ok ? 200 : r.status); }
     if (action === 'remind') return reply({ ok: true, reminder: await taxReminder(db, tenantId, tenant).catch(() => null) });
-    if (action === 'status') return reply({ ok: true, ...(await taxStatus(db, tenantId, tenant).catch(() => ({ reminder: null, owed: null }))) });   // (and the last period, and whether it's paid)
+    if (action === 'status') {
+      // (and the last period, and whether it's paid; `year`: closing a year, its own last period once it's over)
+      const y = Number(b.year); const thisYear = new Date().getUTCFullYear();
+      const forYear = Number.isInteger(y) && y >= thisYear - 2 && y <= thisYear ? y : undefined;
+      return reply({ ok: true, ...(await taxStatus(db, tenantId, tenant, Date.now(), forYear).catch(() => ({ reminder: null, owed: null }))) });
+    }
     if (action === 'paid') {
       const r: any = await markTaxPaid(db, tenantId, tenant, b.period, b.cents, by);
       if (r.ok && !r.already) await logAuditAdmin(db, tenantId, { action: 'salestax.paid', targetType: 'tenant', targetId: tenantId, summary: `${by} recorded $${(r.paid.cents / 100).toFixed(2)} of sales tax for ${b.period} as paid to the state.`, amount: r.paid.cents / 100, actor } as any).catch(() => {});
