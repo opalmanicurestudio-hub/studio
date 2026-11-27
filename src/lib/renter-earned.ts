@@ -22,7 +22,9 @@ export async function renterStaffIds(db: any, tenantId: string, renterId: string
   const full = `${r.firstName || ''} ${r.lastName || ''}`.trim().toLowerCase();
   if (full) {
     const byName = await db.collection(`tenants/${tenantId}/staff`).get();
-    for (const d of byName.docs) { const x = d.data() as any; if (!ids.includes(d.id) && String(x.name || '').trim().toLowerCase() === full && (x.isRenter || !x.renterId)) ids.push(d.id); }
+    // (Never a record linked to someone, as another renter with the same name has their own; and never a current
+    // employee's, whose bookings are the business's clients.)
+    for (const d of byName.docs) { const x = d.data() as any; if (!ids.includes(d.id) && String(x.name || '').trim().toLowerCase() === full && !x.renterId && (x.isRenter || x.isActive === false)) ids.push(d.id); }
   }
   return ids.slice(0, 10); // Firestore 'in' cap
 }

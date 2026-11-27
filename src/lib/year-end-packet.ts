@@ -5,6 +5,7 @@
 import { booksSummary } from '@/lib/books-summary';
 import { pnlRows, rowsHtml, taxSummaryRows } from '@/lib/report-builders';
 import { CHECKLIST, writeOffsBodyHtml } from '@/lib/write-offs';
+import { RENTER_CHECKLIST, RENTER_USUAL, renterWriteOffsHtml } from '@/lib/renter-write-offs';
 import { logBodyHtml, milesText } from '@/lib/trip-log';
 import { yearEndDue } from '@/lib/payroll-yearend';
 import { dueDay, paidToward } from '@/lib/renter-taxes';
@@ -14,7 +15,40 @@ const usd = (n: number) => `${n < 0 ? '-' : ''}$${Math.abs(n).toLocaleString('en
 const longDay = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 export const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
 
-export type YearItem = { key: string; title: string; sub: string; state: 'ok' | 'todo' | 'info'; href?: string };
+const sec = (title: string, html: string) => `<h2 style="margin-top:28px">${esc(title)}</h2>${html}`;
+const stillOpen = (items: YearItem[]) => { const open = items.filter((i) => i.state === 'todo');
+  return open.length ? sec('Still to finish', `<p class="sub">Not finished in ClarityFlow when this was printed:</p><ul>${open.map((i) => `<li>${esc(i.title)}</li>`).join('')}</ul>`) : '<p class="sub">Everything ClarityFlow checks for the year is finished.</p>'; };
+// (Amounts, the columns after the first, to the right; a last row that totals in bold.)
+const R = ' class="num" style="text-align:right"';
+const table = (head: string[], rows: string[][], total = false) => `<table class="t"><thead><tr>${head.map((h, i) => `<th${i ? R : ''}>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.map((r, ri) => `<tr${total && ri === rows.length - 1 ? ' style="font-weight:600"' : ''}>${r.map((c, i) => `<td${i ? R : ''}>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+
+/** `href`: a page in the app; `view`: a screen in the renter portal. */
+export type YearItem = { key: string; title: string; sub: string; state: 'ok' | 'todo' | 'info'; href?: string; view?: string };
+
+/** The mileage log's item: no miles, the odometer to read, or done. `logs`: the person reading keeps the log. */
+function milesItem(mi: any, y: number, today: string, logs: boolean, to: { href?: string; view?: string }): YearItem | null {
+  if (!mi?.summary) return null;
+  const sm = mi.summary; const o = sm.odometer || {}; const yearOver = today >= `${y}-12-31`;
+  if (!sm.trips) return { key: 'miles', state: 'info', title: `No business miles logged for ${y}`, sub: 'Drives for supplies, the bank, classes and clients count. Add any you remember.', ...to };
+  if (o.start == null || (o.end == null && yearOver)) return { key: 'miles', state: logs ? 'todo' : 'info', title: 'Odometer readings for the year',
+    sub: `${milesText(sm.businessTenths)} business miles logged. The return asks for the car’s total miles, from January 1 and December 31${logs ? '' : ': the owner enters them in the mileage log'}.`, ...to };
+  if (o.end == null) return { key: 'miles', state: 'info', title: `${milesText(sm.businessTenths)} business miles so far`, sub: 'Write down the odometer on December 31, for the year’s total miles.', ...to };
+  return { key: 'miles', state: 'ok', title: `${milesText(sm.businessTenths)} business miles, with the odometer`, sub: 'Logged with the date, place and reason for each.' };
+}
+
+/** The last estimated payment toward a year (due January 15 after it): recorded, to do, or gone by. */
+function lastPaymentItem(pays: any[], y: number, today: string, to: { href?: string; view?: string }, where: string): YearItem {
+  const due = dueDay(y + 1, 1);
+  if (paidToward(pays, due)) return { key: 'estimated', state: 'ok', title: 'Last estimated tax payment recorded', sub: `Toward ${y}, due ${longDay(due)}.` };
+  return { key: 'estimated', state: today > due ? 'info' : 'todo', title: `Last estimated tax payment, due ${longDay(due)}`, sub: `See what to send on ${where}, then mark it paid.`, ...to };
+}
+
+/** The estimated payments recorded toward a year, in order, with the total. */
+function paymentsHtml(pays: any[], stateName: string): string {
+  if (!pays.length) return '<p class="sub">None recorded in ClarityFlow.</p>';
+  const total = pays.reduce((a, p) => a + (Number(p?.cents) || 0), 0);
+  return table(['Paid to', 'On', 'Amount'], [...pays].sort((a, b) => String(a.date).localeCompare(String(b.date))).map((p) => [p.to === 'irs' ? 'The IRS' : stateName || 'The state', longDay(p.date), usd((Number(p.cents) || 0) / 100)]).concat([['Total', '', usd(total / 100)]]), true);
+}
 
 /** The year to close: last year until the end of April, then this one. */
 export const yearToClose = (today: string) => (Number(today.slice(5, 7)) <= 4 ? Number(today.slice(0, 4)) - 1 : Number(today.slice(0, 4)));
@@ -55,27 +89,18 @@ export function yearItems(g: { year: number; s: any; bankWaiting: number | null;
     const asks = g.owner ? CHECKLIST.filter((c) => !g.wo.checklist?.[c.id]).length : 0;
     if (asks) out.push({ key: 'missed', state: 'todo', title: `${plural(asks, 'often-missed write-off')} to answer`, sub: 'A home office, your phone, health insurance, retirement, tips: ask your accountant, or doesn’t apply.', href: '/money?tab=writeoffs' });
   }
-  if (g.mi?.summary) {
-    const sm = g.mi.summary; const o = sm.odometer || {};
-    const yearOver = g.today >= `${y}-12-31`;
-    if (!sm.trips) out.push({ key: 'miles', state: 'info', title: `No business miles logged for ${y}`, sub: 'Drives for supplies, the bank, classes and clients count. Add any you remember.', href: '/mileage' });
-    else if (o.start == null || (o.end == null && yearOver)) out.push({ key: 'miles', state: g.owner ? 'todo' : 'info', title: 'Odometer readings for the year',
-      sub: `${milesText(sm.businessTenths)} business miles logged. The return asks for the car’s total miles, from January 1 and December 31${g.owner ? '' : ': the owner enters them in the mileage log'}.`, href: '/mileage' });
-    else if (o.end == null) out.push({ key: 'miles', state: 'info', title: `${milesText(sm.businessTenths)} business miles so far`, sub: 'Write down the odometer on December 31, for the year’s total miles.', href: '/mileage' });
-    else out.push({ key: 'miles', state: 'ok', title: `${milesText(sm.businessTenths)} business miles, with the odometer`, sub: 'Logged with the date, place and reason for each.' });
-  }
+  const mi = milesItem(g.mi, y, g.today, g.owner, { href: '/mileage' }); if (mi) out.push(mi);
   if (g.payroll && (g.payroll.w2s || g.payroll.necs)) {
     // (Information, not a to-do: ClarityFlow makes the forms; it doesn't know when they've gone out.)
     out.push({ key: 'payroll', state: 'info', title: [g.payroll.w2s ? `W-2s for ${plural(g.payroll.w2s, 'person', 'people')}` : '', g.payroll.necs ? plural(g.payroll.necs, '1099-NEC') : ''].filter(Boolean).join(' and '),
       sub: `${g.today > yearEndDue(y) ? 'They were due' : 'Due'} ${longDay(yearEndDue(y))}. They’re in Payday, under the year’s forms.`, href: '/money?tab=payday' });
   }
   if (g.owner && g.ot) {
-    const due = dueDay(y + 1, 1); const pays = paymentsToward(g.ot, y);
+    const pays = paymentsToward(g.ot, y);
     const st = structureFor(g.ot, y);
     if (st === 'other') out.push({ key: 'estimated', state: 'info', title: 'Estimated taxes', sub: 'The business files its own return, so your accountant works out those payments.' });
     else if (st !== 'schedule_c') out.push({ key: 'estimated', state: 'info', title: 'Estimated taxes', sub: 'Say how the business files on the Taxes tab to see what’s due and keep the payments you make.', href: '/money?tab=taxes' });
-    else if (pays && paidToward(pays, due)) out.push({ key: 'estimated', state: 'ok', title: 'Last estimated tax payment recorded', sub: `Toward ${y}, due ${longDay(due)}.` });
-    else if (pays) out.push({ key: 'estimated', state: g.today > due ? 'info' : 'todo', title: `Last estimated tax payment, due ${longDay(due)}`, sub: 'See what to send on the Taxes tab, then mark it paid.', href: '/money?tab=taxes' });
+    else if (pays) out.push(lastPaymentItem(pays, y, g.today, { href: '/money?tab=taxes' }, 'the Taxes tab'));
   }
   // (The year's own return: one from a later year is never taken for it.)
   if (g.tax && !g.tax.unset && g.tax.last && String(g.tax.last.period || '').slice(0, 4) === String(y)) out.push(g.tax.last.paid ? { key: 'salestax', state: 'ok', title: `Sales tax for ${g.tax.last.label} paid`, sub: 'Its return is below, under Taxes.' }
@@ -91,13 +116,8 @@ export function yearItems(g: { year: number; s: any; bankWaiting: number | null;
 /** The packet's pages, after its heading (pure). */
 export function packetBody(o: { year: number; items: YearItem[]; ls: any[]; lookup: any[]; wo: any; mi: any; ot: any; owner: boolean; w2s: any[]; necs: any[] }): string {
   const s = booksSummary(o.ls, { lookup: o.lookup, businessOnly: true });
-  const open = o.items.filter((i) => i.state === 'todo');
-  const sec = (title: string, html: string) => `<h2 style="margin-top:28px">${esc(title)}</h2>${html}`;
-  // (Amounts, the columns after the first, to the right; a last row that totals in bold.)
-  const R = ' class="num" style="text-align:right"';
-  const table = (head: string[], rows: string[][], total = false) => `<table class="t"><thead><tr>${head.map((h, i) => `<th${i ? R : ''}>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.map((r, ri) => `<tr${total && ri === rows.length - 1 ? ' style="font-weight:600"' : ''}>${r.map((c, i) => `<td${i ? R : ''}>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
   const parts: string[] = [];
-  parts.push(open.length ? sec('Still to finish', `<p class="sub">Not finished in ClarityFlow when this was printed:</p><ul>${open.map((i) => `<li>${esc(i.title)}</li>`).join('')}</ul>`) : '<p class="sub">Everything ClarityFlow checks for the year is finished.</p>');
+  parts.push(stillOpen(o.items));
   parts.push(sec('Profit and loss', rowsHtml(pnlRows(s))));
   parts.push(sec('Tax summary, by Schedule C line', rowsHtml(taxSummaryRows(o.ls, { lookup: o.lookup }))));
   if (o.wo?.found) {
@@ -108,12 +128,7 @@ export function packetBody(o: { year: number; items: YearItem[]; ls: any[]; look
   }
   if (o.mi?.trips?.length) parts.push(sec('Mileage log', logBodyHtml(o.mi.trips, o.year, o.mi.setup)));
   const pays = o.owner && structureFor(o.ot, o.year) === 'schedule_c' ? paymentsToward(o.ot, o.year) : null;
-  if (pays) {
-    const total = pays.reduce((a, p) => a + (Number(p?.cents) || 0), 0);
-    parts.push(sec('Estimated tax payments recorded', pays.length
-      ? table(['Paid to', 'On', 'Amount'], [...pays].sort((a, b) => String(a.date).localeCompare(String(b.date))).map((p) => [p.to === 'irs' ? 'The IRS' : o.ot.settings.stateName || 'The state', longDay(p.date), usd((Number(p.cents) || 0) / 100)]).concat([['Total', '', usd(total / 100)]]), true)
-      : '<p class="sub">None recorded in ClarityFlow.</p>'));
-  }
+  if (pays) parts.push(sec('Estimated tax payments recorded', paymentsHtml(pays, o.ot.settings?.stateName || '')));
   if (o.w2s.length || o.necs.length) {
     parts.push(sec('The team', [
       o.w2s.length ? table(['W-2', 'Wages (box 1)', 'Federal tax withheld (box 2)'], o.w2s.map((w) => [w.name, usd(w.b1), usd(w.b2)]).concat([['Total', usd(o.w2s.reduce((a, w) => a + w.b1, 0)), usd(o.w2s.reduce((a, w) => a + w.b2, 0))]]), true) : '',
@@ -121,5 +136,45 @@ export function packetBody(o: { year: number; items: YearItem[]; ls: any[]; look
     ].join('')));
   }
   parts.push(sec('Sales tax for the year', table(['', 'Amount'], [['Collected', usd(s.taxCollected)], ...(s.taxRefunded ? [['Given back on refunds and voids', usd(-s.taxRefunded)]] : []), ['To pay the state', usd(s.taxOwed)], ['Paid to the state', usd(s.taxPaid)]])));
+  return parts.join('\n');
+}
+
+// ── A renter's own year (the renter portal's Money, Close the year; components/rent/RenterYearEnd) ──────────────────
+
+/** What's left of a renter's year: their write-offs to finish and the often-missed ones, costs not logged, the
+ *  odometer, and their last estimated payment. `wo`: api/portal/renter-writeoffs list; `mi`: their mileage log; `tx`:
+ *  api/portal/renter-taxes year. `unread`: what couldn't be read (never taken for finished). */
+export function renterYearItems(g: { year: number; wo: any; mi: any; tx: any; today: string; unread?: string[] }): YearItem[] {
+  const out: YearItem[] = []; const y = g.year;
+  for (const u of g.unread || []) out.push({ key: `unread-${u}`, state: 'todo', title: `${u} couldn’t be read just now`, sub: 'Check again in a moment, so nothing is left out.' });
+  if (g.wo?.found) {
+    const f = g.wo.found;
+    out.push(f.toFinish ? { key: 'writeoffs', state: 'todo', title: `${plural(f.toFinish, 'cost')} to finish`, sub: 'Meals without who was there and what it was about, gifts without how many people.', view: 'writeoffs' }
+      : { key: 'writeoffs', state: 'ok', title: 'Costs finished', sub: 'Every meal and gift has what the IRS asks for.' });
+    if (f.receipts) out.push({ key: 'receipts', state: 'info', title: `Keep ${plural(f.receipts, 'receipt')}`, sub: 'For meals, gifts and travel of $75 or more: the IRS asks for them.' });
+    const asks = RENTER_CHECKLIST.filter((c) => !g.wo.checklist?.[c.id]).length;
+    if (asks) out.push({ key: 'missed', state: 'todo', title: `${plural(asks, 'often-missed write-off')} to answer`, sub: 'A home office, your phone, health insurance, retirement, tips: ask your accountant, or doesn’t apply.', view: 'writeoffs' });
+    const missing = RENTER_USUAL.filter((u) => (g.wo.missing || []).includes(u.id));
+    if (missing.length) out.push({ key: 'usual', state: 'info', title: `Nothing logged for ${missing.map((u) => u.title.toLowerCase()).join(' or ')}`, sub: 'Most businesses like yours have these. Log any you paid.', view: 'writeoffs' });
+  }
+  const mi = milesItem(g.mi, y, g.today, true, { view: 'mileage' }); if (mi) out.push(mi);
+  if (g.tx) out.push(lastPaymentItem(Array.isArray(g.tx.payments) ? g.tx.payments : [], y, g.today, { view: 'taxes' }, 'Taxes to set aside'));
+  return out;
+}
+
+/** A renter's packet for their accountant: what's still open, what they earned through ClarityFlow month by month, their
+ *  write-offs (rent, miles, costs, tips the desk collected for them), the mileage log and their estimated payments. */
+export function renterPacketBody(o: { year: number; items: YearItem[]; earnedByMonth: Record<string, number> | null; wo: any; mi: any; tx: any; today?: string }): string {
+  const parts: string[] = [stillOpen(o.items)];
+  if (o.earnedByMonth) {
+    // (The months so far, while the year isn't over.)
+    const months = Array.from({ length: 12 }, (_, i) => `${o.year}-${String(i + 1).padStart(2, '0')}`).filter((m) => !o.today || m <= o.today.slice(0, 7));
+    const total = months.reduce((a, m) => a + (Number(o.earnedByMonth![m]) || 0), 0);
+    parts.push(sec('Earned through ClarityFlow', '<p class="sub">Bookings marked done, at your prices, however the client paid; packages and memberships sold; tips the front desk collected for you; and shop sales. Work that wasn’t booked in ClarityFlow, and tips clients paid you directly, aren’t in it.</p>'
+      + table(['Month', 'Earned'], months.map((m) => [new Date(`${m}-15T12:00:00Z`).toLocaleDateString('en-US', { month: 'long', timeZone: 'UTC' }), usd((Number(o.earnedByMonth![m]) || 0) / 100)]).concat([['Total', usd(total / 100)]]), true)));
+  }
+  if (o.wo?.found) parts.push(sec('Write-offs', (o.wo.deskTipsCents > 0 && o.earnedByMonth ? '<p class="sub">Tips the front desk collected for you are already in what you earned above: they’re listed here for the deduction for tips, not as a business cost.</p>' : '') + renterWriteOffsHtml({ found: o.wo.found, rent: o.wo.rent, space: o.wo.space, miles: o.wo.miles, deskTipsCents: o.wo.deskTipsCents || 0, checklist: o.wo.checklist || {}, missing: o.wo.missing || [] })));
+  if (o.mi?.trips?.length) parts.push(sec('Mileage log', logBodyHtml(o.mi.trips, o.year, o.mi.setup)));
+  if (o.tx) parts.push(sec('Estimated tax payments recorded', paymentsHtml(Array.isArray(o.tx.payments) ? o.tx.payments : [], String(o.tx.stateName || '') || 'Your state')));
   return parts.join('\n');
 }

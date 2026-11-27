@@ -113,6 +113,27 @@ const sentMail: any[] = []; let failMail = false; let throwMail = false;
   r = await POST(req({ action: 'pay', date: `${PY}-04-10`, amount: '300', to: 'irs' }));
   const kept: any = (await db.doc(`tenants/t1/private/renter_r1/taxes/${PY}`).get()).data();
   check('what they say and pay, kept privately with their log', kept.filing === 'head' && kept.state === 'TX' && kept.outsideCents === 120000 && kept.payments.length === 1 && kept.payments[0].cents === 30000);
+  r = await POST(req({ action: 'year', year: PY }));
+  check('closing a year: what they earned month by month, as the set-aside counts it, and the payments toward it', r.status === 200 && r.body.year === PY && r.body.earnedByMonth[`${PY}-03`] === 6500 + 1500 + 4000 && r.body.payments.length === 1, r.body);
+  r = await POST(req({ action: 'year' }));
+  const { yearToClose } = await import('../../src/lib/year-end-packet');
+  check('left out, the year to close by the business’s day, with the two to pick from and their state’s name', r.status === 200 && r.body.year === yearToClose(r.body.today) && r.body.years.length === 2 && r.body.stateName === 'Texas', r.body);
+  {
+    // (Another renter with the same name: never their bookings.)
+    const { renterStaffIds } = await import('../../src/lib/renter-earned');
+    await db.doc('tenants/t1/renters/r9').set({ firstName: 'Ana', lastName: 'Ruiz' });
+    await db.doc('tenants/t1/staff/s9').set({ name: 'Ana Ruiz', renterId: 'r9', isRenter: true });
+    await db.doc('tenants/t1/staff/s8').set({ name: 'Ana Ruiz', isActive: false });
+    await db.doc('tenants/t1/staff/s7').set({ name: 'Ana Ruiz', isActive: true });
+    const mine = await renterStaffIds(db, 't1', 'r1');
+    check('the same name brings in an old record never linked, never another renter’s own or a current employee’s', mine.includes('s1') && mine.includes('s8') && !mine.includes('s9') && !mine.includes('s7'), mine);
+    for (const id of ['s7', 's8', 's9']) await db.doc(`tenants/t1/staff/${id}`).delete();
+    await db.doc('tenants/t1/renters/r9').delete();
+  }
+  r = await POST(req({ action: 'year', year: PY - 3 }));
+  check('only this year or last', r.status === 400);
+  r = await POST(req({ action: 'year', year: PY }, 'tok-bo'));
+  check('another renter’s year is their own', r.status === 200 && r.body.payments.length === 0 && !r.body.earnedByMonth[`${PY}-03`]);
   r = await POST(req({ action: 'list' }));
   check('a state without income tax says so', r.body.settings.stateType === 'none' && r.body.settings.statePct === 0);
   r = await POST(req({ action: 'list' }, 'tok-bo'));

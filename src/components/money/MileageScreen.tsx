@@ -28,7 +28,9 @@ type Draft = { from: TripPlace; to: TripPlace; oneWayTenths: number; road: boole
 export function MileageScreen(p: { post: (body: any) => Promise<any>; where: () => Promise<{ lat: number; lng: number } | null>; business: string; backHref?: string; initial?: MileageData | null; startView?: 'home' | 'log' | 'add' | 'setup';
   /** A renter's own log, in their portal (api/portal/renter-mileage): the portal's header names it, and where the space is
    *  rented is where drives start. */
-  renter?: boolean }) {
+  renter?: boolean;
+  /** The year to open on (a renter's Close the year, for last year), else this year. */
+  startYear?: number | null }) {
   const [d, setD] = React.useState<MileageData | null>(p.initial || null);
   const [year, setYear] = React.useState<number | null>(p.initial?.year ?? null);
   const [view, setView] = React.useState<'home' | 'log' | 'add' | 'setup' | 'save'>(p.startView || 'home');
@@ -41,7 +43,7 @@ export function MileageScreen(p: { post: (body: any) => Promise<any>; where: () 
       if (r.drive?.ended && r.drive.to) { setDraft({ from: r.drive.from, to: r.drive.to, oneWayTenths: r.drive.oneWayTenths || 1, road: r.drive.road, commute: !!r.drive.commute, fromDrive: true, started: r.drive.startedAt, ended: r.drive.ended }); setView('save'); } }
     else setErr(r?.error || 'That didn’t load. Try again.');
   }, [p]);
-  React.useEffect(() => { if (!p.initial) void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  React.useEffect(() => { if (!p.initial) void load(p.startYear || null); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const act = async (key: string, body: any, then?: (r: any) => void) => {
     setBusy(key); setErr(''); setSaid('');

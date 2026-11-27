@@ -11,6 +11,9 @@
 //   pay      { date, amount, to: 'irs'|'state', forYear? } → a payment they made (until April 15, last year's too)
 //   unpay    { id, forYear? }                     → a payment taken off (until April 15, last year's too)
 //   remind   { channel: 'off'|'inbox'|'email' }   → reminders the week before each date (lib/renter-taxes-server)
+//   year     { year? }                            → closing a year (this one or last; left out, the one to close, by the
+//                                                   business's day): what they earned through ClarityFlow month by month,
+//                                                   the payments they recorded toward it and their state's name
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { renterSession } from '@/lib/renter-session';
@@ -20,6 +23,7 @@ import { tripsOf, todayFor } from '@/lib/trip-log-server';
 import { limitByKey } from '@/lib/rate-limit';
 import { writeOffsByMonth, deskTipsByMonth, shopSalesByMonth } from '@/lib/renter-write-offs';
 import { planYearOf, cleanTaxSettings, cleanTaxPayment, tableFor, dueDay, remindChannelOf, REMIND_CHANNELS, carriedKept } from '@/lib/renter-taxes';
+import { yearToClose } from '@/lib/year-end-packet';
 import { payrollStateOf } from '@/lib/payroll-taxes';
 import { getStateProfile } from '@/lib/state-tax-profiles';
 
@@ -39,20 +43,40 @@ export async function POST(req: NextRequest) {
     const ref = db.doc(`${T}/private/renter_${rid}/taxes/${year}`);
     const kept: any = (await ref.get()).data() || {};
 
+    // (What they earned through ClarityFlow in a year, by month: visits and packages, tips the front desk collected for
+    // them and shop sales.)
+    const earnedOf = (y: number, quiet = true) => { const p = renterEarned(db, tenantId, rid, `${y}-01-01T00:00:00.000Z`, `${y + 1}-01-01T00:00:00.000Z`, { eachMonth: { today } }); return quiet ? p.catch(() => ({ visits: [], packages: [] })) : p; };
+    const byMonth = (earned: any, ledger: any[], y: number) => {
+      const by: Record<string, number> = {};
+      for (const x of [...earned.visits, ...earned.packages]) { const m = String(x.date || '').slice(0, 7); if (m.slice(0, 4) === String(y)) by[m] = (by[m] || 0) + (Number(x.cents) || 0); }
+      for (const [m, c] of [...Object.entries(deskTipsByMonth(ledger, y)), ...Object.entries(shopSalesByMonth(ledger, y))]) by[m] = (by[m] || 0) + c;
+      return by;
+    };
+    const ledgerOf = () => db.collection(`${T}/rentLedger`).where('renterId', '==', rid).get().then((x: any) => x.docs.map((d: any) => ({ id: d.id, ...d.data() })));
+
+    if (action === 'year') {
+      const thisYear = Number(today.slice(0, 4)); const y = b.year == null ? yearToClose(today) : Number(b.year);
+      if (!(y === thisYear || y === thisYear - 1)) return reply({ ok: false, error: 'This year or last.' }, 400);
+      const limited = await limitByKey('renter-taxes-year', `${tenantId}|${rid}`, 30, 'That’s a lot of checks this hour. Try again later.'); if (limited) return limited;
+      // (A read that fails is an error, never a year with nothing in it.)
+      const [earned, ledger, kept] = await Promise.all([earnedOf(y, false), ledgerOf(), db.doc(`${T}/private/renter_${rid}/taxes/${y}`).get().then((x: any) => x.data() || {})]);
+      // (Their state as the year stood: said that year, or carried from before, or the business's.)
+      const st = (await carriedKept((x) => db.doc(`${T}/private/renter_${rid}/taxes/${x}`).get().then((d: any) => d.data() || {}), y, kept, ['state'])).kept.state;
+      const state = /^[A-Z]{2}$/.test(String(st || '')) ? String(st) : payrollStateOf(tenant) || '';
+      return reply({ ok: true, year: y, today, years: [thisYear, thisYear - 1], earnedByMonth: byMonth(earned, ledger, y), payments: Array.isArray(kept.payments) ? kept.payments : [], stateName: state ? getStateProfile(state).name : '' });
+    }
+
     if (action === 'list') {
-      const from = `${year}-01-01T00:00:00.000Z`, to = `${year + 1}-01-01T00:00:00.000Z`;
       const r: any = (await db.doc(`${T}/renters/${rid}`).get()).data() || {};
       const byContact = async (field: string, v: unknown) => (typeof v === 'string' && v.trim() ? (await db.collection(`${T}/boothReservations`).where(field, '==', v).get()).docs.map((d: any) => String(d.id)) : []);
       const [earned, exp, pays, ledger, trips] = await Promise.all([
-        renterEarned(db, tenantId, rid, from, to, { eachMonth: { today } }).catch(() => ({ visits: [], packages: [] })),
+        earnedOf(year),
         db.collection(`${T}/renterExpenses`).where('renterId', '==', rid).limit(5000).get().then((x: any) => x.docs.map((d: any) => ({ id: d.id, ...d.data() }))).catch(() => []),
         (async () => { const extra = [...await byContact('phone', r.phone), ...await byContact('email', r.email)]; const p = await renterRentPayments(db, tenantId, { renterId: rid, extraSourceIds: extra }); return [...p, ...await rentTakeBacks(db, tenantId, p.map((x: any) => String(x.id)))]; })().catch(() => []),
-        db.collection(`${T}/rentLedger`).where('renterId', '==', rid).get().then((x: any) => x.docs.map((d: any) => ({ id: d.id, ...d.data() }))).catch(() => []),
+        ledgerOf().catch(() => []),
         tripsOf(db, tenantId, year, rid).catch(() => []),
       ]);
-      const earnedByMonth: Record<string, number> = {};
-      for (const x of [...earned.visits, ...earned.packages]) { const m = String(x.date || '').slice(0, 7); if (m.slice(0, 4) === String(year)) earnedByMonth[m] = (earnedByMonth[m] || 0) + (Number(x.cents) || 0); }
-      for (const [m, c] of [...Object.entries(deskTipsByMonth(ledger, year)), ...Object.entries(shopSalesByMonth(ledger, year))]) earnedByMonth[m] = (earnedByMonth[m] || 0) + c;
+      const earnedByMonth = byMonth(earned, ledger, year);
       // (A new year starts with what was said before, until it's said again, and keeps it: lib/renter-taxes carriedKept.)
       const c = await carriedKept((y) => db.doc(`${T}/private/renter_${rid}/taxes/${y}`).get().then((x: any) => x.data() || {}), year, kept, ['filing', 'state', 'otherCents']);
       if (Object.keys(c.filled).length) await ref.set({ ...c.filled, carriedAt: new Date().toISOString() }, { merge: true }).catch(() => {});

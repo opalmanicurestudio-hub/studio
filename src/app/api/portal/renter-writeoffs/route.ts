@@ -37,14 +37,13 @@ export async function POST(req: NextRequest) {
 
     // (Their payments, as the rent statement finds them: by their renter id and their own records, and space bookings made
     // with their phone or email; then any undo, void or correction of one, which carries none of their ids.)
+    // (A read that fails is an error, never a year with no rent in it.)
     const rentLines = async () => {
-      try {
-        const r: any = (await db.doc(`${T}/renters/${rid}`).get()).data() || {};
-        const byContact = async (field: string, v: unknown) => (typeof v === 'string' && v.trim() ? (await db.collection(`${T}/boothReservations`).where(field, '==', v).get()).docs.map((d: any) => String(d.id)) : []);
-        const extra = [...await byContact('phone', r.phone), ...await byContact('email', r.email)];
-        const pays = await renterRentPayments(db, tenantId, { renterId: rid, extraSourceIds: extra });
-        return [...pays, ...await rentTakeBacks(db, tenantId, pays.map((p: any) => String(p.id)))];
-      } catch { return []; }
+      const r: any = (await db.doc(`${T}/renters/${rid}`).get()).data() || {};
+      const byContact = async (field: string, v: unknown) => (typeof v === 'string' && v.trim() ? (await db.collection(`${T}/boothReservations`).where(field, '==', v).get()).docs.map((d: any) => String(d.id)) : []);
+      const extra = [...await byContact('phone', r.phone), ...await byContact('email', r.email)];
+      const pays = await renterRentPayments(db, tenantId, { renterId: rid, extraSourceIds: extra });
+      return [...pays, ...await rentTakeBacks(db, tenantId, pays.map((p: any) => String(p.id)))];
     };
 
     if (action === 'list') {
@@ -52,10 +51,10 @@ export async function POST(req: NextRequest) {
       const [exp, pays, ledger, trips, setup, kept] = await Promise.all([
         expenses(),
         rentLines(),
-        db.collection(`${T}/rentLedger`).where('renterId', '==', rid).get().then((x: any) => x.docs.map((d: any) => ({ id: d.id, ...d.data() }))).catch(() => []),
-        tripsOf(db, tenantId, year, rid).catch(() => []),
-        loadSetup(db, tenantId, rid).catch(() => ({})),
-        checklistRef.get().then((x: any) => x.data() || {}).catch(() => ({})),
+        db.collection(`${T}/rentLedger`).where('renterId', '==', rid).get().then((x: any) => x.docs.map((d: any) => ({ id: d.id, ...d.data() }))),
+        tripsOf(db, tenantId, year, rid),
+        loadSetup(db, tenantId, rid),
+        checklistRef.get().then((x: any) => x.data() || {}),
       ]);
       const m = yearSummary(trips as any, year, setup as any);
       return reply({ ok: true, year, years: [thisYear, thisYear - 1], today, space: clip(tenant.name || 'the business you rent from', 80),

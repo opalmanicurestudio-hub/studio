@@ -9,7 +9,7 @@
 import fs from 'fs';
 import * as F from './fake-db';
 const { check } = F;
-import { yearItems, packetBody, yearToClose, paymentsToward, type YearItem } from '../../src/lib/year-end-packet';
+import { yearItems, packetBody, yearToClose, paymentsToward, renterYearItems, renterPacketBody, type YearItem } from '../../src/lib/year-end-packet';
 import { booksSummary } from '../../src/lib/books-summary';
 import { findWriteOffs } from '../../src/lib/write-offs';
 import { withCarried, carriedKept } from '../../src/lib/renter-taxes';
@@ -141,6 +141,29 @@ const none = packetBody({ year: Y, items: [], ls: lines, lookup: lines, wo: null
 check('no payments recorded: said so', /None recorded in ClarityFlow/.test(none));
 check('payments not known: no section, never “none”', !/Estimated tax payments/.test(packetBody({ year: Y, items: [], ls: lines, lookup: lines, wo: null, mi: null, ot: { ...ot('schedule_c', [], Y + 1), lastYearOpen: false }, owner: true, w2s: [], necs: [] })));
 
+console.log('A renter’s year');
+const rwo = (over: any = {}) => ({ found: { toFinish: 2, receipts: 1, kinds: [{ kind: 'Supplies', spent: 42000, counts: 42000, lines: 6 }], costs: { spent: 42000, counts: 42000 }, meals: { spent: 0, counts: 0, needNote: [] }, gifts: { needPeople: [] }, equipment: [] },
+  rent: { cents: 960000, payments: 12, creditsCents: 0 }, space: 'North <Loft>', miles: null, deskTipsCents: 31000, checklist: { homeOffice: 'no' }, missing: ['insurance'], ...over });
+const rmi = { summary: { trips: 2, businessTenths: 412, amountCents: 2987, rate: { label: '72.5¢' }, odometer: { start: null, end: null } }, trips, setup: { odometer: {} } };
+it = renterYearItems({ year: Y, wo: rwo(), mi: rmi, tx: { payments: [pay('2026-06-15')] }, today: '2026-11-27' });
+check('costs to finish, to Write-offs', by(it, 'writeoffs')?.state === 'todo' && by(it, 'writeoffs')!.title === '2 costs to finish' && by(it, 'writeoffs')!.view === 'writeoffs' && !by(it, 'writeoffs')!.href);
+check('receipts to keep: something to know', by(it, 'receipts')?.state === 'info' && by(it, 'receipts')!.title === 'Keep 1 receipt');
+check('their own often-missed ones to answer', by(it, 'missed')?.title === '4 often-missed write-offs to answer' && by(it, 'missed')!.view === 'writeoffs');
+check('a usual cost not logged', by(it, 'usual')?.state === 'info' && /your insurance/.test(by(it, 'usual')!.title));
+check('the odometer: theirs to read, to Mileage', by(it, 'miles')?.state === 'todo' && by(it, 'miles')!.view === 'mileage' && !/the owner enters/.test(by(it, 'miles')!.sub));
+check('their last estimated payment, to Taxes to set aside', by(it, 'estimated')?.state === 'todo' && by(it, 'estimated')!.view === 'taxes' && /Taxes to set aside/.test(by(it, 'estimated')!.sub));
+it = renterYearItems({ year: Y, wo: null, mi: null, tx: null, today: '2026-11-27', unread: ['Write-offs'] });
+check('a renter’s read that failed: a to-do, never finished', by(it, 'unread-Write-offs')?.state === 'todo' && it.length === 1);
+const earned: Record<string, number> = { [`${Y}-01`]: 410000, [`${Y}-02`]: 388050, [`${Y}-11`]: 120000 };
+const rhtml = renterPacketBody({ year: Y, items: renterYearItems({ year: Y, wo: rwo(), mi: rmi, tx: { payments: [pay('2026-06-15'), pay('2026-04-14', 90000)] }, today: '2026-11-27' }),
+  earnedByMonth: earned, wo: rwo(), mi: rmi, tx: { payments: [pay('2026-06-15'), pay('2026-04-14', 90000, 'state')], stateName: 'Georgia' } });
+check('the renter’s packet: still to finish, then what they earned month by month with the total', /Still to finish/.test(rhtml) && /Earned through ClarityFlow/.test(rhtml) && /January/.test(rhtml) && /\$4,100\.00/.test(rhtml) && /\$9,180\.50/.test(rhtml) && /December/.test(rhtml));
+check('their write-offs: rent, costs and front-desk tips, escaped', /Rent and space fees paid to North &lt;Loft&gt;/.test(rhtml) && /\$9,600\.00/.test(rhtml) && /Tips collected for you at the front desk/.test(rhtml) && !rhtml.includes('<Loft>'));
+check('payments to their state, by name', /Georgia/.test(rhtml));
+check('their mileage log and estimated payments in order, with the total', /Mileage log/.test(rhtml) && rhtml.indexOf('April 14, 2026') < rhtml.indexOf('June 15, 2026') && /\$2,100\.00/.test(rhtml));
+check('while the year isn’t over, the months so far', !/December/.test(renterPacketBody({ year: Y, items: [], earnedByMonth: earned, wo: null, mi: null, tx: null, today: '2026-11-27' })) && /November/.test(renterPacketBody({ year: Y, items: [], earnedByMonth: earned, wo: null, mi: null, tx: null, today: '2026-11-27' })));
+check('earnings not read: no section, never zeros', !/Earned through ClarityFlow/.test(renterPacketBody({ year: Y, items: [], earnedByMonth: null, wo: null, mi: null, tx: null })));
+
 console.log('On the Reports tab');
 const comp = src('src/components/money/YearEndPacket.tsx'); const rep = src('src/components/money/ReportsScreen.tsx'); const page = src('src/app/(app)/money/page.tsx');
 check('shown to whoever keeps the books, the owner’s parts for the owner', /\{canManage && <YearEndPacket [^>]*owner=\{isOwner\}/.test(rep));
@@ -174,7 +197,19 @@ check('the owner’s and the renter’s set-asides both carry it, and keep what 
 check('last year’s estimated payments read through April 30, changed only until April 15', /const lastRead = today <= `\$\{year\}-04-30`;/.test(src('src/app/api/owner-taxes/route.ts')) && /lastYearPayments: lastOpen &&/.test(src('src/app/api/owner-taxes/route.ts')));
 check('the packet’s window opened at the tap, so it isn’t blocked', /window\.open\('', '_blank'\)/.test(comp) && comp.indexOf("window.open('', '_blank')") < comp.indexOf("setBusy('print')"));
 check('the house style', !/uppercase|font-black|\{\/\*| · /.test(comp) && ![...comp.matchAll(/>([^<>{}\n]*)</g)].some((m) => m[1].includes("'")));
-check('no words from one kind of business', !/[^\w](studio|salon|stylist|booth|chair)[^\w]/i.test(comp + src('src/lib/year-end-packet.ts')));
+const rcomp = src('src/components/rent/RenterYearEnd.tsx'); const map = src('src/components/rent/portal-map.ts');
+check('the renter’s Close the year: under Money, their own, opened from its row', /yearend: 'Close the year'/.test(map) && /'taxes', 'yearend'\]\);/.test(map) && /'mileage', 'yearend'\] \}/.test(map)
+  && /case 'yearend': return <RenterYearEnd /.test(src('src/app/rent/[tenantId]/page.tsx')));
+check('the renter’s screen: each item opens its screen, the packet’s window opened at the tap, the portal’s weights', /openScreen\(\{ view: i\.view, year: shown\.year \}\)/.test(rcomp) && rcomp.indexOf("window.open('', '_blank')") < rcomp.indexOf("setBusy('print')")
+  && !/font-bold|font-black|uppercase|\{\/\*| · /.test(rcomp) && ![...rcomp.matchAll(/>([^<>{}\n]*)</g)].some((m) => m[1].includes("'")));
+check('the screens it opens open on that year', /const forYear = React\.useContext\(ScreenYearContext\);\n  React\.useEffect\(\(\) => \{ void load\(forYear \?\? undefined\); \}, \[load, forYear\]\);/.test(src('src/components/rent/RenterWriteOffs.tsx'))
+  && /startYear=\{forYear\}/.test(src('src/components/rent/RenterMileage.tsx')) && /void load\(p\.startYear \|\| null\)/.test(src('src/components/money/MileageScreen.tsx'))
+  && /setScreenYear\(null\);/.test(src('src/app/rent/[tenantId]/page.tsx')) && /if \(to\.year\) setScreenYear\(to\.year\);/.test(src('src/app/rent/[tenantId]/page.tsx')));
+check('the year to close by the business’s day; anything unread read again before printing', /action: 'year', \.\.\.\(asked \? \{ year: asked \} : \{\}\)/.test(rcomp) && /!d\.items\.some\(\(i\) => i\.key\.startsWith\('unread-'\)\)/.test(rcomp));
+check('the renter’s earnings said truly, and the desk’s tips not a cost twice', /however the client paid/.test(rhtml) && /already in what you earned above/.test(rhtml) && /Bookings marked done count already, however the client paid/.test(src('src/components/money/TaxSetAside.tsx')));
+check('the renter’s write-offs: a read that fails is an error, never a year without rent', !/catch \{ return \[\]; \}/.test(src('src/app/api/portal/renter-writeoffs/route.ts')) && !/tripsOf\(db, tenantId, year, rid\)\.catch/.test(src('src/app/api/portal/renter-writeoffs/route.ts')));
+check('each of the renter’s reads that failed is said', /unread: \[\.\.\.\(woY \? \[\] : \['Write-offs'\]\), \.\.\.\(miY \? \[\] : \['The mileage log'\]\), \.\.\.\(txY \? \[\] : \['What you earned and paid'\]\)\]/.test(rcomp));
+check('no words from one kind of business', !/[^\w](studio|salon|stylist|booth|chair)[^\w]/i.test(comp + src('src/lib/year-end-packet.ts') + rcomp));
 
 carry.then(() => {
   console.log(F.failures ? `\n${F.failures} failed` : '\nAll passed');

@@ -24,7 +24,7 @@ const dollars = (c: number | null | undefined) => (c == null ? '' : String(Math.
 export type Who = 'renter' | 'owner';
 const WORDS = {
   renter: { earned: 'Earned', off: 'Write-offs', keep: 'You keep', none: 'Nothing to set aside yet: what you’ve earned this year doesn’t top your write-offs so far.', keepWord: 'from what you keep after costs', inbox: 'In my portal', inboxSaid: 'You’ll see a reminder on Today.', noEmail: 'Your email isn’t on file with the business you rent from, so reminders show in your portal.', seeOff: 'See your write-offs',
-    outside: 'Business income outside ClarityFlow so far this year', outsideSub: 'Cash, payment apps, tips paid to you, other places you work for yourself. Your online shop sales are counted already.',
+    outside: 'Business income not booked in ClarityFlow so far this year', outsideSub: 'Work that wasn’t booked here, tips clients paid you directly, other places you work for yourself. Bookings marked done count already, however the client paid, and so do your shop sales.',
     from: 'From what you earn through ClarityFlow and tips the front desk collected for you, less your write-offs' },
   owner: { earned: 'Profit in your books', off: 'Business miles', keep: 'Taxed on', none: 'Nothing to set aside yet: the books show no profit this year so far.', keepWord: 'from the business’s profit', inbox: 'In ClarityFlow', inboxSaid: 'You’ll see a reminder on the Money page.', noEmail: 'Your own email isn’t on file, so reminders show on the Money page.', seeOff: 'See write-offs',
     outside: 'Business income not in your books so far this year', outsideSub: 'Cash or payments you haven’t recorded. Better still, add them to Books.',

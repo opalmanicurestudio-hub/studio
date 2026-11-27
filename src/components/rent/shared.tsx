@@ -61,8 +61,10 @@ export const localDay = (d: Date | string): string => {
 export const ScreenContext = React.createContext(false);
 /** Opens another screen or place of the portal from inside a screen (the page provides it), e.g. a screen pointing the
  *  renter at What comes with your space. Null outside the portal page. */
-export type OpenScreen = (to: { view?: string | null; tab?: 'today' | 'calendar' | 'clients' | 'money' | 'space' }) => void;
+export type OpenScreen = (to: { view?: string | null; tab?: 'today' | 'calendar' | 'clients' | 'money' | 'space'; year?: number }) => void;
 export const OpenScreenContext = React.createContext<OpenScreen | null>(null);
+/** The year a screen was opened for (Close the year opening last year's write-offs or mileage), else null. */
+export const ScreenYearContext = React.createContext<number | null>(null);
 
 /** A tool the business makes an add-on (lib/renter-offers) that this renter doesn't have: why, and the way to add it. */
 export function AddOnNote({ text, canAdd }: { text: string; canAdd?: boolean }) {

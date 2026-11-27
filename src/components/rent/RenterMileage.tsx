@@ -4,6 +4,7 @@
 // their own business, kept apart from the business's books and seen only by them. The print names their business.
 import * as React from 'react';
 import { MileageScreen } from '@/components/money/MileageScreen';
+import { ScreenYearContext } from '@/components/rent/shared';
 
 /** Where the phone is, once (no following): null when location is off or it takes too long. */
 function where(): Promise<{ lat: number; lng: number } | null> {
@@ -20,5 +21,7 @@ export function RenterMileage({ tenantId, token, business }: { tenantId: string;
       return await r.json();
     } catch { return { ok: false, error: 'No connection. Try again.' }; }
   }, [tenantId, token]);
-  return <div className="-mx-4"><MileageScreen key={`${tenantId}_${token.slice(0, 8)}`} renter post={post} where={where} business={business} /></div>;
+  // (Opened from Close the year for last year: that year first.)
+  const forYear = React.useContext(ScreenYearContext);
+  return <div className="-mx-4"><MileageScreen key={`${tenantId}_${token.slice(0, 8)}_${forYear || ''}`} renter post={post} where={where} business={business} startYear={forYear} /></div>;
 }

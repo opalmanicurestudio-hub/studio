@@ -8,6 +8,7 @@ import { MyGiftCards } from '@/components/rent/MyGiftCards';
 import { RenterMileage } from '@/components/rent/RenterMileage';
 import { RenterWriteOffs } from '@/components/rent/RenterWriteOffs';
 import { RenterTaxes } from '@/components/rent/RenterTaxes';
+import { RenterYearEnd } from '@/components/rent/RenterYearEnd';
 import { StaleCopyBanner } from '@/components/shared/StaleCopyBanner';
 import { downscaleImageToDataUrl } from '@/lib/client-image';
 import { getApps, initializeApp } from 'firebase/app';
@@ -23,7 +24,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Armchair, ChevronLeft, ChevronRight, Loader, Settings } from 'lucide-react';
 import { biz, setBusinessName } from '@/components/rent/biz';
 import { TAB_LABEL, VIEW_BACK, VIEW_PARENT, VIEW_TITLES, backMove, markSpot, needsTarget, placeRows, placesFor, pushSpot, setupRows, shownPlace, shownView, spotFromState, tabFor, type PortalTab, type RowGroupSpec, type Who } from '@/components/rent/portal-map';
-import { ScreenContext, OpenScreenContext, type OpenScreen, fmtDate, fmtMoney, localISO } from '@/components/rent/shared';
+import { ScreenContext, OpenScreenContext, ScreenYearContext, type OpenScreen, fmtDate, fmtMoney, localISO } from '@/components/rent/shared';
 import { MyBook, MyClientMessages, MyClients, TellMeWhen } from '@/components/rent/business';
 import { GettingSetUp, MyBooks, MyBrand, MyHours, MyMemberships, MyNumber, MyPackages, MyPage, MyCampaigns, MyPayments, MyProfile, MyReconnect, MyReviews, MyServices } from '@/components/rent/setup';
 import { RenterInbox } from '@/components/rent/RenterInbox';
@@ -176,6 +177,8 @@ export default function RenterPortalPage() {
   const [tabAsked, setTabRaw] = useState<PortalTab>('today');
   // A screen opened from a place or from "Needs you": the exact thing, with a way back (null is the place itself).
   const [viewAsked, setView] = useState<string | null>(null);
+  // (The year a screen was opened for, from Close the year; any other way there, the screen's own.)
+  const [screenYear, setScreenYear] = useState<number | null>(null);
   // What's shown is what was asked for, if this renter has it (a link to Calendar for someone who doesn't book here
   // lands on Today, never on a screen they can't use, not even for a moment).
   const tab: PortalTab = data ? shownPlace(tabAsked, who) : tabAsked === 'money' || tabAsked === 'space' ? tabAsked : 'today';
@@ -197,6 +200,7 @@ export default function RenterPortalPage() {
   const headingRef = useRef<HTMLHeadingElement | null>(null);
   const toTop = () => { try { window.scrollTo({ top: 0 }); } catch { /* fine */ } };
   const go = (t: PortalTab, v: string | null, how: 'step' | 'here', keepFocus = false) => {
+    setScreenYear(null);
     // Only somewhere this renter has; a screen they can't use isn't a step.
     const toTab = data ? shownPlace(t, who) : t;
     const toView = data ? shownView(v, who) : v;
@@ -209,8 +213,9 @@ export default function RenterPortalPage() {
   const setTab = (t: string) => go(tabFor(t), null, 'here', true);   // a tap on the bar keeps the focus on the bar
   const open = (v: string) => go(tab, v, 'step');
   // From inside a screen: another screen (in its own place), or a place itself.
-  const openScreen: OpenScreen = (to) => go(to.tab || (to.view && VIEW_PARENT[to.view]) || tab, to.view || null, 'step');
+  const openScreen: OpenScreen = (to) => { go(to.tab || (to.view && VIEW_PARENT[to.view]) || tab, to.view || null, 'step'); if (to.year) setScreenYear(to.year); };
   const back = () => {
+    setScreenYear(null);
     let move: 'history' | 'here' | 'wait' = 'here';
     try { move = backMove(window.history.state, backing.current); } catch { /* fine */ }
     if (move === 'wait') return;
@@ -227,6 +232,7 @@ export default function RenterPortalPage() {
       backing.current = false;
       const spot = spotFromState(e.state);
       if ((spot?.view || null) !== shownNow.current.view) moved.current = true;
+      setScreenYear(null);
       if (spot) { setTabRaw(spot.tab); setView(spot.view); } else setView(null);
       toTop();
     };
@@ -434,6 +440,7 @@ export default function RenterPortalPage() {
       case 'mileage': return <RenterMileage tenantId={tenantId} token={token} business={renterBrand || String(data?.renter?.name || data?.name || '')} />;
       case 'taxes': return <RenterTaxes tenantId={tenantId} token={token} />;
       case 'writeoffs': return <RenterWriteOffs tenantId={tenantId} token={token} business={renterBrand || String(data?.renter?.name || data?.name || '')} />;
+      case 'yearend': return <RenterYearEnd tenantId={tenantId} token={token} business={renterBrand || String(data?.renter?.name || data?.name || '')} />;
       case 'followups': return <RenterFollowUps tenantId={tenantId} token={token} />;
       case 'campaigns': return <MyCampaigns data={data} tenantId={tenantId} token={token} />;
       case 'reconnect': return <MyReconnect tenantId={tenantId} token={token} />;
@@ -533,6 +540,7 @@ export default function RenterPortalPage() {
       case 'mileage': return { title: 'Mileage', sub: 'Drives for your business, logged as you go' };
       case 'writeoffs': return { title: 'Write-offs', sub: 'Rent, miles and costs, for your accountant' };
       case 'taxes': return { title: 'Taxes to set aside', sub: 'How much to keep back, and the four dates to pay' };
+      case 'yearend': return { title: 'Close the year', sub: 'What’s left, and one packet for your accountant' };
       case 'followups': return { title: 'Follow-ups', sub: 'Who to check in with, and a text ready to send' };
       case 'campaigns': return { title: 'Campaigns', sub: 'One message to a group of your clients' };
       case 'reconnect': return { title: 'Win back', sub: 'Clients you haven’t seen in a while' };
@@ -633,7 +641,7 @@ export default function RenterPortalPage() {
             {token && <div className={!view && tab === 'today' ? 'mb-8' : ''}><TodayQuick data={data} booksHere={booksHere} onGo={goFromToday} tenantId={tenantId} token={token} onBadges={setBadges} visible={!view && tab === 'today'} refreshKey={freshen} /></div>}
 
             {view ? (
-              <OpenScreenContext.Provider value={openScreen}><ScreenContext.Provider value><div className="space-y-8">{screen(view)}</div></ScreenContext.Provider></OpenScreenContext.Provider>
+              <OpenScreenContext.Provider value={openScreen}><ScreenYearContext.Provider value={screenYear}><ScreenContext.Provider value><div className="space-y-8">{screen(view)}</div></ScreenContext.Provider></ScreenYearContext.Provider></OpenScreenContext.Provider>
             ) : tab === 'today' ? (
               <div className="space-y-8">
                 {todays.length > 0 && (

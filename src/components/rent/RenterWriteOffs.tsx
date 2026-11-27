@@ -5,7 +5,7 @@
 // meal half counts, a gift up to $25 a person), tips collected for them at the front desk, what's often missed, and a
 // print for their accountant. Their costs and answers are seen only by them.
 import * as React from 'react';
-import { OpenScreenContext } from '@/components/rent/shared';
+import { OpenScreenContext, ScreenYearContext } from '@/components/rent/shared';
 import { printPage } from '@/lib/print-style';
 import { RENTER_CHECKLIST, RENTER_COST_KINDS, RENTER_USUAL, renterWriteOffsHtml, type RenterCost, type RenterCostKind, type RenterFound } from '@/lib/renter-write-offs';
 
@@ -86,7 +86,9 @@ export function RenterWriteOffs({ tenantId, token, business }: { tenantId: strin
     const r = await post({ action: 'list', ...(year ? { year } : {}) });
     if (r?.ok) { setD(r); setErr(''); } else setErr(r?.error || 'Write-offs didn’t load. Try again.');
   }, [post]);
-  React.useEffect(() => { void load(); }, [load]);
+  // (Opened from Close the year for last year: that year first.)
+  const forYear = React.useContext(ScreenYearContext);
+  React.useEffect(() => { void load(forYear ?? undefined); }, [load, forYear]);
   const act = async (key: string, body: any, done: string) => {
     setBusy(key); setErr(''); setSaid('');
     const r = await post(body); setBusy(null);
