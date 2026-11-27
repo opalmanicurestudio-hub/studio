@@ -51,6 +51,20 @@ export type SelfRun = {
   /** The tax tables are older than the payday's year. */
   stale?: boolean;
 };
+/** A payroll tax owed or paid, across paydays (lib/payroll-owed), as the screen shows it. */
+export type OwedRow = { key: string; name: string; sub: string; amount: number; late?: boolean;
+  /** Can be marked paid now (not one still building up, or federal unemployment carrying over). */
+  payable?: boolean;
+  /** The mark can be taken back ("Not paid"): one marked by hand, or matched to the wrong bank payment. */
+  undo?: boolean };
+/** Payroll taxes owed and paid, across paydays, and the quarter's forms. */
+export type OwedProps = {
+  toPay: OwedRow[]; paid: OwedRow[];
+  /** Mark one paid; a string back is what went wrong. Left out for someone who can't. */
+  onPaid?: (key: string, amount: number, paidOn: string) => Promise<string | null>;
+  onUnpaid?: (key: string) => Promise<void>;
+  onForms: () => void; formsWords: string; today: string;
+};
 const METHODS: { v: PayMethod; label: string }[] = [{ v: 'transfer', label: 'Bank transfer' }, { v: 'check', label: 'Check' }, { v: 'cash', label: 'Cash' }];
 /** One part of the split: taxes, the owner's own pay, profit, and what stays to run the business. */
 export type SetAsidePart = { key: 'tax' | 'owner' | 'profit' | 'opex'; pct: number; amount: number };
@@ -114,6 +128,36 @@ function TaxLines({ t, self, id }: { t: PersonTax; self: SelfRun; id: string }) 
     {t.short > 0 && <span className="block text-[13px] font-semibold" style={{ color: AMBER }}>The paycheck is too small for all the taxes: {usd(t.short)} can’t be withheld. Ask your accountant how to collect it.</span>}
   </>);
 }
+/** One payroll tax owed or paid, with "I paid it" (the amount and the day) or taking a mark back. */
+function OwedLine({ x, o, paid }: { x: OwedRow; o: OwedProps; paid?: boolean }) {
+  const [open, setOpen] = React.useState(false); const [amt, setAmt] = React.useState(String(x.amount)); const [on, setOn] = React.useState(o.today);
+  const [busy, setBusy] = React.useState(false); const [err, setErr] = React.useState<string | null>(null);
+  const save = async () => { if (!o.onPaid) return; setBusy(true); setErr(null); const r = await o.onPaid(x.key, Number(amt) || 0, on).catch(() => 'Not saved. Try again.'); setBusy(false); if (r) setErr(r); else setOpen(false); };
+  return (
+    <div style={{ borderTop: `1px solid ${LINE}` }}>
+      <div className="flex min-h-[56px] flex-wrap items-center justify-between gap-3 py-2">
+        <span className="min-w-0 flex-1"><span className="block">{x.name}</span><span className="block text-[13px]" style={{ color: x.late ? AMBER : MUTED }}>{x.sub}</span></span>
+        <span className="flex shrink-0 items-center gap-2">
+          <span className="tabular-nums" style={{ fontWeight: paid ? undefined : 600 }}>{usd(x.amount)}</span>
+          {paid
+            ? x.undo && o.onUnpaid ? <button type="button" disabled={busy} onClick={async () => { setBusy(true); await o.onUnpaid!(x.key).catch(() => {}); setBusy(false); }} className={btn} style={plain}>Not paid</button>
+              : <span className="rounded-full px-3 py-1.5 text-[13px]" style={{ background: GREEN_TINT, color: GREEN }}>Paid</span>
+            : x.payable && o.onPaid && !open ? <button type="button" onClick={() => setOpen(true)} className={btn} style={plain}>I paid it</button> : null}
+        </span>
+      </div>
+      {open && <div className="mb-3 flex flex-wrap items-end gap-2 rounded-2xl p-3" style={{ background: SOFT }}>
+        <label className="flex flex-col gap-1 text-[14px]" style={{ color: MUTED }}>Paid
+          <span className="flex h-11 items-center rounded-xl bg-[#fff] px-3 focus-within:ring-2 focus-within:ring-[#16171a]" style={{ border: `1px solid ${LINE}`, color: INK }}><span aria-hidden style={{ color: MUTED }}>$</span>
+            <input type="number" inputMode="decimal" min={0} step="0.01" value={amt} onChange={(e) => setAmt(e.target.value)} className="h-full w-[110px] bg-transparent pl-1 text-[15px] tabular-nums focus:outline-none" /></span></label>
+        <label className="flex flex-col gap-1 text-[14px]" style={{ color: MUTED }}>On
+          <input type="date" value={on} max={o.today} onChange={(e) => setOn(e.target.value)} className={field} style={{ border: `1px solid ${LINE}`, color: INK }} /></label>
+        <button type="button" onClick={save} disabled={busy || !(Number(amt) > 0) || !on} className={btn} style={solid}>{busy ? 'Saving' : 'Save'}</button>
+        <button type="button" onClick={() => setOpen(false)} disabled={busy} className={btn} style={plain}>Cancel</button>
+        {err && <span role="alert" className="w-full text-[13px]" style={{ color: AMBER }}>{err}</span>}
+      </div>}
+    </div>
+  );
+}
 /** How a person is paid this payday, and the check number for a check. */
 function PaidBy({ id, name, self }: { id: string; name: string; self: SelfRun }) {
   const m = self.methods[id] || { method: 'transfer' as PayMethod, checkNo: '' };
@@ -156,6 +200,8 @@ export type PaydayScreenProps = {
   /** Nobody has said who works out the payroll taxes yet (and Gusto isn't connected): asked once, here. `onPick` is
    *  left out for someone who can't change it (only the owner can). */
   askRunBy?: { onPick?: (v: 'clarityflow' | 'gusto' | 'company') => void } | null;
+  /** Payroll taxes owed and paid across paydays (payroll run in ClarityFlow). */
+  owed?: OwedProps | null;
   onConnectGusto: () => void; onSendToGusto: () => void; sendingToGusto: boolean;
   /** Employees with pay who aren't matched to anyone in Gusto yet (payroll waits for them), the matching card itself, and
    *  the pay period as a spreadsheet for another payroll company. */
@@ -381,15 +427,30 @@ export function PaydayScreen(p: PaydayScreenProps) {
     </section>
   );
 
-  const keep = self && self.owed.length > 0 ? (
-    <section aria-label="Payroll taxes to pay later" className={card} style={{ border: `1px solid ${LINE}` }}>
-      <h3 className="text-[17px] font-semibold">Payroll taxes to pay later</h3>
-      <p className="text-[14px]" style={{ color: MUTED }}>From this payday: what’s withheld from the team’s pay, and your share as the employer.</p>
-      <div className="mt-2">
-        {self.owed.map((x) => <Row key={x.key} label={x.name} sub={x.sub} value={usd(x.amount)} />)}
-        <Row label="In all" value={usd(self.owedTotal)} tone="total" />
-      </div>
-      <p className="mt-2 pb-1 text-[13px]" style={{ color: MUTED }}>When you pay one, sort its bank line as Payroll Tax Deposit: it’s in your books from payday already, so it isn’t counted twice.</p>
+  const fromThis = self && self.owed.length > 0 && !p.recordedOn;
+  const o = self ? p.owed || null : null;
+  const keep = fromThis || (o && (o.toPay.length || o.paid.length)) ? (
+    <section aria-label="Payroll taxes" className={card} style={{ border: `1px solid ${LINE}` }}>
+      <h3 className="text-[17px] font-semibold">Payroll taxes</h3>
+      <p className="text-[14px]" style={{ color: MUTED }}>What your paydays owe the IRS{self?.stateName ? ` and ${self.stateName}` : ''}, when each is due, and what’s paid. A payment your bank shows for what’s owed is marked paid on its own.</p>
+      {fromThis && <div className="mt-3">
+        <p className="text-[13px] font-semibold" style={{ color: MUTED }}>From this payday, once it’s recorded</p>
+        {self!.owed.map((x) => <Row key={x.key} label={x.name} sub={x.sub} value={usd(x.amount)} />)}
+        <Row label="In all" value={usd(self!.owedTotal)} tone="total" />
+      </div>}
+      {o && o.toPay.length > 0 && <div className="mt-3">
+        <p className="text-[13px] font-semibold" style={{ color: MUTED }}>To pay</p>
+        {o.toPay.map((x) => <OwedLine key={x.key} x={x} o={o} />)}
+      </div>}
+      {o && o.paid.length > 0 && <div className="mt-3">
+        <p className="text-[13px] font-semibold" style={{ color: MUTED }}>Paid</p>
+        {o.paid.map((x) => <OwedLine key={x.key} x={x} o={o} paid />)}
+      </div>}
+      {o && <div className="mt-3 flex min-h-[56px] flex-wrap items-center justify-between gap-3 py-2" style={{ borderTop: `1px solid ${LINE}` }}>
+        <span className="min-w-0"><span className="block">{o.formsWords}</span><span className="block text-[13px]" style={{ color: MUTED }}>Form 941{self?.stateForm ? ', NC-5 and NCUI 101' : ''}: the numbers, line by line</span></span>
+        <button type="button" onClick={o.onForms} className={btn} style={plain}>See the numbers</button>
+      </div>}
+      <p className="mt-2 pb-1 text-[13px]" style={{ color: MUTED }}>When you pay one, its bank line is sorted as Payroll Tax Deposit: it’s in your books from payday already, so it isn’t counted twice.</p>
     </section>
   ) : null;
 

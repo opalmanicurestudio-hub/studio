@@ -18,7 +18,9 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { findCategory } from './categories';
 import { drawerCashCents, lineCents, nearOk, notBankMoney, saleOf } from './bank-match';
 import { coverWithPayday } from './payroll-bank';
-import { runByOf, payDateOf } from './payroll-taxes';
+import { runByOf, payDateOf, owedRunsFrom } from './payroll-taxes';
+import { todayIn } from './pay-periods';
+import { owedItems, type OwedItem } from './payroll-owed';
 
 const PLAID_BASE: Record<string, string> = {
   sandbox: 'https://sandbox.plaid.com',
@@ -157,10 +159,14 @@ async function syncBody(db: any, tenantId: string): Promise<SyncResult> {
   // (a payday, a month or a quarter of them), is a payroll tax deposit, already in the books from payday. It's suggested
   // as one, never as sales tax or a second payroll expense, and never booked by a payee rule on its own.
   const selfRun = runByOf(tenantDoc) === 'clarityflow';
-  const stateOwed = new Set<number>(); const irsOwed = new Set<number>();
+  const stateOwed = new Set<number>(); const irsOwed = new Set<number>(); let owedOpen: OwedItem[] = [];
   if (selfRun) {
-    const runs = (await db.collection(`tenants/${tenantId}/payrollRuns`).where('recordedAt', '>=', new Date(Date.now() - 200 * DAY).toISOString()).limit(300).get().catch(() => ({ docs: [] as any[] })))
-      .docs.map((d: any) => d.data() || {}).filter((r: any) => r.kind === 'payday' && r.taxes?.owed);
+    const all = (await db.collection(`tenants/${tenantId}/payrollRuns`).where('recordedAt', '>=', owedRunsFrom(Number(todayIn(tenantDoc).slice(0, 4)))).limit(1500).get().catch(() => ({ docs: [] as any[] })))
+      .docs.map((d: any) => d.data() || {});
+    const runs = all.filter((r: any) => r.kind === 'payday' && r.taxes?.owed);
+    // (What's still to pay on each, all of it or the rest: a payment for exactly that, to whom it's owed, marks it paid.)
+    owedOpen = owedItems(all, tenantDoc, '9999-12-31').filter((i) => i.left >= 0.01 && !i.carries);
+    for (const i of owedOpen) (['irs', 'futa'].includes(i.agency) ? irsOwed : stateOwed).add(Math.round(i.left * 100));
     const sums = new Map<string, number>(); const add = (k: string, v: number) => sums.set(k, (sums.get(k) || 0) + v);
     for (const r of runs) {
       const d = payDateOf(r, tenantDoc); const q = `${d.slice(0, 4)}q${Math.floor((Number(d.slice(5, 7)) - 1) / 3)}`;
@@ -449,6 +455,21 @@ async function syncBody(db: any, tenantId: string): Promise<SyncResult> {
     const vendorName = bt.merchant_name || bt.name;
     const deposit = outflow && !bt.pending ? taxDeposit(`${bt.merchant_name || ''} ${bt.name || ''}`, cents) : null;
     if (deposit) sugg = { category: 'Payroll Tax Deposit', taxBucket: 'transfer', type: 'expense', sure: false };
+    // (A payment for exactly what one payroll tax has left to pay, to whom it's owed: that one is marked paid, from the
+    // bank. Within a dollar it settles it: `covers` is what it owed then.)
+    let taxPayKey: string | null = null;
+    if (deposit === 'paid') {
+      const payee = `${bt.merchant_name || ''} ${bt.name || ''}`.toUpperCase();
+      const to = /\bIRS\b|USATAXPYMT|EFTPS|TREAS(URY)? TAX/.test(payee) ? ['irs', 'futa'] : /REVENUE|NCDOR/.test(payee) ? ['state'] : /EMPLOYMENT SECURITY|NCDES|UNEMPLOYMENT/.test(payee) ? ['sui'] : ['state', 'sui'];
+      const fits = owedOpen.filter((i) => to.includes(i.agency) && Math.abs(Math.round(i.left * 100) - cents) <= 100);
+      if (fits.length === 1) {
+        const it = fits[0]; owedOpen = owedOpen.filter((x) => x !== it); taxPayKey = it.key;
+        const part = { amount: cents / 100, paidOn: bt.date, source: 'bank', bankTransactionId: btId, recordedAt: nowIso };
+        const was = it.paid; const parts = [...(was?.parts || []), part];
+        await db.doc(`tenants/${tenantId}/payrollRuns/taxpay_${it.key}`).set({ kind: 'taxpayment', key: it.key, amount: Math.round(parts.reduce((n, x) => n + (Number(x.amount) || 0), 0) * 100) / 100,
+          paidOn: parts.map((x) => String(x.paidOn)).sort().pop(), recordedAt: nowIso, source: was ? 'mixed' : 'bank', bankTransactionId: btId, covers: it.amount, parts, by: null });
+      }
+    }
 
     // A card payout arriving: matched to the payout, never booked again.
     const btDate = new Date(bt.date + 'T00:00:00Z').getTime();
@@ -509,6 +530,8 @@ async function syncBody(db: any, tenantId: string): Promise<SyncResult> {
       suggestedCategory: sugg.category, suggestedTaxBucket: sugg.taxBucket, suggestedType: sugg.type,
       plaidDetailed: pfc.detailed || null, plaidConfidence: pfc.confidence_level || null, accountId: bt.account_id || null,
       // (A deposit bigger than the cash and checks taken lately: it may be a sale nobody rang up, or her own money.)
+      // (Which payroll tax it marked paid: taken back if the line is sorted as something else, lib/payroll-tax-marks.)
+      ...(taxPayKey ? { taxPayKey } : {}),
       ...(deposit === 'paid' ? { hint: 'A payroll tax payment: it’s in your books from payday already, so it’s sorted as Payroll Tax Deposit, not counted again.' } : {}),
       ...(deposit === 'maybe' ? { hint: 'A payment to the IRS. Payroll taxes? Keep it as Payroll Tax Deposit: they’re in your books from payday already. Your own income tax paid from here is a Distribution.' } : {}),
       ...(!outflow && isDeposit(bt) && !cashDeposit && !payout && !appCode ? { hint: 'More than the cash and checks taken lately. A client’s check nobody rang up, or money you put in?' } : {}),

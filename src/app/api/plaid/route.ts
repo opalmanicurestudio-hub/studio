@@ -39,6 +39,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { bucketFor, findCategory } from '@/lib/categories';
 import { matchBankLine, unmatchBankLine, PENDING } from '@/lib/bank-match-server';
+import { dropBankTaxMark } from '@/lib/payroll-tax-marks';
 import { coverWithPayday, paydayPlanFor } from '@/lib/payroll-bank';
 // v62 — sync engine + helpers extracted to a shared lib so the nightly
 // cron (/api/cron/nightly) runs the exact same logic as the Sync button.
@@ -150,6 +151,8 @@ export async function POST(req: NextRequest) {
           tx.set(btRef, { status: 'ignored', resolvedAt: nowIso }, { merge: true }); return true;
         });
         if (!r) return NextResponse.json(sortedAlready, { status: 409 });
+        // (A payroll tax payment, ignored: it no longer counts as paying it.)
+        if (bt.taxPayKey) await dropBankTaxMark(db, tenantId, bankTxnId, bt.taxPayKey, actor);
         await logAuditAdmin(db, tenantId, {
           action: 'bank.ignore', targetType: 'bankTransaction', targetId: bankTxnId,
           summary: `Ignored bank line: ${bt.merchant || bt.name}`,
@@ -163,6 +166,11 @@ export async function POST(req: NextRequest) {
       if (mode === 'match' && ids.length) {
         const r: any = await matchBankLine(db, tenantId, biz, bankTxnId, ids, body.extra, nowIso);
         if (!r.ok) return NextResponse.json({ ok: false, error: r.error, ...(r.ask ? { ask: r.ask, extraCents: r.extraCents, tipOk: !!r.tipOk } : {}) }, { status: r.status });
+        // (A payroll tax payment matched to lines that aren't payday's payroll taxes: it isn't paying them.)
+        if (bt.taxPayKey) {
+          const cats = await Promise.all(ids.map((id) => db.doc(`tenants/${tenantId}/transactions/${id}`).get().then((x: any) => String(x.data()?.category || '')).catch(() => '')));
+          if (!cats.every((c) => /^payroll tax(es| deposit)$/i.test(c))) await dropBankTaxMark(db, tenantId, bankTxnId, bt.taxPayKey, actor);
+        }
         await logAuditAdmin(db, tenantId, {
           action: 'bank.match', targetType: 'bankTransaction', targetId: bankTxnId,
           summary: `Matched bank line ${bt.merchant || bt.name} to ${ids.length === 1 ? 'a line' : `${ids.length} lines`} already in the books${r.diffCents ? `, with the $${(Math.abs(r.diffCents) / 100).toFixed(2)} difference booked` : ''}`,
@@ -235,6 +243,7 @@ export async function POST(req: NextRequest) {
           return { ok: true };
         });
         if (!r.ok) return NextResponse.json(r, { status: 409 });
+        if (bt.taxPayKey && finalCategory !== 'Payroll Tax Deposit') await dropBankTaxMark(db, tenantId, bankTxnId, bt.taxPayKey, actor);
         // Learn: this merchant now books itself on every future sync —
         // under the category the owner actually chose, not just the guess.
         // (Never from a line moved to the other books: one shop run on a personal card doesn't make every later
@@ -264,6 +273,7 @@ export async function POST(req: NextRequest) {
     }
 
     // unmatch — a match undone (lib/bank-match-server): its lines as they were, the bank line back to sort.
+    // (A payroll tax payment's mark stays: the line waits to be sorted again, and how it's sorted then decides.)
     if (action === 'unmatch') {
       const bankTxnId = String(body.bankTxnId || '');
       if (!/^[A-Za-z0-9_-]{1,160}$/.test(bankTxnId)) return NextResponse.json({ ok: false, error: 'Which line?' }, { status: 400 });
@@ -319,6 +329,7 @@ export async function POST(req: NextRequest) {
           return { ...b, type, category, bucket };
         });
         if (!bt) continue;
+        if (bt.taxPayKey && bt.category !== 'Payroll Tax Deposit') await dropBankTaxMark(db, tenantId, d.id, bt.taxPayKey, actor);
         const vk = vendorKey(bt.merchant || bt.name);
         if (vk) await db.doc(`tenants/${tenantId}/vendorRules/${(bt.context || 'Business').toLowerCase()}:${vk}`).set({
           merchant: bt.merchant || bt.name, category: bt.category,
@@ -354,6 +365,8 @@ export async function POST(req: NextRequest) {
       if (type === 'expense' && def?.type === 'income' && def.taxBucket !== 'transfer') return NextResponse.json({ ok: false, error: `Money out can’t be ${def.name}. If you gave money back, pick Refunds.` }, { status: 400 });
       const bucket = bucketOfBooked(category, type);
       const nowIso = new Date().toISOString();
+      // (A payroll tax payment changed to something else: it no longer counts as paying it.)
+      if (bt.taxPayKey && !/^payroll tax(es| deposit)$/i.test(category)) await dropBankTaxMark(db, tenantId, bankTxnId, bt.taxPayKey, actor);
       // (Into payroll, after payday was recorded: the line is handed back and matched to payday's pay instead, so it isn't
       // counted twice; only what's beyond it is booked, as payroll taxes. lib/payroll-bank.)
       const bAt = { id: bankTxnId, amountCents: Number(bt.amountCents) || 0, date: String(bt.date), context: 'Business', name: bt.merchant || bt.name };

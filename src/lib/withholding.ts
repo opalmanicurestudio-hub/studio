@@ -167,7 +167,8 @@ export type Withholding = {
   inHand: number;
   pretax: { retirement: number; health: number };
   /** Wages each tax is on. */
-  wages: { federal: number; socialSecurity: number; medicare: number; state: number; futa: number; sui: number };
+  /** additionalMedicare: the wages this paycheck that are over the year's $200,000, the extra 0.9% Medicare is on. */
+  wages: { federal: number; socialSecurity: number; medicare: number; additionalMedicare: number; state: number; futa: number; sui: number };
   employee: { federal: number; socialSecurity: number; medicare: number; additionalMedicare: number; state: number; other: OtherAmount[] };
   employeeTotal: number;
   employer: { socialSecurity: number; medicare: number; futa: number; sui: number; other: OtherAmount[] };
@@ -199,9 +200,10 @@ export function withholdingFor(i: WithholdingInput): Withholding {
   const ssWages = r2(under(ficaWages, ytd.ssWages, t.ss.base));
   const futaWages = r2(under(ficaWages, ytd.futaWages, t.futa.base));
   const sui = suiOf(i.state, i.setup, i.year); const suiWages = r2(under(ficaWages, ytd.suiWages, sui.base));
+  const addlWages = r2(Math.max(0, ytd.medicareWages + ficaWages - Math.max(t.medicare.over, ytd.medicareWages)));
   const want = {
     socialSecurity: r2(ssWages * t.ss.rate), medicare: r2(ficaWages * t.medicare.rate),
-    additionalMedicare: r2(Math.max(0, ytd.medicareWages + ficaWages - Math.max(t.medicare.over, ytd.medicareWages)) * t.medicare.addl),
+    additionalMedicare: r2(addlWages * t.medicare.addl),
     federal: federalIncomeTax(federalWages, periods, forms.federal, i.year),
     state: stateIncomeTax(federalWages, periods, i.state, forms.state, i.setup, i.year),
   };
@@ -233,7 +235,7 @@ export function withholdingFor(i: WithholdingInput): Withholding {
   const check = r2(gross - inHand - health - retirement);
   return {
     gross, inHand, pretax: { retirement, health },
-    wages: { federal: federalWages, socialSecurity: ssWages, medicare: ficaWages, state: how === 'none' ? 0 : federalWages, futa: futaWages, sui: suiWages },
+    wages: { federal: federalWages, socialSecurity: ssWages, medicare: ficaWages, additionalMedicare: addlWages, state: how === 'none' ? 0 : federalWages, futa: futaWages, sui: suiWages },
     employee, employeeTotal, employer, employerTotal, short, check, takeHome: r2(check - employeeTotal), stateHow: how, flags,
   };
 }

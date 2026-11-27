@@ -118,7 +118,7 @@ const now = '2026-12-02T15:00:00.000Z';
   check('each person: takes home, of what they earned, and what’s withheld under it', /Takes home<\/span>/.test(screen) && /of \{usd\(tx\.gross\)\} earned/.test(screen) && /Withheld \{usd\(t\.employeeTotal\)\}/.test(screen));
   check('no W-4 on file: said plainly, with Add W-4 for a manager', /No W-4 on file\. Taxed as single until one is added, as the IRS requires\./.test(screen) && /add: 'Add W-4'/.test(screen) && /onForms: canEditForms \?/.test(page));
   check('how each person is paid, and a check number for a check', /aria-label=\{`How \$\{name\} is paid`\}/.test(screen) && /m\.method === 'check' && <label/.test(screen) && /method: m\.method, \.\.\.\(m\.method === 'check' && m\.checkNo/.test(page));
-  check('the payroll taxes to pay later, each with when it’s due', /Payroll taxes to pay later/.test(screen) && /Due \$\{on\(due\.irs\)\}/.test(page) && /Form NC-5\. Due/.test(page));
+  check('this payday’s payroll taxes, each with when it’s due', /From this payday, once it’s recorded/.test(screen) && /Due \$\{on\(due\.irs\)\}/.test(page) && /Form NC-5\. Due/.test(page));
   check('no Connect Gusto while ClarityFlow runs payroll, and the way to change that', /\{runBy === 'gusto' && <div className="mt-3 flex flex-wrap items-center gap-2">/.test(screen) && /Use Gusto or another payroll company instead/.test(screen)
     && /gustoSlot=\{gusto\.connected && runBy === 'gusto' \?/.test(page));
   check('Payday asks once who works out the taxes, and only the owner answers', /Who works out your team’s payroll taxes\?/.test(screen) && /askRunBy=\{selectedTenant && !runByChosen\(selectedTenant\) && !gusto\.connected \?/.test(page)

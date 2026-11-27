@@ -87,9 +87,11 @@ import { OwedToClients } from '@/components/money/OwedToClients';
 import { BankScreen } from '@/components/money/BankScreen';
 import { BooksScreen, wayOf, type BooksFilters } from '@/components/money/BooksScreen';
 import { ReportsScreen } from '@/components/money/ReportsScreen';
-import { PaydayScreen, spanWords, type SelfRun, type PersonTax, type PayMethod } from '@/components/money/PaydayScreen';
+import { PaydayScreen, spanWords, type SelfRun, type PersonTax, type PayMethod, type OwedProps } from '@/components/money/PaydayScreen';
+import { PayrollFormsDialog } from '@/components/money/PayrollFormsDialog';
+import { owedItems } from '@/lib/payroll-owed';
 import { TaxFormsDialog } from '@/components/staff/TaxFormsDialog';
-import { runByOf, runByChosen, paydayTaxes, ytdFrom, payDateFor, dueDates, yearRunsFrom } from '@/lib/payroll-taxes';
+import { runByOf, runByChosen, paydayTaxes, ytdFrom, payDateFor, dueDates, owedRunsFrom, quarterWords } from '@/lib/payroll-taxes';
 import type { TaxForms } from '@/lib/withholding';
 import { saveStaffPay } from '@/lib/staff-pay-client';
 import { payOverlayReady } from '@/firebase/firestore/pay-overlay';
@@ -801,7 +803,10 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
   const selfRunOn = runBy === 'clarityflow';
   const payDate = selectedTenant ? payDateFor(selectedTenant, payFromYmd, payToYmd, todayIn(selectedTenant)) : payToYmd;
   const taxYear = Number(payDate.slice(0, 4));
-  const { data: yearRuns } = useCollection<any>(useMemoFirebase(() => (firestore && tenantId && selfRunOn ? query(collection(firestore, `tenants/${tenantId}/payrollRuns`), where('recordedAt', '>=', yearRunsFrom(taxYear)), limit(500)) : null), [firestore, tenantId, selfRunOn, taxYear]));
+  // (From January of last year: the year so far for the taxes, and what's owed and the forms, last year's fourth quarter
+  // and federal unemployment too while it's January.)
+  const runsYear = Math.min(taxYear, Number((selectedTenant ? todayIn(selectedTenant) : payToYmd).slice(0, 4)) || taxYear);
+  const { data: yearRuns } = useCollection<any>(useMemoFirebase(() => (firestore && tenantId && selfRunOn ? query(collection(firestore, `tenants/${tenantId}/payrollRuns`), where('recordedAt', '>=', owedRunsFrom(runsYear)), limit(1500)) : null), [firestore, tenantId, selfRunOn, runsYear]));
   const selfTaxes = useMemo(() => {
       if (!selfRunOn || !selectedTenant) return null;
       const forms: Record<string, TaxForms | null> = Object.fromEntries((staff || []).map((m: any) => [m.id, m.taxForms || null]));
@@ -845,6 +850,30 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
           stale: Object.values(selfTaxes.by).some((w) => w.flags.includes('stale_tables')),
       };
   }, [selfTaxes, selectedTenant, payDate, taxState, stateName, hasTaxLocation, stateProfile, methodsNow, canEditForms]);
+  // Payroll taxes owed and paid across paydays, and the quarter's forms (lib/payroll-owed).
+  const todayBiz = selectedTenant ? todayIn(selectedTenant) : payToYmd;
+  const owedList = useMemo(() => (selfRunOn && selectedTenant ? owedItems(yearRuns || [], selectedTenant, todayBiz, stateName) : []), [selfRunOn, selectedTenant, yearRuns, todayBiz, stateName]);
+  const [taxFormsOpen, setTaxFormsOpen] = useState(false);
+  const owed: OwedProps | null = useMemo(() => {
+      if (!selfRunOn) return null;
+      const on = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+      const days = (d: string) => Math.round((Date.parse(`${d}T12:00:00Z`) - Date.parse(`${todayBiz}T12:00:00Z`)) / 86400000);
+      const subOf = (i: typeof owedList[number]) => i.carries ? `Under $500 for the year so far, so it carries over. Paid by ${on(i.due!)} once it passes $500, or with Form 940`
+          : i.open ? `${i.due ? `Due ${on(i.due)}` : 'Due when it’s filed'}. Still adding up: later paydays add to it`
+          : !i.due ? 'Due when it’s filed' : i.due < todayBiz ? `Was due ${on(i.due)}` : `Due ${on(i.due)}${days(i.due) <= 30 ? `, in ${days(i.due)} day${days(i.due) === 1 ? '' : 's'}` : ''}`;
+      const call = async (method: 'POST' | 'DELETE', b: any) => { const r: any = await fetch('/api/payroll/taxes', { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, ...b }) }).then((x) => x.json()).catch(() => null); return r?.ok ? null : (r?.error || 'Not saved. Try again.'); };
+      return {
+          // (One paid in part, a payday recorded late having added to it: the rest is still to pay.)
+          toPay: owedList.filter((i) => i.left >= 0.01).map((i) => ({ key: i.key, name: i.paid ? `${i.name}, the rest` : i.name, amount: i.left, sub: i.paid ? `${subOf(i)}. ${fmtCurrency(i.paid.amount)} of it is paid` : subOf(i),
+              late: !!i.due && i.due < todayBiz && !i.open, payable: !i.open && !i.carries })),
+          paid: owedList.filter((i) => i.paid).sort((a, b) => String(b.paid!.paidOn).localeCompare(String(a.paid!.paidOn))).slice(0, 3)
+              .map((i) => ({ key: i.key, name: i.name, amount: i.paid!.amount, undo: true,
+                  sub: `${i.paid!.bankTransactionId ? 'Paid' : 'Marked paid'} ${on(i.paid!.paidOn)}${i.paid!.bankTransactionId ? ', from your bank' : ''}${i.due && i.paid!.paidOn > i.due ? `, after it was due ${on(i.due)}` : ''}` })),
+          onPaid: (key, amount, paidOn) => call('POST', { key, amount, paidOn, add: !!owedList.find((i) => i.key === key)?.paid }),
+          onUnpaid: async (key) => { const e = await call('DELETE', { key }); if (e) toast({ variant: 'destructive', title: 'Not changed', description: e }); },
+          onForms: () => setTaxFormsOpen(true), formsWords: `Forms for ${quarterWords((Number(todayBiz.slice(5, 7)) - 1) % 3 === 0 ? new Date(Date.parse(`${todayBiz.slice(0, 8)}01T12:00:00Z`) - 86400000).toISOString().slice(0, 10) : todayBiz)}`, today: todayBiz,
+      };
+  }, [selfRunOn, owedList, todayBiz, tenantId]); // eslint-disable-line react-hooks/exhaustive-deps
   const saveForms = async (forms: TaxForms) => {
       if (!firestore || !tenantId || !formsFor) return 'Not saved. Try again.';
       try { await saveStaffPay(firestore as any, tenantId, formsFor, { taxForms: forms }); return null; }
@@ -985,7 +1014,7 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
         onLastDay={(v) => { if (/^\d{4}-\d{2}-\d{2}$/.test(v)) setCustom(c => ({ from: c && c.from <= v ? c.from : v, to: v })); }}
         cameIn={currentBalance}
         team={staffObligations} teamTotal={staffTotalOwed} employerTaxes={selfTaxes ? selfTaxes.employerTotal : employerTaxes} cashTipsOut={cashTipsOut}
-        runBy={runBy} selfRun={selfRun}
+        runBy={runBy} selfRun={selfRun} owed={owed}
         askRunBy={selectedTenant && !runByChosen(selectedTenant) && !gusto.connected ? { onPick: String(payRole || '').toLowerCase() === 'owner' && firestore && tenantId ? (v) => updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId), { 'payrollTax.runBy': v }) : undefined } : null}
         blocked={adjustmentsError ? 'Approved pay corrections couldn’t be read with your access, so payday can’t be recorded or sent from here. The owner can do it.' : null}
         bills={[...upcomingBusiness, ...upcomingPersonal]
@@ -1021,6 +1050,7 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
       />
       {formsPerson && <TaxFormsDialog open={!!formsFor} onOpenChange={(o) => { if (!o) setFormsFor(null); }} name={String(formsPerson.name || 'Team member')} forms={formsPerson.taxForms || null}
         state={taxState} stateName={stateName} onSave={saveForms} notReady={!!tenantId && !payOverlayReady(tenantId)} />}
+      {selfRunOn && selectedTenant && <PayrollFormsDialog open={taxFormsOpen} onOpenChange={setTaxFormsOpen} runs={yearRuns || []} tenant={selectedTenant} nc={taxState === 'NC'} today={todayBiz} businessName={String((selectedTenant as any)?.name || '')} />}
     </div>
   );
 };

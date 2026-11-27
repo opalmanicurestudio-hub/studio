@@ -15,7 +15,7 @@
 import { datedFor } from './books-close';
 import { periodOf, todayIn } from './pay-periods';
 import { keepOf, type PayMethod, type TaxForms } from './withholding';
-import { runByOf, paydayTaxes, ytdFrom, payDateFor, dueDates, yearRunsFrom } from './payroll-taxes';
+import { runByOf, paydayTaxes, ytdFrom, payDateFor, dueDates, yearRunsFrom, setupOf, payrollStateOf } from './payroll-taxes';
 
 export type PaydayPerson = { staffId: string; name: string; amount: number; cash: number; contractor: boolean; method?: PayMethod; checkNo?: string; tips?: number };
 export type PaydayInput = { periodKey: string; from: string; to: string; people: PaydayPerson[]; setAsides: { key: 'tax' | 'owner' | 'profit'; label: string; amount: number }[] };
@@ -133,7 +133,9 @@ export async function recordPayday(db: any, tenantId: string, tenant: any, input
           ...(p.tips ? { tips: p.tips } : {}), ...(w ? { taxes: keepOf(w), takeHome: w.takeHome } : {}) }; }),
       employeesTotal: employeePay, contractorsTotal: contractorPay, cashTipsTotal: cashTips, setAsides: input.setAsides,
       ...(bank.length ? { viaBank: bank.map((b: any) => b.id), viaBankCents } : {}),
-      ...(tax ? { taxes: { employee: tax.employeeTotal, employer: tax.employerTotal, takeHome: tax.takeHome, pretax: tax.pretax, owed: tax.owed, due: dueDates(payDate, tenant) } } : {}),
+      ...(tax ? { taxes: { employee: tax.employeeTotal, employer: tax.employerTotal, takeHome: tax.takeHome, pretax: tax.pretax, owed: tax.owed, due: dueDates(payDate, tenant),
+        // (How they're to be paid, as the settings were then: lib/payroll-owed groups them by it.)
+        schedule: { irs: setupOf(tenant).federalDeposits === 'semiweekly' ? 'semiweekly' : 'monthly', state: payrollStateOf(tenant) === 'NC' ? (setupOf(tenant).stateFiling || 'monthly') : null } } } : {}),
     });
     return { ok: true as const, recordedAt: nowIso, viaBankCents, lines: writes.length, ...(tax ? { taxes: { employee: tax.employeeTotal, employer: tax.employerTotal, takeHome: tax.takeHome, owed: tax.owed.total } } : {}) };
   });

@@ -33,6 +33,9 @@ export function payDateOf(run: any, tenant: any): string {
 /** The paydays recorded from the November before `year` on (the query Payday, the server and pay stubs use for the
  *  year so far: any payday paid in `year` was recorded then). */
 export const yearRunsFrom = (year: number) => `${year - 1}-11-01`;
+/** The paydays and payroll tax payments for what's owed and the forms: from January 1 of the year before `year` on, so
+ *  in January last year's fourth quarter, its federal unemployment and its year-end forms are all there. */
+export const owedRunsFrom = (year: number) => `${year - 1}-01-01`;
 /** The payday for these dates: the pay period's own, or the day it's recorded for dates picked by hand. */
 export function payDateFor(tenant: any, from: string, to: string, today: string): string {
   const p = periodOf(tenant, from); return p.from === from && p.to === to ? p.payday : today;

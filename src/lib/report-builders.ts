@@ -239,6 +239,7 @@ const ACTION_WORDS: Record<string, string> = {
   'bank.accept_all': 'Booked bank lines as picked', 'bank.recategorize': 'Changed a bank line’s category', 'bill.pay': 'Paid a bill',
   'rule.update': 'Changed a payee’s category', 'rule.delete': 'Forgot a payee', 'rule.money': 'Changed a money rule',
   'salestax.paid': 'Recorded sales tax as paid', 'salestax.unpaid': 'Took back a sales tax payment',
+  'payroll.tax_paid': 'Marked payroll taxes paid', 'payroll.tax_unpaid': 'Took back a payroll tax payment',
   'books.month_closed': 'Closed a month', 'books.month_reopened': 'Reopened a month',
   'payroll.draft_created': 'Started a payroll', 'payroll.submit_gusto': 'Sent payroll to Gusto', 'payroll.distribute': 'Paid the team', 'gusto.connected': 'Connected Gusto',
   'rent.payment_recorded': 'Recorded a rent payment', 'rent.paid_online': 'Rent paid online', 'rent.invoice': 'Sent a rent invoice', 'rent.marked_late': 'Marked rent late',
