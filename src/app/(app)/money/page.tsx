@@ -869,7 +869,7 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
           paid: owedList.filter((i) => i.paid).sort((a, b) => String(b.paid!.paidOn).localeCompare(String(a.paid!.paidOn))).slice(0, 3)
               .map((i) => ({ key: i.key, name: i.name, amount: i.paid!.amount, undo: true,
                   sub: `${i.paid!.bankTransactionId ? 'Paid' : 'Marked paid'} ${on(i.paid!.paidOn)}${i.paid!.bankTransactionId ? ', from your bank' : ''}${i.due && i.paid!.paidOn > i.due ? `, after it was due ${on(i.due)}` : ''}` })),
-          onPaid: (key, amount, paidOn) => call('POST', { key, amount, paidOn, add: !!owedList.find((i) => i.key === key)?.paid }),
+          onPaid: (key, amount, paidOn) => call('POST', { key, amount, paidOn }),
           onUnpaid: async (key) => { const e = await call('DELETE', { key }); if (e) toast({ variant: 'destructive', title: 'Not changed', description: e }); },
           onForms: () => setTaxFormsOpen(true), formsWords: `Forms for ${quarterWords((Number(todayBiz.slice(5, 7)) - 1) % 3 === 0 ? new Date(Date.parse(`${todayBiz.slice(0, 8)}01T12:00:00Z`) - 86400000).toISOString().slice(0, 10) : todayBiz)}`, today: todayBiz,
       };

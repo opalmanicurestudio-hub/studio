@@ -85,7 +85,7 @@ const now = '2026-12-02T15:00:00.000Z';
   check('Payroll Tax Deposit and Payroll Deductions Paid: in the pickers, never an expense', !!dep && dep.taxBucket === 'transfer' && !dep.system && !!ded && ded.taxBucket === 'transfer');
   const sync = src('src/lib/plaid-sync.ts');
   check('the bank suggests Payroll Tax Deposit for an IRS payment, or a state one for what paydays owe it, and a payee rule never books it as a second expense',
-    /const selfRun = runByOf\(tenantDoc\) === 'clarityflow'/.test(sync) && /USATAXPYMT\|EFTPS/.test(sync) && /near\(irsOwed\) \? 'paid' : 'maybe'/.test(sync) && /&& near\(stateOwed\) \? 'paid' : null/.test(sync) && /deposit === 'maybe' \? \{ hint: 'A payment to the IRS\. Payroll taxes\?/.test(sync)
+    /const selfRun = runByOf\(tenantDoc\) === 'clarityflow'/.test(sync) && /USATAXPYMT\|EFTPS/.test(sync) && /near\(irsOwed\) \? 'paid' : 'maybe'/.test(sync) && /near\(stateOwed\) \? 'paid' : null/.test(sync) && /near\(suiOwed\) \? 'paid' : null/.test(sync) && /deposit === 'maybe' \? \{ hint: 'A payment to the IRS\. Payroll taxes\?/.test(sync)
     && /if \(deposit\) sugg = \{ category: 'Payroll Tax Deposit'/.test(sync) && /&& !\(deposit && rule\.category !== 'Payroll Tax Deposit'\)/.test(sync));
   const RB = await import('../../src/lib/report-builders');
   const reg = RB.payrollCsv(all as any, [], { code: 'NC', employerPayrollTaxPct: 9.25 }, [run]);

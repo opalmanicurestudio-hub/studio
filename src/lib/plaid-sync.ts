@@ -159,32 +159,35 @@ async function syncBody(db: any, tenantId: string): Promise<SyncResult> {
   // (a payday, a month or a quarter of them), is a payroll tax deposit, already in the books from payday. It's suggested
   // as one, never as sales tax or a second payroll expense, and never booked by a payee rule on its own.
   const selfRun = runByOf(tenantDoc) === 'clarityflow';
-  const stateOwed = new Set<number>(); const irsOwed = new Set<number>(); let owedOpen: OwedItem[] = [];
+  // (Amounts by whom they're owed to: the IRS; the state's revenue department, for income tax withheld; its employment
+  // office, for unemployment.)
+  const stateOwed = new Set<number>(); const suiOwed = new Set<number>(); const irsOwed = new Set<number>(); let owedOpen: OwedItem[] = [];
   if (selfRun) {
     const all = (await db.collection(`tenants/${tenantId}/payrollRuns`).where('recordedAt', '>=', owedRunsFrom(Number(todayIn(tenantDoc).slice(0, 4)))).limit(1500).get().catch(() => ({ docs: [] as any[] })))
       .docs.map((d: any) => d.data() || {});
     const runs = all.filter((r: any) => r.kind === 'payday' && r.taxes?.owed);
     // (What's still to pay on each, all of it or the rest: a payment for exactly that, to whom it's owed, marks it paid.)
     owedOpen = owedItems(all, tenantDoc, '9999-12-31').filter((i) => i.left >= 0.01 && !i.carries);
-    for (const i of owedOpen) (['irs', 'futa'].includes(i.agency) ? irsOwed : stateOwed).add(Math.round(i.left * 100));
+    for (const i of owedOpen) (['irs', 'futa'].includes(i.agency) ? irsOwed : i.agency === 'sui' ? suiOwed : stateOwed).add(Math.round(i.left * 100));
     const sums = new Map<string, number>(); const add = (k: string, v: number) => sums.set(k, (sums.get(k) || 0) + v);
     for (const r of runs) {
       const d = payDateOf(r, tenantDoc); const q = `${d.slice(0, 4)}q${Math.floor((Number(d.slice(5, 7)) - 1) / 3)}`;
       const st = Math.round((Number(r.taxes.owed.state) || 0) * 100), sui = Math.round((Number(r.taxes.owed.sui) || 0) * 100);
       const irs = Math.round((Number(r.taxes.owed.irs) || 0) * 100), futa = Math.round((Number(r.taxes.owed.futa) || 0) * 100);
       if (st) { stateOwed.add(st); add(`m${d.slice(0, 7)}`, st); add(`q${q}`, st); }
-      if (sui) add(`u${q}`, sui);
+      if (sui) { suiOwed.add(sui); add(`u${q}`, sui); }
       if (irs) { irsOwed.add(irs); add(`im${d.slice(0, 7)}`, irs); add(`iq${q}`, irs); }
       if (futa) { add(`fq${q}`, futa); add(`fy${d.slice(0, 4)}`, futa); }
     }
-    for (const [k, v] of sums) (/^(im|iq|fq|fy)/.test(k) ? irsOwed : stateOwed).add(v);
+    for (const [k, v] of sums) (/^(im|iq|fq|fy)/.test(k) ? irsOwed : /^u/.test(k) ? suiOwed : stateOwed).add(v);
   }
   // 'paid': the amount is what recent paydays owe; 'maybe': a payment to the IRS that matches nothing (the owner's own
   // estimated tax, a penalty): suggested all the same, and asked.
   const taxDeposit = (name: string, cents: number): 'paid' | 'maybe' | null => {
     if (!selfRun) return null; const n = name.toUpperCase(); const near = (set: Set<number>) => [...set].some((v) => Math.abs(v - cents) <= 100);
     if (/\bIRS\b|USATAXPYMT|EFTPS|TREAS(URY)? TAX/.test(n)) return near(irsOwed) ? 'paid' : 'maybe';
-    return /DEPT? OF REVENUE|DEPARTMENT OF REVENUE|NCDOR|EMPLOYMENT SECURITY|NCDES|UNEMPLOYMENT/.test(n) && near(stateOwed) ? 'paid' : null;
+    if (/DEPT? OF REVENUE|DEPARTMENT OF REVENUE|NCDOR/.test(n)) return near(stateOwed) ? 'paid' : null;
+    return /EMPLOYMENT SECURITY|NCDES|UNEMPLOYMENT/.test(n) && near(suiOwed) ? 'paid' : null;
   };
 
   const added: any[] = []; const removed: string[] = []; const needsLogin: string[] = []; const cursors: { ref: any; cursor: any }[] = [];

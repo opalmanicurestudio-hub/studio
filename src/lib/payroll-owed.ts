@@ -126,15 +126,18 @@ export function form941(runs: any[], tenant: any, year: number, q: number, withP
   const money = (v: number) => `$${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   // Line 16: under $2,500 this quarter, or last quarter (when its paydays are here), no month by month; paying twice a
   // week, Schedule B, payday by payday; otherwise what was owed each month.
-  const before = withPrior ? form941(runs, tenant, q === 1 ? year - 1 : year, q === 1 ? 4 : q - 1, false) : null;
-  const small = l10 < 2500 || (!!before?.paydays && before.total < 2500);
+  // (Last quarter counts only when ClarityFlow ran all of it: a payday recorded here before it began.)
+  const py = q === 1 ? year - 1 : year, pq = q === 1 ? 4 : q - 1; const pStart = `${py}-${String((pq - 1) * 3 + 1).padStart(2, '0')}-01`;
+  const wholeBefore = withPrior && taxedRuns(runs).some((r) => { const d = payDateOf(r, tenant); return !!d && d < pStart; });
+  const before = wholeBefore ? form941(runs, tenant, py, pq, false) : null;
+  const small = l10 < 2500 || (!!before && before.total < 2500);
   const setup = setupOf(tenant); const qRuns = taxedRuns(runs).filter((r) => inQuarter(payDateOf(r, tenant), year, q));
   const semi = qRuns.some((r) => (r.taxes.schedule?.irs || (setup.federalDeposits === 'semiweekly' ? 'semiweekly' : 'monthly')) === 'semiweekly');
   const byDay = [...qRuns].sort((a, b) => payDateOf(a, tenant).localeCompare(payDateOf(b, tenant))).map((r) => `${dayWords(payDateOf(r, tenant))} ${money(n(r.taxes.owed?.irs))}`);
   const l16: FormLine = small
     ? { line: '16', label: 'Check the first box: no month-by-month amounts', detail: l10 < 2500 ? 'Under $2,500 this quarter.' : 'Under $2,500 last quarter.', amount: l10 }
     : semi ? { line: '16', label: 'Paid twice a week: check the third box and fill in Schedule B', detail: `What each payday owed: ${byDay.join(', ')}`, amount: l10 }
-    : { line: '16', label: 'Owed each month', detail: `${months.map((v, i) => `${MONTH[(q - 1) * 3 + i]} ${money(v)}`).join(', ')}${before?.paydays ? '' : '. If last quarter’s Form 941 was under $2,500, check the first box instead'}`, amount: r2(months[0] + months[1] + months[2]) };
+    : { line: '16', label: 'Owed each month', detail: `${months.map((v, i) => `${MONTH[(q - 1) * 3 + i]} ${money(v)}`).join(', ')}${before ? '' : '. If last quarter’s Form 941 was under $2,500, check the first box instead'}`, amount: r2(months[0] + months[1] + months[2]) };
   const lines: FormLine[] = [
     { line: '1', label: `People paid for the pay period that includes ${MONTH[q * 3 - 1]} 12`, amount: onTheTwelfth, count: true },
     { line: '2', label: 'Wages, tips and other pay', amount: wages },

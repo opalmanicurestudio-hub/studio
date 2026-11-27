@@ -28,6 +28,8 @@ export function PayrollFormsDialog(p: { open: boolean; onOpenChange: (o: boolean
   const [at, setAt] = React.useState(startQ); const [which, setWhich] = React.useState<Which>('941');
   React.useEffect(() => { if (p.open) { setAt(startQ()); setWhich('941'); } }, [p.open]); // eslint-disable-line react-hooks/exhaustive-deps
   const step = (n: number) => setAt((x) => { const k = x.year * 4 + (x.q - 1) + n; return { year: Math.floor(k / 4), q: (k % 4) + 1 }; });
+  // (Paydays are read from January of last year: no further back than that.)
+  const first = at.year * 4 + at.q - 1 <= (Number(p.today.slice(0, 4)) - 1) * 4;
   const f941 = React.useMemo(() => form941(p.runs, p.tenant, at.year, at.q), [p.runs, p.tenant, at]);
   const nc5 = React.useMemo(() => (p.nc ? formNC5(p.runs, p.tenant, at.year, at.q) : null), [p.runs, p.tenant, at, p.nc]);
   const ui = React.useMemo(() => (p.nc ? formNCUI101(p.runs, p.tenant, at.year, at.q) : null), [p.runs, p.tenant, at, p.nc]);
@@ -58,7 +60,7 @@ export function PayrollFormsDialog(p: { open: boolean; onOpenChange: (o: boolean
             <DialogTitle className="pr-8 text-[20px] font-semibold leading-tight" style={{ color: INK }}>Payroll forms, {span}</DialogTitle>
             <DialogDescription className="mt-1 text-[14px]" style={{ color: MUTED }}>{f941.paydays ? `From ${f941.paydays} payday${f941.paydays === 1 ? '' : 's'} recorded. ` : 'No paydays recorded in these months. '}{over ? `Due ${due}.` : 'So far: the quarter isn’t over yet.'}</DialogDescription>
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              <button type="button" onClick={() => step(-1)} aria-label="The quarter before" className={`flex h-11 w-11 items-center justify-center rounded-full ${RING}`} style={plain}><ChevronLeft className="h-5 w-5" /></button>
+              <button type="button" onClick={() => step(-1)} disabled={first} aria-label="The quarter before" className={`flex h-11 w-11 items-center justify-center rounded-full disabled:opacity-40 ${RING}`} style={plain}><ChevronLeft className="h-5 w-5" /></button>
               <button type="button" onClick={() => step(1)} aria-label="The quarter after" className={`flex h-11 w-11 items-center justify-center rounded-full ${RING}`} style={plain}><ChevronRight className="h-5 w-5" /></button>
               <span className="flex flex-wrap gap-2" role="group" aria-label="Which form">
                 {(['941', ...(p.nc ? ['nc5', 'ncui'] : [])] as Which[]).map((k) => (

@@ -2,8 +2,9 @@
 // it"), or take the mark back. Kept as payrollRuns/taxpay_{key} (kind 'taxpayment'), which only payroll reads and only
 // the server writes; the bank sync marks one paid on its own when the payment comes through for the amount owed.
 // Nothing is booked here: the payment itself comes from the bank, sorted as Payroll Tax Deposit.
-// Each payment toward one is a part of it: `add` puts another (the rest, after a payday recorded later added to it).
-// POST { tenantId, key, amount, paidOn, add? } → { ok } · DELETE { tenantId, key } → { ok }
+// Each payment toward one is a part of it: one marked when it's paid already (the rest, after a payday recorded later
+// added to it, or a bank payment that came in meanwhile) is added to it, never put in its place.
+// POST { tenantId, key, amount, paidOn } → { ok } · DELETE { tenantId, key } → { ok }
 // For the owner and anyone whose role runs payroll.
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
@@ -25,13 +26,18 @@ export async function POST(req: NextRequest) {
   const db = getAdminDb(); const nowIso = new Date().toISOString(); const ref = db.doc(`tenants/${tenantId}/payrollRuns/taxpay_${key}`);
   const by = { id: g.actor?.uid || g.actor?.id || null, name: g.actor?.name || null };
   const part = { amount, paidOn, source: 'hand', bankTransactionId: null, recordedAt: nowIso, by };
-  await db.runTransaction(async (tx) => {
-    const was: any = b?.add === true ? (await tx.get(ref)).data() : null;
-    if (!was) { tx.set(ref, { kind: 'taxpayment', key, amount, paidOn, recordedAt: nowIso, source: 'hand', bankTransactionId: null, parts: [part], by }); return; }
+  const dup = await db.runTransaction(async (tx) => {
+    const was: any = (await tx.get(ref)).data();
+    if (!was) { tx.set(ref, { kind: 'taxpayment', key, amount, paidOn, recordedAt: nowIso, source: 'hand', bankTransactionId: null, parts: [part], by }); return false; }
     const parts = Array.isArray(was.parts) ? was.parts : [{ amount: Number(was.amount) || 0, paidOn: String(was.paidOn || ''), source: String(was.source || 'hand'), bankTransactionId: was.bankTransactionId || null }];
+    // (The bank marked this same payment a moment before: within a dollar and a few days of it. Not counted twice.)
+    const days = (d: string) => Math.abs(Date.parse(`${d}T12:00:00Z`) - Date.parse(`${paidOn}T12:00:00Z`)) / 86400000;
+    if (parts.some((x: any) => x.bankTransactionId && Math.abs((Number(x.amount) || 0) - amount) <= 1 && days(String(x.paidOn || '')) <= 5)) return true;
     const all = [...parts, part]; const total = Math.round(all.reduce((n: number, x: any) => n + (Number(x.amount) || 0), 0) * 100) / 100;
     tx.set(ref, { ...was, amount: total, paidOn: all.map((x: any) => String(x.paidOn)).sort().pop(), recordedAt: nowIso, parts: all });
+    return false;
   });
+  if (dup) return NextResponse.json({ ok: true, already: true });
   await logAuditAdmin(db, tenantId, { action: 'payroll.tax_paid', targetType: 'payroll', targetId: `taxpay_${key}`, summary: `Marked a payroll tax payment paid: ${usd(amount)} on ${paidOn} (${key})`,
     amount, actor: { type: 'user', id: g.actor?.uid || g.actor?.id, name: g.actor?.name || 'Team member', via: 'payday-tab' } });
   return NextResponse.json({ ok: true });

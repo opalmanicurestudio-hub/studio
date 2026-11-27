@@ -243,7 +243,7 @@ export async function POST(req: NextRequest) {
           return { ok: true };
         });
         if (!r.ok) return NextResponse.json(r, { status: 409 });
-        if (bt.taxPayKey && finalCategory !== 'Payroll Tax Deposit') await dropBankTaxMark(db, tenantId, bankTxnId, bt.taxPayKey, actor);
+        if (bt.taxPayKey && !/^payroll tax(es| deposit)$/i.test(finalCategory)) await dropBankTaxMark(db, tenantId, bankTxnId, bt.taxPayKey, actor);
         // Learn: this merchant now books itself on every future sync —
         // under the category the owner actually chose, not just the guess.
         // (Never from a line moved to the other books: one shop run on a personal card doesn't make every later
@@ -329,7 +329,7 @@ export async function POST(req: NextRequest) {
           return { ...b, type, category, bucket };
         });
         if (!bt) continue;
-        if (bt.taxPayKey && bt.category !== 'Payroll Tax Deposit') await dropBankTaxMark(db, tenantId, d.id, bt.taxPayKey, actor);
+        if (bt.taxPayKey && !/^payroll tax(es| deposit)$/i.test(String(bt.category))) await dropBankTaxMark(db, tenantId, d.id, bt.taxPayKey, actor);
         const vk = vendorKey(bt.merchant || bt.name);
         if (vk) await db.doc(`tenants/${tenantId}/vendorRules/${(bt.context || 'Business').toLowerCase()}:${vk}`).set({
           merchant: bt.merchant || bt.name, category: bt.category,

@@ -72,7 +72,7 @@ const rae = (amount: number, cash: number, tips = 0) => ({ staffId: 'rae', name:
   const part = owedItems([...runs, short], t, '2026-12-16', 'North Carolina').find((i) => i.key === 'irs_2026-12-15')!;
   check('paid in part (a payday recorded late added to it): the rest is still to pay, and reminded', part.left === 50 && remindersDue([part], '2026-12-16').some((r) => r.key === 'irs_2026-12-15_rest' && /\$50\.00 still to pay/.test(r.body)), part);
   check('…shown as the rest on Payday, and it can be paid too: a second payment adds to the first', /name: i\.paid \? `\$\{i\.name\}, the rest` : i\.name, amount: i\.left/.test(src('src/app/(app)/money/page.tsx'))
-    && /payable: !i\.open && !i\.carries \}/.test(src('src/app/(app)/money/page.tsx')) && /add: !!owedList\.find\(\(i\) => i\.key === key\)\?\.paid/.test(src('src/app/(app)/money/page.tsx')));
+    && /payable: !i\.open && !i\.carries \}/.test(src('src/app/(app)/money/page.tsx')));
   const two = { ...short, parts: [{ amount: short.amount, paidOn: '2026-12-10', source: 'hand' }, { amount: 50, paidOn: '2026-12-16', source: 'hand' }], amount: pay.amount };
   check('…both payments together pay it', owedItems([...runs, two], t, '2026-12-17', 'North Carolina').find((i) => i.key === 'irs_2026-12-15')?.left === 0);
   check('the rest is reminded once, apart from the first reminders', remindersDue([part], '2026-12-16', { 'irs_2026-12-15_late': 'x' }).length === 1 && remindersDue([part], '2026-12-16', { 'irs_2026-12-15_rest_late': 'x' }).length === 0);
@@ -84,7 +84,7 @@ const rae = (amount: number, cash: number, tips = 0) => ({ staffId: 'rae', name:
   const route = src('src/app/api/payroll/taxes/route.ts');
   check('"I paid it" and taking it back: payroll roles only, a known payroll tax, a real day, kept as a payroll run, nothing booked',
     (route.match(/requireCan\(req, tenantId, 'money\.payroll'\)/g) || []).length === 2 && /const KEY = \/\^\(irs\|state\|sui\|futa\|other\)_/.test(route)
-    && /payrollRuns\/taxpay_\$\{key\}`\)/.test(route) && /tx\.set\(ref, \{ kind: 'taxpayment', key, amount, paidOn/.test(route) && /b\?\.add === true/.test(route) && /parts: all/.test(route) && !/transactions/.test(route) && /logAuditAdmin/.test(route));
+    && /payrollRuns\/taxpay_\$\{key\}`\)/.test(route) && /tx\.set\(ref, \{ kind: 'taxpayment', key, amount, paidOn/.test(route) && /const was: any = \(await tx\.get\(ref\)\)\.data\(\);/.test(route) && /parts: all/.test(route) && /if \(parts\.some\(\(x: any\) => x\.bankTransactionId && Math\.abs\(\(Number\(x\.amount\) \|\| 0\) - amount\) <= 1 && days\(String\(x\.paidOn \|\| ''\)\) <= 5\)\) return true;/.test(route) && !/transactions/.test(route) && /logAuditAdmin/.test(route));
   const sync = src('src/lib/plaid-sync.ts');
   check('a bank payment for what one has left marks it paid, from the bank, within a dollar', /if \(deposit === 'paid'\) \{/.test(sync) && /fits\.length === 1/.test(sync) && /Math\.abs\(Math\.round\(i\.left \* 100\) - cents\) <= 100/.test(sync)
     && /owedOpen = owedItems\(all, tenantDoc, '9999-12-31'\)\.filter\(\(i\) => i\.left >= 0\.01 && !i\.carries\)/.test(sync) && /covers: it\.amount, parts/.test(sync) && /\.\.\.\(taxPayKey \? \{ taxPayKey \} : \{\}\)/.test(sync));
@@ -102,9 +102,10 @@ const rae = (amount: number, cash: number, tips = 0) => ({ staffId: 'rae', name:
   await dropBankTaxMark(mdb, 't1', 'b8', 'sui_2026q4');
   check('…one the bank alone marked is unmarked', !(await mdb.doc('tenants/t1/payrollRuns/taxpay_sui_2026q4').get()).exists);
   const plaidRoute = src('src/app/api/plaid/route.ts');
-  check('…when it’s ignored, matched to lines that aren’t payday’s payroll taxes, booked or changed to another category',
-    (plaidRoute.match(/dropBankTaxMark\(db, tenantId, /g) || []).length === 5 && /finalCategory !== 'Payroll Tax Deposit'\) await dropBankTaxMark/.test(plaidRoute) && /bt\.category !== 'Payroll Tax Deposit'\) await dropBankTaxMark/.test(plaidRoute)
-    && /!\/\^payroll tax\(es\| deposit\)\$\/i\.test\(category\)\) await dropBankTaxMark/.test(plaidRoute));
+  check('…when it’s ignored, matched to lines that aren’t payday’s payroll taxes, booked or changed to another category (Payroll Taxes or Payroll Tax Deposit keep it, everywhere)',
+    (plaidRoute.match(/dropBankTaxMark\(db, tenantId, /g) || []).length === 5 && (plaidRoute.match(/\/\^payroll tax\(es\| deposit\)\$\/i\.test\(/g) || []).length === 4);
+  check('the hint for a state payment goes by whom it’s paid to: income tax withheld to Revenue, unemployment to Employment Security',
+    /if \(\/DEPT\? OF REVENUE\|DEPARTMENT OF REVENUE\|NCDOR\/\.test\(n\)\) return near\(stateOwed\)/.test(sync) && /\/EMPLOYMENT SECURITY\|NCDES\|UNEMPLOYMENT\/\.test\(n\) && near\(suiOwed\)/.test(sync) && /if \(sui\) \{ suiOwed\.add\(sui\)/.test(sync));
   console.log('January');
   check('what’s owed and the forms are read from January 1 of last year: Payday, the bank sync and the reminders', owedRunsFrom(2027) === '2026-01-01'
     && /where\('recordedAt', '>=', owedRunsFrom\(runsYear\)\), limit\(1500\)/.test(src('src/app/(app)/money/page.tsx')) && /owedRunsFrom\(Number\(todayIn\(tenantDoc\)\.slice\(0, 4\)\)\)/.test(sync)
@@ -140,8 +141,10 @@ const rae = (amount: number, cash: number, tips = 0) => ({ staffId: 'rae', name:
   check('$2,500 or more, last quarter too, paid monthly: what was owed each month', g16.label === 'Owed each month' && /October \$1,600\.00, November \$1,700\.00, December \$0\.00/.test(String(g16.detail)), g16);
   const gs = form941(big941.map((r: any) => ({ ...r, taxes: { ...r.taxes, schedule: { irs: 'semiweekly' } } })), base, 2026, 4).lines.find((l) => l.line === '16')!;
   check('…paid twice a week: Schedule B, payday by payday', /Schedule B/.test(gs.label) && /October 8 \$1,600\.00, November 5 \$1,700\.00/.test(String(gs.detail)), gs);
-  const small = form941([qRun('s0', '2026-09-10', '2026-08-24', '2026-09-06', 900), ...big941.slice(2)], base, 2026, 4).lines.find((l) => l.line === '16')!;
+  const small = form941([qRun('j0', '2026-06-25', '2026-06-08', '2026-06-21', 800), qRun('s0', '2026-09-10', '2026-08-24', '2026-09-06', 900), ...big941.slice(2)], base, 2026, 4).lines.find((l) => l.line === '16')!;
   check('…under $2,500 last quarter: the first box', /first box/.test(small.label) && /last quarter/.test(String(small.detail)), small);
+  const partial = form941([qRun('s0', '2026-09-24', '2026-09-07', '2026-09-20', 900), ...big941.slice(2)], base, 2026, 4).lines.find((l) => l.line === '16')!;
+  check('…but not when ClarityFlow ran only part of last quarter: month by month, with the first box mentioned', partial.label === 'Owed each month' && /check the first box instead/.test(String(partial.detail)), partial);
   const late12 = [big941[1], qRun('o1', '2026-10-02', '2026-09-07', '2026-09-20', 900)];
   check('line 1: the pay period with September 12 in it counts for July to September, one paid in October too', form941(late12, base, 2026, 3).lines.find((l) => l.line === '1')?.amount === 2 && form941(late12, base, 2026, 4).lines.find((l) => l.line === '1')?.amount === 0, form941(late12, base, 2026, 3).lines[0]);
   const addl = form941([qRun('a1', '2026-11-05', '2026-10-19', '2026-11-01', 1700, 'monthly', { addl: 1234.56, addlTax: 11.11 })], base, 2026, 4).lines.find((l) => l.line === '5d');
@@ -160,6 +163,7 @@ const rae = (amount: number, cash: number, tips = 0) => ({ staffId: 'rae', name:
   check('"I paid it" only for one that can be (not still adding up, not carrying over), with the amount and the day; "Not paid" for any marked paid, by hand or matched to the wrong bank payment',
     /x\.payable && o\.onPaid && !open \?/.test(screen) && /payable: !i\.open && !i\.carries/.test(page) && /x\.undo && o\.onUnpaid \?/.test(screen) && /amount: i\.paid!\.amount, undo: true,/.test(page) && /type="date" value=\{on\} max=\{o\.today\}/.test(screen));
   check('one still adding up with no due date says when it’s due', /i\.open \? `\$\{i\.due \? `Due \$\{on\(i\.due\)\}` : 'Due when it’s filed'\}\. Still adding up/.test(page));
+  check('the forms go back no further than the paydays read (January of last year)', /const first = at\.year \* 4 \+ at\.q - 1 <= \(Number\(p\.today\.slice\(0, 4\)\) - 1\) \* 4;/.test(dlg) && /disabled=\{first\} aria-label="The quarter before"/.test(dlg));
   check('the forms open on the quarter to file (in January, October to December), due by the IRS’s own day, a weekend moved on', /\(m - 1\) % 3 === 0 \? \(q === 1 \? \{ year: y - 1, q: 4 \}/.test(dlg) && /afterQuarter\(qEnd\)/.test(dlg) && !/const DUE = /.test(dlg));
   check('the forms: 941 always, NC-5 and NCUI 101 for North Carolina, a quarter at a time, to print or download', /\['941', \.\.\.\(p\.nc \? \['nc5', 'ncui'\] : \[\]\)\]/.test(dlg) && /aria-label="The quarter before"/.test(dlg) && /downloadCsv\(/.test(dlg) && /printPage\(/.test(dlg)
     && /nc=\{taxState === 'NC'\}/.test(page));
