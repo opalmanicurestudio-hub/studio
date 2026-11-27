@@ -9,6 +9,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import { categoriesFor, scheduleCFor } from '@/lib/categories';
 import { effectOf } from '@/lib/books-summary';
+import { isMeal, isTakeBack, mealKindOf, originalOf } from '@/lib/write-offs';
 import { closeOf, inClosedMonth, monthName } from '@/lib/books-close';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 
@@ -43,7 +44,7 @@ export function wayOf(t: any, byId?: Map<string, any>): 'in' | 'out' {
 /** Where a line goes on the business's taxes (US Schedule C; a planning aid, not tax advice). */
 export function taxLineOf(t: any, byId?: Map<string, any>): string {
   if ((t?.context || 'Business') === 'Personal') return 'Personal: not on your business taxes';
-  const side = effectOf(t, byId).side;
+  const e = effectOf(t, byId); const side = e.side;
   switch (side) {
     case 'sales': return 'Line 1, gross receipts';
     case 'returns': case 'discounts': return 'Line 2, returns and allowances';
@@ -54,7 +55,16 @@ export function taxLineOf(t: any, byId?: Map<string, any>): string {
     case 'held': return 'Held for someone else: not your income';
     case 'transfer': return 'Money moved: not income or a cost';
     case 'skip': return '';
-    default: return scheduleCFor(String(t?.category || '')).replace(' — ', ', ');
+    default: {
+      // (A meal's line by its kind, said on the Write-offs tab: lib/write-offs.)
+      if (isMeal({ category: e.category || t?.category })) {
+        const o = originalOf(t, byId);
+        if (isTakeBack(o)) return 'Line 24b, deductible meals (the same share as the meal it takes back)';
+        const k = mealKindOf(o);
+        return k === 'entertainment' ? 'Entertainment: not deductible' : k === 'personal' ? 'A personal meal: not deductible' : `Line 24b, deductible meals (${k === 'team' ? 'all' : 'half'} counts)`;
+      }
+      return scheduleCFor(String(t?.category || '')).replace(' — ', ', ');
+    }
   }
 }
 

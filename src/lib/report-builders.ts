@@ -17,6 +17,7 @@
 // never income. Lines marked Personal are left out of the profit and loss and the tax summary.
 
 import { scheduleCFor } from './categories';
+import { countsOf, isMeal, isGift, originalOf } from './write-offs';
 import { booksSummary, effectOf, lookupOf, type BooksSummary } from './books-summary';
 import { esc, printLine, printMoney, printPage } from './print-style';
 import { format } from 'date-fns';
@@ -110,7 +111,13 @@ export function taxSummaryRows(txns: Txn[], opts: ReportOptions = {}): ReportRow
     const own = scheduleCFor(e.category);
     const line = e.side === 'fees' ? scheduleCFor('Processing Fee') : e.side === 'transfer' ? (own.startsWith('Not deductible') ? own : 'Not deductible — owner draws and transfers') : own;
     const target = e.side === 'transfer' || line.startsWith('Not deductible') ? notDeductible : lines;
-    target.set(line, (target.get(line) || 0) + e.amount);
+    // (Meals and gifts count only in part, by what's said on the line, or on the line a take-back takes back (a
+    // reversal, an undo, a void): lib/write-offs. The rest is kept below, as not deductible.)
+    const from = originalOf(t, byId);
+    const part = target === lines && (isMeal({ category: e.category }) || isGift({ category: e.category })) ? countsOf({ ...from, category: e.category }) : null;
+    const share = part && part.counts + part.not > 0 ? part.counts / (part.counts + part.not) : 1;
+    target.set(line, (target.get(line) || 0) + e.amount * share);
+    if (part && share < 1) { const k = `Not deductible — ${part.why || 'the part that doesn’t count'}`; notDeductible.set(k, (notDeductible.get(k) || 0) + e.amount * (1 - share)); }
   }
   const sortedLines = [...lines.entries()].filter(([, v]) => Math.abs(v) >= 0.005).sort((a, b) => a[0].localeCompare(b[0], 'en', { numeric: true }));
   const deductions = sortedLines.reduce((a, [, v]) => a + v, 0);

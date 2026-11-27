@@ -197,7 +197,7 @@ const priv = async () => (await db.collection('tenants/t1/private').get()).docs.
   check('Mileage in the menu’s Money section, its module and the sidebar (managers who keep the books too)', /pages: \['\/money', '\/mileage'/.test(src('src/lib/nav.ts')) && /'\/money', '\/mileage'\]/.test(src('src/lib/modules.ts'))
     && /href: '\/mileage',\s+icon: Car/.test(src('src/components/shared/AppSidebar.tsx')) && /can\('money\.manage'\) \? \[\{ href: '\/mileage'/.test(src('src/components/shared/AppSidebar.tsx')));
   const page = src('src/app/(app)/money/page.tsx');
-  check('Money has a Write-offs tab, between Bills and Reports, with business miles', /\{ key: 'bills',\s+label: 'Bills' \},\n  \{ key: 'writeoffs', label: 'Write-offs' \},\n  \{ key: 'reports'/.test(page) && /<WriteOffsScreen tenantId=\{tenantId\} canLog=\{can\('money\.manage'\)\} \/>/.test(page));
+  check('Money has a Write-offs tab, between Bills and Reports, with business miles', /\{ key: 'bills',\s+label: 'Bills' \},\n  \{ key: 'writeoffs', label: 'Write-offs' \},\n  \{ key: 'reports'/.test(page) && /<WriteOffsScreen tenantId=\{tenantId\} canLog=\{can\('money\.manage'\)\} business=/.test(page));
   const screen = src('src/components/money/MileageScreen.tsx');
   check('someone who only sees the log gets the odometer read-only and each trip’s details without changing it', /readOnly=\{d\.owner === false\}/.test(screen) && /open === t\.id && d\.owner === false && <p/.test(screen));
   check('the phone gives its place once, never followed', /getCurrentPosition/.test(src('src/app/(app)/mileage/page.tsx')) && !/watchPosition/.test(src('src/app/(app)/mileage/page.tsx') + screen));

@@ -50,8 +50,9 @@ export async function POST(req: NextRequest) {
       const recent = year === thisYear ? trips : await tripsOf(db, tenantId, thisYear);
       const kept = await keptPlaces(db, tenantId, setup, recent);
       const origin = originOf(kept, setup);
-      // (Suggestions are this year's to log; a purchase already kept as proof on any trip isn't suggested again.)
-      const sugg = year === thisYear ? await suggestions(db, tenantId, setup, origin, [...recent, ...await tripsOf(db, tenantId, thisYear - 1).catch(() => [])], today).catch(() => []) : [];
+      // (Suggestions are this year's to log, the owner's only, since they come from the owner's own card purchases too; a
+      // purchase already kept as proof on any trip isn't suggested again.)
+      const sugg = year === thisYear && a.isTenantOwner ? await suggestions(db, tenantId, setup, origin, [...recent, ...await tripsOf(db, tenantId, thisYear - 1).catch(() => [])], today).catch(() => []) : [];
       // (A drive ended but not saved stays until it's saved or dropped; one never ended goes stale after a while.)
       const drive: any = a.isTenantOwner ? (await driveRef(db, tenantId, by.id).get()).data() || null : null;
       const live = drive && (drive.ended || Date.now() - Date.parse(drive.startedAt) < DRIVE_HOURS * 3600e3) ? drive : null;

@@ -6,7 +6,7 @@
 // is asked for, so opening the tab costs nothing.
 import * as React from 'react';
 import Link from 'next/link';
-import { collection, getDocs, limit, orderBy, query, where, type Firestore } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, limit, orderBy, query, where, type Firestore } from 'firebase/firestore';
 import { booksSummary, normalizeLine } from '@/lib/books-summary';
 import { readDatedRange } from '@/hooks/use-transactions';
 import {
@@ -66,6 +66,19 @@ export function ReportsScreen({ tenantId, firestore, tenant, staff, payroll, can
     if (!range) throw new Error('dates');
     return (await readDatedRange(firestore, tenantId, 'transactions', 'date', range.from, new Date(range.to.getTime() + 1))).map((t: any) => normalizeLine(t));
   };
+  // (The lines, and what the ones that take something back take back when that's from before these dates (a meal
+  // reversed in January, made in December), so each is taken back as it was counted: lib/books-summary, lib/write-offs.)
+  const withOriginals = async (ls: any[]) => {
+    const have = new Map<string, any>(ls.map((t) => [String(t.id), t])); let next = ls;
+    for (let round = 0; round < 3; round++) {
+      const want = Array.from(new Set(next.flatMap((t) => [t?.reversalOf, t?.voidOf]).map((v) => String(v || '')).filter((v) => /^[A-Za-z0-9_-]{1,160}$/.test(v) && !have.has(v)))).slice(0, 300);
+      if (!want.length) break;
+      const got = (await Promise.all(want.map((id) => getDoc(doc(firestore, 'tenants', tenantId, 'transactions', id)).then((d) => (d.exists() ? normalizeLine({ id: d.id, ...(d.data() as any) }) : null)).catch(() => null)))).filter(Boolean) as any[];
+      for (const t of got) have.set(String(t.id), t);
+      next = got;
+    }
+    return Array.from(have.values());
+  };
   // (Who was paid what on each payday recorded in these dates, for the payroll register: lib/payday-record. Only the
   // owner and anyone who runs payroll can read them; anyone else sees the team's pay as one line.)
   const runs = async () => {
@@ -121,7 +134,7 @@ export function ReportsScreen({ tenantId, firestore, tenant, staff, payroll, can
       <h3 className="text-[17px] font-semibold">{title}</h3>{intro && <p className="text-[14px]" style={{ color: MUTED }}>{intro}</p>}<div className="pt-1">{children}</div>
     </section>
   );
-  const summaryOf = async () => { const ls = await lines(); return { ls, s: booksSummary(ls, { lookup: ls, businessOnly: true }) }; };
+  const summaryOf = async () => { const ls = await lines(); const lookup = await withOriginals(ls); return { ls, lookup, s: booksSummary(ls, { lookup, businessOnly: true }) }; };
   const pill = (t: string, good: boolean) => <span className="rounded-full px-2.5 py-0.5 text-[12px] font-semibold" style={good ? { background: GREEN_TINT, color: GREEN } : { background: AMBER_TINT, color: AMBER }}>{t}</span>;
   const taxPill = tax?.last ? (tax.last.paid ? pill('Paid', true) : tax.owed ? pill(`Due ${tax.owed.due}, ${usd(tax.owed.cents / 100)}`, false) : pill(`Nothing owed, file by ${tax.last.due}`, true)) : null;
   const shownMonths = (months || []).slice(0, allMonths ? 12 : 3);
@@ -147,14 +160,14 @@ export function ReportsScreen({ tenantId, firestore, tenant, staff, payroll, can
         <div className="space-y-4">
           <Group title="How the business did">
             <Row id="pnl" name="Profit and loss" what="Sales, what came off them, costs and what’s left. The same reading as the Money page."
-              onPrint={() => print('p:pnl', async () => { const ls = await lines(); return buildPnlHtml(ls, range!, 'USD', { lookup: ls, shopName: shop }); })}
+              onPrint={() => print('p:pnl', async () => { const ls = await lines(); return buildPnlHtml(ls, range!, 'USD', { lookup: await withOriginals(ls), shopName: shop }); })}
               onCsv={() => download('d:pnl', 'profit and loss', async () => rowsCsv(pnlRows((await summaryOf()).s)))} />
             <Row id="pnlm" name="Profit and loss, month by month" what="Each month of the year side by side, to see the trend." open="/records/pnl" />
           </Group>
           <Group title="Taxes">
             <Row id="tax" name="Tax summary" what="Income and costs by Schedule C line, to hand your accountant."
-              onPrint={() => print('p:tax', async () => { const ls = await lines(); return buildTaxSummaryHtml(ls, range!, 'USD', { lookup: ls, shopName: shop }); })}
-              onCsv={() => download('d:tax', 'tax summary', async () => { const ls = await lines(); return rowsCsv(taxSummaryRows(ls, { lookup: ls })); })} />
+              onPrint={() => print('p:tax', async () => { const ls = await lines(); return buildTaxSummaryHtml(ls, range!, 'USD', { lookup: await withOriginals(ls), shopName: shop }); })}
+              onCsv={() => download('d:tax', 'tax summary', async () => { const ls = await lines(); return rowsCsv(taxSummaryRows(ls, { lookup: await withOriginals(ls) })); })} />
             {!canManage ? null : tax === null || tax?.unset ? (
               <div className="py-3" style={{ borderTop: `1px solid ${LINE}` }}><p className="text-[15px] font-semibold">Sales tax return</p>
                 <p className="text-[14px]" style={{ color: MUTED }}>{tax?.unset ? 'Sales tax isn’t set up yet. ' : 'It couldn’t be read just now. '}<Link href="/settings?tab=payments#sales-tax" className="underline underline-offset-2" style={{ color: INK }}>Sales tax settings</Link></p></div>
@@ -174,8 +187,8 @@ export function ReportsScreen({ tenantId, firestore, tenant, staff, payroll, can
         <div className="space-y-4">
           <Group title="Records">
             <Row id="all" name="Every line, in full detail" what="Each checkout and order with its lines, and the receipt pictures at the back."
-              onPrint={() => print('p:all', async () => { const { ls, s } = await summaryOf(); return buildLedgerHtml(ls, staff, s, range!, { lookup: ls, shopName: shop }); })}
-              onCsv={() => download('d:all', 'every line', async () => { const ls = await lines(); return ledgerCsv(ls, staff, { lookup: ls }); })} />
+              onPrint={() => print('p:all', async () => { const { ls, s, lookup } = await summaryOf(); return buildLedgerHtml(ls, staff, s, range!, { lookup, shopName: shop }); })}
+              onCsv={() => download('d:all', 'every line', async () => { const ls = await lines(); return ledgerCsv(ls, staff, { lookup: await withOriginals(ls) }); })} />
             {canManage && <Row id="audit" name="Audit trail" what="Who did what with the money, and when, in plain words."
               onPrint={() => print('p:audit', async () => { const a = await audit(); return buildAuditTrailHtml(a.list, range!, 'USD', { shopName: shop, capped: a.capped }); })}
               onCsv={() => download('d:audit', 'audit trail', async () => auditCsv((await audit()).list))} />}

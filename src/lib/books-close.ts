@@ -52,7 +52,8 @@ export function openDate(t: any, date: string, now = Date.now()): { date: string
 }
 
 /** The fields a line in a closed month may still change: its matches, receipts, notes and refund marks, never its
- *  figures, its kind or its date. firestore.rules lists the same. */
+ *  figures, its kind or its date. firestore.rules lists the same. (What's said about a line on the Write-offs tab,
+ *  `writeOff`, isn't a figure either; in a closed month only the server writes it, api/writeoffs.) */
 export const CLOSED_LINE_FIELDS = ['refundedAt', 'refundTransactionId', 'refundedCents', 'reconciled', 'reconciledAt', 'bankTransactionId',
   'receiptUrl', 'receiptPath', 'receiptName', 'hasReceipt', 'notes', 'updatedAt'] as const;
 
