@@ -45,6 +45,11 @@ const src = (f: string) => fs.readFileSync(f, 'utf8');
   check('the nudge and the paper are kept for the business, within three inches, by the server', /Math\.max\(-48, Math\.min\(48, Math\.round\(Number\(v\) \|\| 0\)\)\)/.test(forms) && /action: 'checkSettings'/.test(page));
   check('the stub’s year so far is the pay stub’s own (lib/payroll-taxes stubTaxes)', /const st = stubTaxes\(\{ tenant: selectedTenant, staffId: o\.id, periodKey, payDate, runs: yearRuns/.test(page));
 
+  const bd = src('src/components/money/BonusDialog.tsx');
+  check('a bonus paid by check: its check prints once it’s recorded, numbered onto its run, into the window opened on the tap', /const win = method === 'check' && p\.onCheck \? window\.open\('', '_blank'\) : null;/.test(bd)
+    && /if \(r\) \{ win\?\.close\(\);/.test(bd) && /action: 'checkNumbers', count: 1, first: who\.checkNo \|\| '', periodKey: body\.periodKey/.test(page) && /and print the check/.test(bd));
+  check('check numbers put in before payday is recorded are kept on this device through a reload', /sessionStorage\.getItem\(methodsKey\)/.test(page) && /cf_paymethods_\$\{tenantId\}_\$\{periodKey\}/.test(page));
+
   console.log('Your own tax forms');
   const route = src('src/app/api/pay/tax-forms/route.ts'); const tf = src('src/components/staff/TaxFormsDialog.tsx'); const home = src('src/components/pay/PayHome.tsx'); const hr = src('src/app/api/pay/home/route.ts');
   check('only your own: the person signed in, never a staff id sent', /const staffId = who\.actor\.staffId;/.test(route) && !/b\?\.staffId/.test(route));

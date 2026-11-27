@@ -10,7 +10,7 @@ import * as React from 'react';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { paydayTaxes, ytdFrom, teamOnLastPayday, dueDates, afterQuarter } from '@/lib/payroll-taxes';
 import { stateSpec, supplementalRate } from '@/lib/state-payroll';
-import type { TaxForms, PayMethod } from '@/lib/withholding';
+import type { TaxForms, PayMethod, Withholding } from '@/lib/withholding';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
 const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
@@ -46,6 +46,8 @@ export function BonusDialog(p: {
   state: string | null; stateName: string; today: string;
   /** Records it; a string back is what went wrong. */
   onRecord: (body: BonusBody) => Promise<string | null>;
+  /** Paid by check: once recorded, its check prints into the window opened on the tap (lib/payroll-checks). */
+  onCheck?: (body: BonusBody, w: Withholding | null, win: Window | null) => Promise<void>;
 }) {
   const [who, setWho] = React.useState(''); const [amount, setAmount] = React.useState(''); const [date, setDate] = React.useState(p.today);
   const [how, setHow] = React.useState<'bonus' | 'regular'>('bonus'); const [method, setMethod] = React.useState<PayMethod>('transfer'); const [checkNo, setCheckNo] = React.useState('');
@@ -105,11 +107,16 @@ export function BonusDialog(p: {
 
   const record = async () => {
     if (!person || !ready) return;
+    // (Paid by check: the window for it opens on the tap, so it isn't blocked, and the check goes in it once recorded.)
+    const win = method === 'check' && p.onCheck ? window.open('', '_blank') : null;
+    if (win) { win.document.open(); win.document.write('<p style="font-family:sans-serif;padding:24px">Recording the pay…</p>'); win.document.close(); }
     setBusy(true); setError(null);
-    const r = await p.onRecord({ periodKey, offCycle: { date, supplemental: how === 'bonus' },
-      people: [{ staffId: person.id, name: person.name, amount: amt, cash: 0, contractor: person.contractor, method, ...(method === 'check' && checkNo ? { checkNo } : {}) }] }).catch(() => 'Not recorded. Try again.');
-    setBusy(false);
-    if (r) setError(r); else p.onOpenChange(false);
+    const body: BonusBody = { periodKey, offCycle: { date, supplemental: how === 'bonus' },
+      people: [{ staffId: person.id, name: person.name, amount: amt, cash: 0, contractor: person.contractor, method, ...(method === 'check' && checkNo ? { checkNo } : {}) }] };
+    const r = await p.onRecord(body).catch(() => 'Not recorded. Try again.');
+    if (r) { win?.close(); setBusy(false); setError(r); return; }
+    if (method === 'check' && p.onCheck) await p.onCheck(body, w, win).catch(() => { win?.close(); });
+    setBusy(false); p.onOpenChange(false);
   };
 
   return (
@@ -152,7 +159,7 @@ export function BonusDialog(p: {
                 </div>
               </div>
               {method === 'check' && <label htmlFor="bonus-check" className="flex max-w-[180px] flex-col gap-1 text-[14px]" style={{ color: MUTED }}>Check number
-                <input id="bonus-check" value={checkNo} onChange={(e) => setCheckNo(e.target.value.replace(/[^0-9A-Za-z-]/g, '').slice(0, 12))} inputMode="numeric" className={field} style={fieldStyle} /></label>}
+                <input id="bonus-check" value={checkNo} placeholder={p.onCheck ? 'The next one' : undefined} onChange={(e) => setCheckNo(e.target.value.replace(p.onCheck ? /\D/g : /[^0-9A-Za-z-]/g, '').slice(0, p.onCheck ? 10 : 12))} inputMode="numeric" className={field} style={fieldStyle} /></label>}
             </section>
             <section aria-label={person ? person.contractor ? `${first} is paid` : `${first} takes home` : 'What they take home'} aria-live="polite" className="flex flex-col rounded-3xl bg-[#fff] p-5" style={{ border: `1px solid ${LINE}` }}>
               <h3 className="text-[17px] font-semibold">{person ? person.contractor ? `${first} is paid` : `${first} takes home` : 'What they take home'}</h3>
@@ -175,7 +182,7 @@ export function BonusDialog(p: {
             {error ? <span role="alert" className="min-w-[200px] flex-1 text-[13px]" style={{ color: AMBER }}>{error}</span>
               : <span className="min-w-[200px] flex-1 text-[13px]" style={{ color: MUTED }}>{person?.contractor ? `Adds it to your books as contract labor, on the day it’s paid.` : `Adds it to your books on the day it’s paid, and keeps the taxes for ${person ? `${first}’s` : 'their'} pay stub and what you owe.`}</span>}
             <span className="flex flex-wrap gap-2"><button type="button" onClick={() => p.onOpenChange(false)} disabled={busy} className={btn} style={plain}>Cancel</button>
-            <button type="button" onClick={record} disabled={busy || !ready} className={btn} style={solid}>{busy ? 'Recording' : how === 'bonus' || person?.contractor ? 'Record the bonus' : 'Record the pay'}</button></span>
+            <button type="button" onClick={record} disabled={busy || !ready} className={btn} style={solid}>{busy ? 'Recording' : `${how === 'bonus' || person?.contractor ? 'Record the bonus' : 'Record the pay'}${method === 'check' && p.onCheck ? ' and print the check' : ''}`}</button></span>
           </div>
         </div>
       </DialogContent>
