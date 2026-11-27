@@ -241,7 +241,7 @@ const ACTION_WORDS: Record<string, string> = {
   'salestax.paid': 'Recorded sales tax as paid', 'salestax.unpaid': 'Took back a sales tax payment',
   'payroll.tax_paid': 'Marked payroll taxes paid', 'payroll.tax_unpaid': 'Took back a payroll tax payment',
   'books.month_closed': 'Closed a month', 'books.month_reopened': 'Reopened a month',
-  'payroll.draft_created': 'Started a payroll', 'payroll.submit_gusto': 'Sent payroll to Gusto', 'payroll.distribute': 'Paid the team', 'payroll.prior': 'Put in pay from before ClarityFlow', 'payroll.prior_removed': 'Took out pay from before ClarityFlow', 'gusto.connected': 'Connected Gusto',
+  'payroll.draft_created': 'Started a payroll', 'payroll.submit_gusto': 'Sent payroll to Gusto', 'payroll.distribute': 'Paid the team', 'payroll.prior': 'Put in pay from before ClarityFlow', 'payroll.tax_forms_self': 'Filled in their own tax forms', 'payroll.checks_printed': 'Printed paychecks', 'payroll.w2s_given': 'Gave the W-2s in the app', 'payroll.prior_removed': 'Took out pay from before ClarityFlow', 'gusto.connected': 'Connected Gusto',
   'rent.payment_recorded': 'Recorded a rent payment', 'rent.paid_online': 'Rent paid online', 'rent.invoice': 'Sent a rent invoice', 'rent.marked_late': 'Marked rent late',
   'deposit.paid': 'A deposit was paid', 'deposit.waived': 'Waived a deposit', 'deposit.moved': 'Moved a deposit', 'balance.paid': 'A balance was paid', 'balance.paid_online': 'A balance was paid online',
   'fee.paid': 'A fee was paid', 'fee.waived': 'Waived a fee', 'fee.auto_refunded': 'Refunded a fee', 'night.close': 'Closed the night', 'tab.void': 'Voided a check', 'tab.comp': 'Comped an item',

@@ -94,8 +94,10 @@ import { stateSpec } from '@/lib/state-payroll';
 import { TaxFormsDialog } from '@/components/staff/TaxFormsDialog';
 import { BonusDialog, type BonusBody } from '@/components/money/BonusDialog';
 import { YearEndDialog, type YearEndTab } from '@/components/money/YearEndDialog';
+import { PrintChecksDialog } from '@/components/money/PrintChecksDialog';
+import { addressLines, type CheckData, type CheckLayout, type Nudge } from '@/lib/payroll-checks';
 import { w2sFor, form940, stateAnnual, form1099s, yearEndDue } from '@/lib/payroll-yearend';
-import { runByOf, runByChosen, paydayTaxes, ytdFrom, payDateFor, dueDates, owedRunsFrom, quarterWords, stateFilingOf } from '@/lib/payroll-taxes';
+import { runByOf, runByChosen, paydayTaxes, ytdFrom, payDateFor, dueDates, owedRunsFrom, quarterWords, stateFilingOf, stubTaxes } from '@/lib/payroll-taxes';
 import type { TaxForms } from '@/lib/withholding';
 import { saveStaffPay } from '@/lib/staff-pay-client';
 import { payOverlayReady } from '@/firebase/firestore/pay-overlay';
@@ -913,6 +915,42 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
       try { await saveStaffPay(firestore as any, tenantId, formsFor, { taxForms: forms }); return null; }
       catch { return 'Not saved: only a manager can change someone’s tax forms.'; }
   };
+  // Checks for the people paid by check this payday (lib/payroll-checks): their take-home, the stub with the year so far
+  // (lib/payroll-taxes stubTaxes), and the business's own payroll taxes on the stub it keeps.
+  // (Once payday is recorded, from what was recorded: the check always matches its stub and the books.)
+  const [checksOpen, setChecksOpen] = useState(false);
+  const recordedRun: any = useMemo(() => (yearRuns || []).find((r: any) => r?.kind === 'payday' && r.periodKey === periodKey && r.runBy === 'clarityflow') || null, [yearRuns, periodKey]);
+  const checkPeople = useMemo((): any[] => {
+      if (!selfRunOn) return [];
+      if (recordedRun) return (recordedRun.people || []).filter((p: any) => p?.method === 'check' && (p.contractor ? Number(p.paid) > 0 : Number(p.takeHome) > 0))
+          .map((p: any) => ({ id: String(p.staffId), name: String(p.name || 'Team member'), contractor: !!p.contractor, amount: Number(p.paid) || 0, tips: Number(p.tips) || 0, cashTips: 0, recorded: p }));
+      return staffObligations.filter((o) => (o.amount > 0 || cashLineOf(o) > 0) && methodsNow[o.id]?.method === 'check' && (o.contractor || (selfTaxes?.by[o.id]?.takeHome || 0) > 0));
+  }, [selfRunOn, recordedRun, staffObligations, methodsNow, selfTaxes]); // eslint-disable-line react-hooks/exhaustive-deps
+  const checks = useMemo((): (CheckData & { id: string })[] => {
+      if (!checksOpen || !selectedTenant) return [];
+      const span = spanWords(new Date(`${payFromYmd}T00:00:00`), new Date(`${payToYmd}T00:00:00`));
+      const paid = new Date(`${payDate}T12:00:00Z`).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+      const r2 = (n: number) => Math.round(n * 100) / 100;
+      return checkPeople.map((o: any) => {
+          const base = { id: o.id, no: o.recorded ? String(o.recorded.checkNo || '') : methodsNow[o.id]?.checkNo || '', date: payDate, payee: o.name, memo: `Pay for ${span}`, span: `Pay for ${span}, paid ${paid}` };
+          const w: any = o.recorded ? (o.recorded.taxes ? { ...o.recorded.taxes, takeHome: Number(o.recorded.takeHome) || 0 } : null) : selfTaxes?.by[o.id];
+          if (o.contractor || !w) return { ...base, amount: r2(o.amount), earned: [{ label: 'Paid for services', now: r2(o.amount) }], taxes: [], employer: [] };
+          const m: any = (staff || []).find((x: any) => x.id === o.id);
+          const st = stubTaxes({ tenant: selectedTenant, staffId: o.id, periodKey, payDate, runs: yearRuns || [], forms: m?.taxForms || null, gross: w.gross, inHand: w.inHand, stateName });
+          const tips = r2((Number(o.tips) || 0) + (Number(o.cashTips) || 0)); const pretax = r2(w.pretax.retirement + w.pretax.health);
+          const er = w.employer || { socialSecurity: 0, medicare: 0, futa: 0, sui: 0, other: [] };
+          return { ...base, amount: w.takeHome,
+              earned: [{ label: 'Pay', now: r2(Math.max(0, w.gross - tips)) }, ...(tips > 0 ? [{ label: 'Tips', now: tips }] : []),
+                ...(w.inHand > 0 ? [{ label: 'Of the tips, cash you took home', now: w.inHand, minus: true }] : []), ...(pretax > 0 ? [{ label: 'Taken out before taxes', now: pretax, minus: true }] : [])],
+              taxes: st.lines.map((l) => ({ label: l.label, now: l.amount, year: l.ytd })),
+              employer: [{ label: 'Your Social Security', now: er.socialSecurity }, { label: 'Your Medicare', now: er.medicare }, ...(er.futa > 0 ? [{ label: 'Federal unemployment', now: er.futa }] : []),
+                ...(er.sui > 0 ? [{ label: `${stateName} unemployment`, now: er.sui }] : []), ...(er.other || []).filter((x: any) => x.amount > 0).map((x: any) => ({ label: x.name, now: x.amount }))],
+              note: `Earned this year: $${st.ytd.earned.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.${w.inHand > 0 ? ' Everything you earned is taxed, the cash tips you took home too.' : ''}` };
+      });
+  }, [checksOpen, selectedTenant, checkPeople, selfTaxes, methodsNow, staff, periodKey, payDate, yearRuns, stateName, payFromYmd, payToYmd]); // eslint-disable-line react-hooks/exhaustive-deps
+  const checkSetup: any = (selectedTenant as any)?.payrollTax || {};
+  // (Saved by the server, for anyone who runs payroll: api/payroll/forms.)
+  const payrollForms = async (body: any) => { const r: any = await fetch('/api/payroll/forms', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, ...body }) }).then((x) => x.json()).catch(() => null); return r; };
   // Pay between paydays (a bonus): recorded the same way as payday, on its own day and key (api/payroll/record).
   const [bonusOpen, setBonusOpen] = useState(false);
   // (Someone who's left too: a last paycheck.)
@@ -1099,13 +1137,25 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
         statement={(o) => tenantId ? <PayStatement tenantId={tenantId} staffId={o.id} from={dateRange.from.toISOString()} to={dateRange.to.toISOString()} title={`${o.name}, pay statement`} /> : null}
         onSeeBills={onNavigate ? () => { onNavigate('bills'); if (typeof window !== 'undefined') window.scrollTo({ top: 0 }); } : undefined}
         onBonus={selfRunOn && !adjustmentsError ? () => setBonusOpen(true) : undefined}
+        onPrintChecks={selfRunOn ? () => setChecksOpen(true) : undefined} checks={checkPeople.length}
       />
       {formsPerson && <TaxFormsDialog open={!!formsFor} onOpenChange={(o) => { if (!o) setFormsFor(null); }} name={String(formsPerson.name || 'Team member')} forms={formsPerson.taxForms || null}
         state={taxState} stateName={stateName} onSave={saveForms} notReady={!!tenantId && !payOverlayReady(tenantId)} />}
       {selfRunOn && selectedTenant && <BonusDialog open={bonusOpen} onOpenChange={setBonusOpen} people={bonusPeople} tenant={selectedTenant} runs={yearRuns || []}
         state={taxState || null} stateName={stateName} today={todayBiz} onRecord={recordBonus} />}
+      {selfRunOn && selectedTenant && <PrintChecksDialog open={checksOpen} onOpenChange={setChecksOpen} title={`${payDate ? new Date(`${payDate}T12:00:00Z`).toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: 'UTC' }) : 'This'} payday`}
+        checks={checks} business={{ name: String((selectedTenant as any)?.name || ''), lines: addressLines((selectedTenant as any)?.address) }}
+        layout={(checkSetup.checkLayout === 'middle' ? 'middle' : 'top') as CheckLayout} nudge={{ x: Number(checkSetup.checkNudge?.x) || 0, y: Number(checkSetup.checkNudge?.y) || 0 } as Nudge} nextNo={checkSetup.nextCheckNo ? String(checkSetup.nextCheckNo) : ''}
+        onSettings={(s) => { void payrollForms({ action: 'checkSettings', layout: s.layout, nudge: s.nudge }); }}
+        onNumbers={async (count, first) => {
+            const r = await payrollForms({ action: 'checkNumbers', count, first, people: checks.map((c) => c.id), ...(recordedRun ? { periodKey } : {}) });
+            if (!r?.ok || !Array.isArray(r.numbers)) return r?.error || 'Not printed. Try again.';
+            // (Before payday is recorded, the numbers go with it when it is; after, they're on the payday already.)
+            if (!recordedRun) setMethods((cur) => { const out = { ...cur }; checks.forEach((c, i) => { out[c.id] = { method: 'check', checkNo: r.numbers[i] }; }); return out; });
+            return r.numbers as string[]; }} />}
       {selfRunOn && selectedTenant && yeYear && <YearEndDialog open={!!yearEndAt} onOpenChange={(o) => { if (!o) setYearEndAt(null); }} runs={yearRuns || []} tenant={selectedTenant}
-        year={yeYear} today={todayBiz} businessName={String((selectedTenant as any)?.name || '')} tab={yearEndAt?.tab} person={yearEndAt?.person} />}
+        year={yeYear} today={todayBiz} businessName={String((selectedTenant as any)?.name || '')} tab={yearEndAt?.tab} person={yearEndAt?.person}
+        onGiveW2s={async (year, given) => { const r = await payrollForms({ action: 'giveW2s', year, given }); return r?.ok ? null : (r?.error || 'Not saved. Try again.'); }} />}
       {selfRunOn && selectedTenant && <PayrollFormsDialog open={taxFormsOpen} onOpenChange={setTaxFormsOpen} runs={yearRuns || []} tenant={selectedTenant} state={taxState || null} today={todayBiz} businessName={String((selectedTenant as any)?.name || '')} />}
     </div>
   );

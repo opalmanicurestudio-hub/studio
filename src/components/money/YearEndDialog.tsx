@@ -90,7 +90,9 @@ export const W2_CSS = `.pp .w2 { border: 1px solid #16171a; padding: 8px; } .pp 
 .pp .w2n { font-size: 9px; color: #6d7075; } .pp .w2t { margin-top: 14px; font-size: 9.5px; line-height: 1.5; } .pp .w2t p { margin: 4px 0 0; }`;
 
 export function YearEndDialog(p: { open: boolean; onOpenChange: (o: boolean) => void; runs: any[]; tenant: any; year: number; today: string; businessName?: string;
-  tab?: YearEndTab; person?: string | null }) {
+  tab?: YearEndTab; person?: string | null;
+  /** Shows each person their W-2 for the year in their own app (or takes it out); a string back is what went wrong. */
+  onGiveW2s?: (year: number, given: boolean) => Promise<string | null> }) {
   const [year, setYear] = React.useState(p.year); const [tab, setTab] = React.useState<YearEndTab>(p.tab || 'w2'); const [who, setWho] = React.useState<string | null>(p.person || null);
   React.useEffect(() => { if (p.open) { setYear(p.year); setTab(p.tab || 'w2'); setWho(p.person || null); } }, [p.open]); // eslint-disable-line react-hooks/exhaustive-deps
   const spec = stateSpec(String(p.tenant?.taxState || p.tenant?.payRules?.state || '').toUpperCase());
@@ -100,6 +102,8 @@ export function YearEndDialog(p: { open: boolean; onOpenChange: (o: boolean) => 
   const st = React.useMemo(() => stateAnnual(p.runs, p.tenant, year, w2s), [p.runs, p.tenant, year, w2s]);
   const necs = React.useMemo(() => form1099s(p.runs, p.tenant, year), [p.runs, p.tenant, year]);
   const pr = priorOf(p.runs, year);
+  const givenAt: string | null = p.tenant?.payrollTax?.w2Given?.[String(year)] || null; const [giving, setGiving] = React.useState(false); const [giveErr, setGiveErr] = React.useState<string | null>(null);
+  const give = async (g: boolean) => { if (!p.onGiveW2s) return; setGiving(true); setGiveErr(null); const e = await p.onGiveW2s(year, g).catch(() => 'Not saved. Try again.'); setGiving(false); if (e) setGiveErr(e); };
   // (State unemployment for the year not paid by the time Form 940 is due cuts its credit: line 10.)
   const suiOpen = React.useMemo(() => owedItems(p.runs, p.tenant, p.today, spec?.name || 'State').filter((i) => i.agency === 'sui' && i.key.startsWith(`sui_${year}q`) && i.left >= 0.01), [p.runs, p.tenant, p.today, year, spec]);
   const paydays = new Set((p.runs || []).filter((r) => r?.kind === 'payday' && r.runBy === 'clarityflow' && payDateOf(r, p.tenant).slice(0, 4) === String(year)).map((r) => r.periodKey)).size;
@@ -179,6 +183,12 @@ export function YearEndDialog(p: { open: boolean; onOpenChange: (o: boolean) => 
                   </div>))}
               </section>
               {cur && <p className="mt-3 text-[13px]" style={{ color: MUTED }}>Print copies B, C and 2 for {first} on plain paper. Copy A goes to Social Security: type it into Business Services Online, free, with the W-3. {first}’s Social Security number and your EIN go on the form itself: ClarityFlow never keeps them.{cur.prior ? ' It includes pay from before ClarityFlow: add its box 12 and 14 amounts from your old payroll’s report. If retirement came out before taxes there, put in its federal wages in Settings, Payroll, or box 1 is too high.' : ''}{cur.locals.some((l) => !l.withState) ? ' City taxes you added are in boxes 18 to 20.' : ''}</p>}
+              {cur && over && p.onGiveW2s && <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-[#fff] px-4 py-3" style={{ border: `1px solid ${LINE}` }}>
+                <span className="min-w-0 flex-1 text-[14px]"><span className="block font-semibold">{givenAt ? 'In each person’s app' : 'Give them in each person’s app too'}</span>
+                  <span className="block text-[13px]" style={{ color: MUTED }}>{givenAt ? `Since ${longDay(String(givenAt).slice(0, 10))}: each person sees and prints theirs on their Pay tab.` : 'Once you’ve checked them: each person sees and prints theirs on their Pay tab, as the W-2 to file with.'}</span>
+                  {giveErr && <span role="alert" className="block text-[13px]" style={{ color: '#b45309' }}>{giveErr}</span>}</span>
+                <button type="button" onClick={() => give(!givenAt)} disabled={giving} className={`${btn} shrink-0`} style={givenAt ? plain : solid}>{giving ? 'Saving' : givenAt ? 'Take them out' : 'Put them in the app'}</button>
+              </div>}
             </>}
             {tab === 'nec' && <>
               <section className="rounded-3xl bg-[#fff] px-5 py-2" style={{ border: `1px solid ${LINE}` }}>
