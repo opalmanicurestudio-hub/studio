@@ -99,8 +99,8 @@ import { PrintChecksDialog } from '@/components/money/PrintChecksDialog';
 import { addressLines, checksHtml, type CheckData, type CheckLayout, type Nudge } from '@/lib/payroll-checks';
 import { w2sFor, form940, stateAnnual, form1099s, yearEndDue } from '@/lib/payroll-yearend';
 import { runByOf, runByChosen, paydayTaxes, ytdFrom, payDateFor, dueDates, owedRunsFrom, quarterWords, stateFilingOf, stubTaxes } from '@/lib/payroll-taxes';
-import { staleWords, tablesInfo, type TaxForms } from '@/lib/withholding';
-import { PAYROLL_TERMS, PAYROLL_TERMS_ALSO, PAYROLL_TERMS_HREF, PAYROLL_TERMS_VERSION, payrollTermsOk, canAgreeFor } from '@/lib/payroll-terms';
+import { NO_WAGE_TAX, staleNote, tablesInfo, type TaxForms } from '@/lib/withholding';
+import { payrollTerms, PAYROLL_TERMS_ALSO, PAYROLL_TERMS_HREF, PAYROLL_TERMS_VERSION, payrollTermsOk, canAgreeFor } from '@/lib/payroll-terms';
 import { saveStaffPay } from '@/lib/staff-pay-client';
 import { payOverlayReady } from '@/firebase/firestore/pay-overlay';
 import { BillsScreen, PAY_WAYS } from '@/components/money/BillsScreen';
@@ -872,7 +872,7 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
           methods: methodsNow, onMethod: (id, method, checkNo) => setMethods((m) => ({ ...m, [id]: { method, checkNo } })),
           onForms: canEditForms ? (id) => setFormsFor(id) : undefined, payrollHref: '/settings?tab=payroll',
           tablesYear: (() => { const ti = tablesInfo(taxYear); return ti.federal === ti.state ? ti.federal : undefined; })(),
-          stale: Object.values(selfTaxes.by).some((w) => w.flags.includes('stale_tables')) ? { words: staleWords(taxYear), ok: staleOk, onOk: setStaleOk } : null,
+          stale: Object.values(selfTaxes.by).some((w) => w.flags.includes('stale_tables')) ? { ...staleNote(taxYear), ok: staleOk, onOk: setStaleOk } : null,
           suiMissing: Object.values(selfTaxes.by).some((w) => w.flags.includes('sui_rate_missing')),
           teamSizeMissing: Object.values(selfTaxes.by).some((w) => w.flags.includes('team_size_missing')),
       };
@@ -1152,7 +1152,7 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
         statement={(o) => tenantId ? <PayStatement tenantId={tenantId} staffId={o.id} from={dateRange.from.toISOString()} to={dateRange.to.toISOString()} title={`${o.name}, pay statement`} /> : null}
         onSeeBills={onNavigate ? () => { onNavigate('bills'); if (typeof window !== 'undefined') window.scrollTo({ top: 0 }); } : undefined}
         onBonus={selfRunOn && termsOk && !adjustmentsError ? () => setBonusOpen(true) : undefined}
-        terms={selfRunOn && selectedTenant && !termsOk ? { points: PAYROLL_TERMS, href: PAYROLL_TERMS_HREF, business: String((selectedTenant as any)?.name || 'your business'), also: PAYROLL_TERMS_ALSO,
+        terms={selfRunOn && selectedTenant && !termsOk ? { terms: payrollTerms(hasTaxLocation ? stateProfile.name : '', hasTaxLocation && NO_WAGE_TAX.includes(String(taxState))), href: PAYROLL_TERMS_HREF, business: String((selectedTenant as any)?.name || 'your business'), also: PAYROLL_TERMS_ALSO,
           onAgree: canAgreeFor({ role: payRole }) && tenantId ? async () => {
             const r: any = await payrollForms({ action: 'agreeTerms', version: PAYROLL_TERMS_VERSION });
             if (!r?.ok) return r?.error || 'Not saved. Try again.';

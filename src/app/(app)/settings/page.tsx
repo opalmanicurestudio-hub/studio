@@ -1074,7 +1074,7 @@ function SettingsPageImpl() {
                     </div>
                   </Row>
                 </Section>
-                <p className="px-1 text-[13px] cf-muted">Taxes are worked out from the IRS’s and {builtIn ? stName : 'your state'}’s {TABLES_YEAR} withholding tables, as estimates for you to check: you’re the employer, so you pay and file them. Each person’s W-4 and state form are on their page in Team, or from Payday. ClarityFlow never asks for or keeps Social Security numbers or tax ID numbers: you add those when you file.</p>
+                <p className="px-1 text-[13px] cf-muted">Taxes are worked out from the IRS’s and {builtIn ? stName : 'your state'}’s {TABLES_YEAR} withholding tables. You send the payments and file the forms. Each person’s W-4 and state form are on their page in Team, or from Payday. ClarityFlow never asks for or keeps Social Security numbers or tax ID numbers: you add those when you file.</p>
                 <p className="px-1 text-[13px] cf-muted">{payrollTermsOk(selectedTenant) ? `Agreed to how payroll works here${(selectedTenant as any)?.payrollTax?.termsAgreed?.at ? ` on ${new Date((selectedTenant as any).payrollTax.termsAgreed.at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}` : ''}. ` : 'Before payday is recorded here, the owner or an admin agrees to how it works, at the top of Payday. '}<a href={PAYROLL_TERMS_HREF} target="_blank" rel="noreferrer" className="font-semibold underline underline-offset-2">Section 10 of the platform terms</a> has the full wording.</p>
                 </>)}
                 </>); })()}

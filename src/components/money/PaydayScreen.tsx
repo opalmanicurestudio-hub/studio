@@ -8,6 +8,7 @@
 // their own card, with when each is due (lib/withholding, lib/payroll-taxes).
 import * as React from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import type { PayrollTerms } from '@/lib/payroll-terms';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', GREEN_TINT = '#eaf6ef', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
 const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
@@ -56,7 +57,7 @@ export type SelfRun = {
   tablesYear?: number;
   /** The tax tables are for another year than the payday's ("This payday is in 2027, and the tax tables here are 2026’s."),
    *  and whether the business has ticked that it'll check the taxes with its accountant (recording waits for it). */
-  stale?: { words: string; ok: boolean; onOk: (ok: boolean) => void } | null;
+  stale?: { title: string; text: string; tick: string; ok: boolean; onOk: (ok: boolean) => void } | null;
   /** No state unemployment rate to use: the state's depends on the industry, and none is in Settings yet. */
   suiMissing?: boolean;
   /** The state has programs that depend on the business's size, and Settings doesn't say how many employees. */
@@ -238,31 +239,42 @@ export type PaydayScreenProps = {
   onPrintChecks?: () => void; checks?: number;
   /** Payroll run in ClarityFlow, before the business has agreed to how it works (lib/payroll-terms): the points, and
    *  "I agree" for the owner or an admin (left out for anyone else). Payday can't be recorded until then. */
-  terms?: { points: { title: string; text: string }[]; href: string; business: string; also: string; onAgree?: () => Promise<string | null> } | null;
+  terms?: { terms: PayrollTerms; href: string; business: string; also: string; onAgree?: () => Promise<string | null> } | null;
   now?: Date;
 };
 
-/** Before payroll is run here: what the business agrees to, once. */
+/** Before payroll is run here: who does what, agreed to once (lib/payroll-terms). */
 function TermsCard({ t }: { t: NonNullable<PaydayScreenProps['terms']> }) {
   const [busy, setBusy] = React.useState(false); const [error, setError] = React.useState<string | null>(null);
   const agree = async () => { if (!t.onAgree) return; setBusy(true); setError(null); const e = await t.onAgree().catch(() => 'Not saved. Try again.'); setBusy(false); if (e) setError(e); };
+  const x = t.terms;
+  const tick = <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke={GREEN} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mt-[3px] shrink-0"><path d="M3 8.5l3 3 7-7" /></svg>;
+  const dash = <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke={INK} strokeWidth="2" strokeLinecap="round" className="mt-[3px] shrink-0"><path d="M5 8h6" /></svg>;
   return (
-    <section aria-label="Before you run payroll here" className={card} style={{ border: `1px solid ${INK}` }}>
-      <h3 className="text-[17px] font-semibold">Before you run payroll here</h3>
-      <p className="text-[14px]" style={{ color: MUTED }}>ClarityFlow works out your team’s taxes, and you pay them and file. Here’s what that means.</p>
-      <ul className="mt-2">
-        {t.points.map((x) => <li key={x.title} className="py-2" style={{ borderTop: `1px solid ${LINE}` }}>
-          <span className="block text-[15px] font-semibold">{x.title}</span>
-          <span className="block text-[14px]" style={{ color: MUTED }}>{x.text}</span></li>)}
-      </ul>
-      <p className="py-2 text-[13px]" style={{ color: MUTED, borderTop: `1px solid ${LINE}` }}>The full wording is in section 10 of the <a href={t.href} target="_blank" rel="noreferrer" className={`font-semibold underline underline-offset-2 ${RING}`} style={{ color: INK }}>platform terms</a>. {t.also}</p>
+    <section aria-label="How payroll works in ClarityFlow" className={`${card} flex flex-col gap-4 pb-4`} style={{ border: `1px solid ${INK}` }}>
+      <div className="flex flex-col gap-1.5">
+        <h3 className="text-[19px] font-bold tracking-[-0.01em]">How payroll works in ClarityFlow</h3>
+        <p className="text-[15px]" style={{ color: MUTED }}>{x.intro}</p>
+        {x.noTax && <p className="text-[14px]" style={{ color: MUTED }}>{x.noTax}</p>}
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="flex flex-col gap-2.5 rounded-[18px] p-4" style={{ background: GREEN_TINT }}>
+          <h4 className="text-[14px] font-bold" style={{ color: GREEN }}>ClarityFlow handles</h4>
+          <ul className="flex flex-col gap-2.5 text-[14px]">{x.handles.map((h) => <li key={h} className="flex items-start gap-2">{tick}<span>{h}</span></li>)}</ul>
+        </div>
+        <div className="flex flex-col gap-2.5 rounded-[18px] p-4" style={{ border: `1px solid ${LINE}` }}>
+          <h4 className="text-[14px] font-bold">You handle</h4>
+          <ul className="flex flex-col gap-2.5 text-[14px]">{x.yours.map((h) => <li key={h} className="flex items-start gap-2">{dash}<span>{h}</span></li>)}</ul>
+        </div>
+      </div>
+      <p className="pt-3 text-[13px]" style={{ color: MUTED, borderTop: `1px solid ${LINE}` }}>{x.fine} The full wording is in section 10 of the <a href={t.href} target="_blank" rel="noreferrer" className={`font-semibold underline underline-offset-2 ${RING}`} style={{ color: INK }}>platform terms</a>. {t.also}</p>
       {t.onAgree
-        ? <div className="flex flex-wrap items-center gap-3 pb-2 pt-1">
-            <button type="button" onClick={agree} disabled={busy} className={btn} style={solid}>{busy ? 'Saving' : 'I agree'}</button>
+        ? <div className="flex flex-wrap items-center gap-3">
+            <button type="button" onClick={agree} disabled={busy} className={btn} style={solid}>{busy ? 'Saving' : 'Agree and continue'}</button>
             <span className="min-w-[180px] flex-1 text-[13px]" style={{ color: MUTED }}>For {t.business}, once. Payday can be recorded here after that.</span>
           </div>
         : <Note>The owner or an admin agrees to this once, for {t.business}. Until then, payday can’t be recorded here.</Note>}
-      {error && <p role="alert" className="pb-2 text-[13px] font-semibold" style={{ color: AMBER }}>{error}</p>}
+      {error && <p role="alert" className="text-[13px] font-semibold" style={{ color: AMBER }}>{error}</p>}
     </section>
   );
 }
@@ -287,7 +299,7 @@ export function PaydayScreen(p: PaydayScreenProps) {
   const parts = PART_ORDER.map((k) => p.parts.find((x) => x.key === k)).filter(Boolean) as SetAsidePart[];
   // (Payroll run here: recording waits for the agreement, and for the tick when the tables are another year's.)
   const waits = runBy === 'clarityflow' && p.terms ? 'Agree to how payroll works here first, at the top of Payday.'
-    : self?.stale && !self.stale.ok && employees.length > 0 ? 'Tick that you’ll check the taxes with your accountant first, under Your team.' : null;
+    : self?.stale && !self.stale.ok && employees.length > 0 ? 'Tick to use these tables first, under Your team.' : null;
   const toTeam = () => { teamRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); teamRef.current?.focus({ preventScroll: true }); };
 
   const period = (
@@ -409,12 +421,13 @@ export function PaydayScreen(p: PaydayScreenProps) {
       {runBy === 'gusto' && p.gusto.connected && !!p.gustoUnmatched?.length && <Note warn>Match {peopleOf(p.gustoUnmatched)} to Gusto first, below, then send payroll.</Note>}
       {runBy !== 'clarityflow' && p.onExport && <div className="mt-2 flex flex-wrap items-center gap-2"><button type="button" onClick={p.onExport} disabled={!!p.blocked} className={btn} style={runBy === 'company' ? solid : plain}>Download for {runBy === 'company' ? 'your' : 'another'} payroll company</button>
         <span className="text-[13px]" style={{ color: MUTED }}>Hours and pay for these dates, as a spreadsheet for ADP, Paychex, QuickBooks Payroll or your bookkeeper.</span></div>}
-      {runBy === 'clarityflow' && <p className="mt-3 text-[13px]" style={{ color: MUTED }}>Taxes worked out here, using the IRS’s{self?.stateTax ? ` and ${self.stateName}’s` : ''}{self?.tablesYear ? ` ${self.tablesYear}` : ''} tables. They’re estimates for you to check: you’re the employer, so you send the pay and the taxes from your bank, and file the forms or hand them to your accountant. <a href={self?.payrollHref || '/settings?tab=payroll'} className="underline underline-offset-2" style={{ color: INK }}>Use Gusto or another payroll company instead</a></p>}
-      {self?.stale && <div className="mt-2 rounded-2xl px-4 py-3 text-[14px]" style={{ background: AMBER_TINT, color: AMBER }}>
-        <p>{self.stale.words} Until that year’s are added, each person’s taxes may be off. Check them with your accountant before you pay.</p>
-        {!p.recordedOn && <label className="mt-1 flex min-h-[44px] cursor-pointer items-center gap-3 font-semibold">
-          <input type="checkbox" checked={self.stale.ok} onChange={(e) => self.stale!.onOk(e.target.checked)} className="h-5 w-5 shrink-0 accent-[#b45309]" />
-          I’ll check these taxes with my accountant</label>}
+      {runBy === 'clarityflow' && <p className="mt-3 text-[13px]" style={{ color: MUTED }}>Taxes worked out from the IRS’s{self?.stateTax ? ` and ${self.stateName}’s` : ''}{self?.tablesYear ? ` ${self.tablesYear}` : ''} tables. You send the pay and the taxes from your bank, and file the forms or hand them to your accountant. <a href={self?.payrollHref || '/settings?tab=payroll'} className="underline underline-offset-2" style={{ color: INK }}>Use Gusto or another payroll company instead</a></p>}
+      {self?.stale && <div className="mt-2 flex flex-col gap-1.5 rounded-2xl px-4 py-3 text-[14px]" style={{ background: SOFT }}>
+        <p className="flex items-center gap-2.5 text-[15px] font-semibold"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 20 20" fill="none" stroke={INK} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="shrink-0"><rect x="3" y="4" width="14" height="13" rx="2" /><path d="M3 8h14M7 2v4M13 2v4" /></svg>{self.stale.title}</p>
+        <p style={{ color: MUTED }}>{self.stale.text}</p>
+        {!p.recordedOn && <label className="flex min-h-[44px] cursor-pointer items-center gap-3 font-semibold">
+          <input type="checkbox" checked={self.stale.ok} onChange={(e) => self.stale!.onOk(e.target.checked)} className="h-5 w-5 shrink-0 accent-[#16171a]" />
+          {self.stale.tick}</label>}
       </div>}
       {self?.teamSizeMissing && <Note>Some of {self.stateName}’s paid leave programs depend on how many employees you have. Until you say, the people paid each payday are counted. <a href={self.payrollHref} className={`font-semibold underline underline-offset-2 ${RING}`}>Set it in Settings</a></Note>}
       {self?.suiMissing && <Note warn>{self.stateName} unemployment isn’t worked out yet: its rate for a new business depends on your industry. <a href={self.payrollHref} className={`font-semibold underline underline-offset-2 ${RING}`}>Put in the rate from your state’s letter</a></Note>}
@@ -529,7 +542,7 @@ export function PaydayScreen(p: PaydayScreenProps) {
           </div>))}
       </div>}
       <p className="mt-2 text-[13px]" style={{ color: MUTED }}>When you pay one, its bank line is sorted as Payroll Tax Deposit: it’s in your books from payday already, so it isn’t counted twice.</p>
-      <p className="mt-2 pb-1 text-[13px]" style={{ color: MUTED }}>Amounts and due days are worked out from your paydays here. If a notice from the IRS or {self?.stateName || 'your state'} says something different, go by the notice and ask your accountant.</p>
+      <p className="mt-2 pb-1 text-[13px]" style={{ color: MUTED }}>Worked out from the paydays you’ve recorded. If the IRS or {self?.stateName || 'your state'} ever sends you a notice, it comes first: pass it to your accountant.</p>
     </section>
   ) : null;
 

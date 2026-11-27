@@ -10,7 +10,7 @@ import * as React from 'react';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { paydayTaxes, ytdFrom, teamOnLastPayday, dueDates, afterQuarter } from '@/lib/payroll-taxes';
 import { stateSpec, supplementalRate } from '@/lib/state-payroll';
-import { staleWords, tablesInfo, type TaxForms, type PayMethod, type Withholding } from '@/lib/withholding';
+import { staleNote, tablesInfo, type TaxForms, type PayMethod, type Withholding } from '@/lib/withholding';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
 const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
@@ -180,12 +180,12 @@ export function BonusDialog(p: {
                   {missing && <p className="mt-2 rounded-2xl px-4 py-3 text-[14px]" style={{ background: AMBER_TINT, color: AMBER }}>{missing}</p>}
                   <p className="mt-2 text-[14px]" style={{ color: MUTED }}>You also pay {usd(w.employerTotal)} as the employer{w.employer.sui > 0 || w.employer.futa > 0 ? ', for Social Security, Medicare and unemployment' : ', for Social Security and Medicare'}.{noSui ? ` No unemployment: ${first}’s pay is past this year’s limits for it.` : ''}</p>
                   <p className="mt-2 text-[14px]" style={{ color: MUTED }}>It counts in {first}’s year: their W-2, the Social Security limit{due?.irs ? `, and the IRS payment due ${longDay(due.irs).replace(/, \d{4}$/, '')}` : ''}.</p>
-                  {stale && <div className="mt-2 rounded-2xl px-4 py-3 text-[14px]" style={{ background: AMBER_TINT, color: AMBER }}>
-                    <p>{staleWords(Number(date.slice(0, 4)), 'This pay')} Until that year’s are added, the taxes on it may be off.</p>
-                    <label className="mt-1 flex min-h-[44px] cursor-pointer items-center gap-3 font-semibold">
-                      <input type="checkbox" checked={staleOk} onChange={(e) => setStaleOk(e.target.checked)} className="h-5 w-5 shrink-0 accent-[#b45309]" />
-                      I’ll check these taxes with my accountant</label></div>}
-                  <p className="mt-2 text-[13px]" style={{ color: MUTED }}>Estimates from the {ti && ti.federal === ti.state ? `${ti.federal} ` : ''}tax tables. You’re the employer, so you pay the taxes and file the forms: check with your accountant when you’re unsure.</p>
+                  {stale && (() => { const n = staleNote(Number(date.slice(0, 4)), 'this pay'); return <div className="mt-2 flex flex-col gap-1.5 rounded-2xl px-4 py-3 text-[14px]" style={{ background: SOFT }}>
+                    <p className="text-[15px] font-semibold">{n.title}</p><p style={{ color: MUTED }}>{n.text}</p>
+                    <label className="flex min-h-[44px] cursor-pointer items-center gap-3 font-semibold">
+                      <input type="checkbox" checked={staleOk} onChange={(e) => setStaleOk(e.target.checked)} className="h-5 w-5 shrink-0 accent-[#16171a]" />
+                      {n.tick}</label></div>; })()}
+                  <p className="mt-2 text-[13px]" style={{ color: MUTED }}>{how === 'bonus' ? <>Worked out with the IRS’s{stTax ? ` and ${p.stateName}’s` : ''} rules for bonuses, from the {ti && ti.federal === ti.state ? `${ti.federal} ` : ''}tables.</> : <>Worked out as a paycheck of its own, from the IRS’s{stTax ? ` and ${p.stateName}’s` : ''} {ti && ti.federal === ti.state ? `${ti.federal} ` : ''}tables.</>}</p>
                 </> : null}
             </section>
           </div>

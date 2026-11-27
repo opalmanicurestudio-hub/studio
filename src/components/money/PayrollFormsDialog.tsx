@@ -55,7 +55,7 @@ export function PayrollFormsDialog(p: { open: boolean; onOpenChange: (o: boolean
     const w = window.open('', '_blank'); if (!w) return;
     const r = rows(); const body = `<table><thead><tr>${r[0].map((c, i) => `<th${i ? ' class="r"' : ''}>${esc(c)}</th>`).join('')}</tr></thead><tbody>${r.slice(1).map((row) => `<tr>${row.map((c, i) => `<td${i ? ' class="r"' : ''}>${esc(typeof c === 'number' && (which === 'ui' || i === row.length - 1) ? (which === '941' && row[0] === '1' ? c : usd(c)) : c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
     w.document.open(); w.document.write(printPage({ title: `${title}, ${span}`, heading: esc(title), subtitle: esc(span), shopName: p.businessName, body,
-      footNote: 'Worked out from the paydays recorded in ClarityFlow, as estimates to check before you file: you’re responsible for what’s filed. Your EIN, your account number and each person’s Social Security number go on the form itself.', autoPrint: true }));
+      footNote: 'Prepared from the paydays recorded in ClarityFlow. Review before filing. Your EIN, your account number and each person’s Social Security number go on the form itself.', autoPrint: true }));
     w.document.close(); w.focus();
   };
 
@@ -97,7 +97,7 @@ export function PayrollFormsDialog(p: { open: boolean; onOpenChange: (o: boolean
               </>}
             </section>
             <p className="mt-3 text-[13px]" style={{ color: MUTED }}>Copy these onto the form, or download them for your accountant. Your EIN and account number{which === 'ui' ? ', and each person’s Social Security number,' : ''} go on the form itself: ClarityFlow never keeps them.</p>
-            <p className="mt-2 text-[13px]" style={{ color: MUTED }}>These are worked out from your paydays here, and they’re only as right as what was recorded. Check them against your bank and payroll records before you file: as the employer, you’re responsible for what’s filed.</p>
+            <p className="mt-2 text-[13px]" style={{ color: MUTED }}>Filled in from the paydays you’ve recorded. Look them over against your bank statements before you file, as you would with any return.</p>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2 px-5 py-4 sm:px-6" style={{ borderTop: `1px solid ${LINE}`, background: SOFT }}>
             <button type="button" onClick={print} className={btn} style={plain}>Print</button>

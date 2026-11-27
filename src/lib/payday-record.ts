@@ -126,7 +126,7 @@ export async function recordPayday(db: any, tenantId: string, tenant: any, input
         ...(off ? { offCycle: true, supplemental: off.supplemental, teamSize: teamOnLastPayday(runs, tenant, year, off.date) } : {}) });
       // (Tables from another year than the payday's: only once the business has ticked that it'll check them.)
       if (!input.staleOk && Object.values(tax.by).some((w) => w.flags.includes('stale_tables')))
-        return { ok: false as const, status: 428, code: 'stale_tables' as const, error: `${staleWords(year, off ? 'This pay' : 'This payday')} Tick that you’ll check the taxes with your accountant, then record it.` };
+        return { ok: false as const, status: 428, code: 'stale_tables' as const, error: `${staleWords(year, off ? 'This pay' : 'This payday')} Tick to use them for now, with your accountant confirming it, then record it.` };
     }
     // Pay between paydays the bank booked on its own as payroll, a few days either side of the day it's paid, for one
     // person's pay or take-home: that payment, so it isn't booked twice. (A regular payday's window can reach the same

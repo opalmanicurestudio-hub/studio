@@ -124,6 +124,15 @@ export const staleWords = (year: number, what = 'This payday') => {
   const i = tablesInfo(year); const yrs = i.federal === i.state ? `${i.federal}’s` : `${i.federal}’s federal and ${i.state}’s state`;
   return `${what} is in ${year}, and the tax tables here are ${yrs}.`;
 };
+/** What Payday and Pay a bonus say when pay is worked out with another year's tables, and the tick that goes ahead with
+ *  them: a year's new tables on the way (pay dated after them), or a year whose tables aren't kept here (before). */
+export const staleNote = (year: number, what = 'this payday') => {
+  const i = tablesInfo(year); const yrs = i.federal === i.state ? `${i.federal}’s` : `${i.federal}’s federal and ${i.state}’s state`;
+  const tick = `Use ${yrs} tables for ${what}. I’ll have my accountant confirm it.`;
+  return year > Math.min(i.federal, i.state)
+    ? { title: `${year}’s tables are on the way`, text: `The IRS and the states publish new tables each winter, and they’re added here once they’ve been checked. Until then, ${what} is worked out with ${yrs}, so a few amounts may come out a little different.`, tick }
+    : { title: `Worked out with ${yrs} tables`, text: `${what.charAt(0).toUpperCase()}${what.slice(1)} is in ${year}, and that year’s ${i.federal === year ? 'state ' : ''}tables aren’t kept here, so a few amounts may come out a little different.`, tick };
+};
 
 /** States with no income tax on wages. */
 export const NO_WAGE_TAX = STATE_LIST.filter((x) => STATES[x.code].noTax).map((x) => x.code as string);

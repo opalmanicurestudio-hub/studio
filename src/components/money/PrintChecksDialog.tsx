@@ -79,7 +79,7 @@ export function PrintChecksDialog(p: {
                     <span className="min-w-0"><span className="block text-[15px]">{label}</span><span className="block text-[13px]" style={{ color: MUTED }}>{sub}</span></span>
                   </label>))}
               </fieldset>
-              <p className="text-[13px]" style={{ color: MUTED }}>Use check paper with your bank’s numbers already printed on it. ClarityFlow prints the payee, the amount, the date and the stubs, never your account number. Check each one before you sign it, and ask your bank if you’re unsure your paper will be accepted.</p>
+              <p className="text-[13px]" style={{ color: MUTED }}>Use check paper with your bank’s numbers already printed on it. ClarityFlow prints the payee, the amount, the date and the stubs, never your account number. Look each one over as you sign it.</p>
             </section>
             <section aria-label="Line it up" className="flex flex-col gap-3 rounded-3xl bg-[#fff] p-5" style={{ border: `1px solid ${LINE}` }}>
               <h3 className="text-[17px] font-semibold">Line it up</h3>
