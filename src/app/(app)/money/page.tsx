@@ -82,6 +82,7 @@ import { cn, safeNumber } from '@/lib/utils';
 import { useFirebase, useUser, addDocumentNonBlocking, updateDocumentNonBlocking, useCollection, useMemoFirebase } from '@/firebase';
 import { resolveActiveStaffId } from '@/lib/staff-identity';
 import { AddTransactionDialog } from '@/components/ledger/AddTransactionDialog';
+import { staffAuthHeader } from '@/lib/staff-fetch';
 import { BadDebtAgingCard } from '@/components/ledger/BadDebtAgingCard';
 import { useToast } from '@/hooks/use-toast';
 import { useTenant } from '@/context/TenantContext';
@@ -203,6 +204,14 @@ const LedgerTab = () => {
   const [way, setWay] = useState<'all' | 'in' | 'out'>('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [isAddTxnOpen, setIsAddTxnOpen] = useState(false);
+  // (Snap a receipt: the same Add a line, the photo first and read for what's on it: api/money/receipt-read.)
+  const [snapOpen, setSnapOpen] = useState(false);
+  const readReceipt = useCallback(async (url: string) => {
+    if (!tenantId) return null;
+    const h = await staffAuthHeader();
+    const d: any = await fetch('/api/money/receipt-read', { method: 'POST', headers: { 'Content-Type': 'application/json', ...h }, body: JSON.stringify({ tenantId, url }) }).then((r) => r.json()).catch(() => null);
+    return d?.ok && d.reading ? d.reading : null;
+  }, [tenantId]);
   const [previewTransaction, setPreviewTransaction] = useState<Transaction | null>(null);
   const [transactionToRefund, setTransactionToRefund] = useState<Transaction | null>(null);
   const { appointments: refundVisit } = useAppointmentsByIds(transactionToRefund?.appointmentId ? [String(transactionToRefund.appointmentId)] : []);   // just the visit being refunded
@@ -476,7 +485,7 @@ const LedgerTab = () => {
       <div className="mx-auto w-full max-w-[1180px] px-4 py-5 md:px-6">
         <OwedToClientsCard />
         <BooksScreen lines={filteredTransactions} byId={ledgerById} loading={isLoading} biz={selectedTenant} staff={staff || []} tenantId={tenantId || ''}
-          filters={booksFilters} reports={reportsMenu} onNew={() => setIsAddTxnOpen(true)}
+          filters={booksFilters} reports={reportsMenu} onNew={() => { setSnapOpen(false); setIsAddTxnOpen(true); }} onSnap={() => { setSnapOpen(true); setIsAddTxnOpen(true); }}
           onChangeCategory={changeCategory} onReceipt={attachReceipt} onPreviewReceipt={(t) => setPreviewTransaction(t)} onRefund={(t) => setTransactionToRefund(t)}
           onUndo={undoLine} isUndone={isUndone} onCorrect={correct} onDisputePack={disputePack}
           summary={{ netSales: financialSummary.netSales, returns: financialSummary.returns, tips: financialSummary.tips, net: financialSummary.net }} />
@@ -486,7 +495,7 @@ const LedgerTab = () => {
         </div>
       </div>
 
-      <AddTransactionDialog open={isAddTxnOpen} onOpenChange={setIsAddTxnOpen} staff={staff || []} onConfirm={handleAddTransaction} />
+      <AddTransactionDialog open={isAddTxnOpen} onOpenChange={setIsAddTxnOpen} staff={staff || []} onConfirm={handleAddTransaction} snap={snapOpen} readReceipt={readReceipt} />
 
       <ReceiptDialog
         transaction={previewTransaction}

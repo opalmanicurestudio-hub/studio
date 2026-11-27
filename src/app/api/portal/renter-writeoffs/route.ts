@@ -6,7 +6,11 @@
 // (tenants/{t}/private/renter_{id}/writeOffs/checklist), never in the business's books or its activity.
 // Signed in with the renter portal's session token. POST { tenantId, token, action }:
 //   list   { year? }                                  → the year's write-offs
-//   add    { date, amount, kind, note?, people? }      → a cost logged (the same costs as Earnings and expenses)
+//   receipt { photoData, replaces? }                  → a receipt photo kept with their own (renterReceipts/{id}, a folder
+//                                                       no one else can open from a browser), and what's printed on it,
+//                                                       to fill Add a cost (lib/receipt-read); `replaces`: one taken again
+//   drop   { url }                                    → a photo from a cost they didn't save, removed
+//   add    { date, amount, kind, note?, people?, receiptUrl? } → a cost logged (the same costs as Earnings and expenses)
 //   finish { id, note?, people? }                     → a meal's who and why, or a gift's how many people
 //   check  { year, item, answer: 'ask'|'no'|null }     → an often-missed write-off marked
 import { NextRequest, NextResponse } from 'next/server';
@@ -16,7 +20,11 @@ import { renterRentPayments, rentTakeBacks } from '@/lib/renter-rent-history';
 import { tripsOf, loadSetup, todayFor } from '@/lib/trip-log-server';
 import { yearSummary } from '@/lib/trip-log';
 import { limitByKey } from '@/lib/rate-limit';
-import { renterFound, rentPaidOf, deskTipsOf, missingRenterUsual, cleanRenterCost, RENTER_CHECKLIST } from '@/lib/renter-write-offs';
+import { renterFound, rentPaidOf, deskTipsOf, missingRenterUsual, cleanRenterCost, costKindOf, RENTER_CHECKLIST, RENTER_COST_KINDS } from '@/lib/renter-write-offs';
+import { receiptUrlOk } from '@/lib/write-offs';
+import { ourBuckets } from '@/lib/inspo-photos';
+import { readReceipt, takeReceiptRead, dropReceiptPhoto } from '@/lib/receipt-read';
+import { uploadPortalImageFromDataUrl } from '@/lib/maintenance-server';
 
 export const dynamic = 'force-dynamic';
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -60,16 +68,45 @@ export async function POST(req: NextRequest) {
       return reply({ ok: true, year, years: [thisYear, thisYear - 1], today, space: clip(tenant.name || 'the business you rent from', 80),
         found: renterFound(exp, year), rent: rentPaidOf(pays, year, ledger), deskTipsCents: deskTipsOf(ledger, year), missing: missingRenterUsual(exp, year),
         miles: m.trips > 0 ? { tenths: m.businessTenths, cents: m.amountCents, rate: m.rate.label, trips: m.trips, stale: m.rate.stale, rateYear: m.rate.year } : null,
-        checklist: (kept as any)?.[String(year)] || {} });
+        checklist: (kept as any)?.[String(year)] || {},
+        // (Costs with a photo of the receipt kept, to open again.)
+        photos: exp.filter((e: any) => e.receiptUrl && String(e.date || '').slice(0, 4) === String(year) && Number(e.cents) > 0).sort((a: any, b2: any) => String(a.date).localeCompare(String(b2.date)))
+          .map((e: any) => ({ id: String(e.id), day: String(e.date).slice(0, 10), kind: costKindOf(e.category), cents: Math.round(Number(e.cents)), note: clip(e.note, 80), url: String(e.receiptUrl) })) });
     }
 
     const limited = await limitByKey('renter-writeoffs', `${tenantId}|${rid}`, 300, 'That’s a lot of changes this hour. Try again later.'); if (limited) return limited;
 
+    // (Their receipt photos are kept in a folder of their own that no one opens from a browser: the business's team
+    // can't, and they see theirs through the photo's own link.)
+    const receiptsDir = `renterReceipts/${rid}`;
+    const theirs = async (url: unknown) => typeof url === 'string' && receiptUrlOk(url, tenantId, await ourBuckets(tenant), receiptsDir);
+    // (A photo no saved cost uses: one taken again, or from a cost not saved.)
+    const dropUnused = async (url: unknown) => {
+      if (!(await theirs(url))) return;
+      const used = await db.collection(`${T}/renterExpenses`).where('receiptUrl', '==', String(url)).limit(1).get();
+      if (!used.docs.length) await dropReceiptPhoto(String(url));
+    };
+    if (action === 'receipt') {
+      const lim = await limitByKey('renter-receipt', `${tenantId}|${rid}`, 60, 'That’s a lot of receipts this hour. Fill this one in by hand.'); if (lim) return lim;
+      const up = await uploadPortalImageFromDataUrl(tenantId, receiptsDir, b.photoData);
+      if (!up.url) return reply({ ok: false, error: /valid image|JPG|too large|Empty/i.test(String(up.error || '')) ? String(up.error) : 'That photo didn’t upload. Try again.' }, 400);
+      if (b.replaces) await dropUnused(b.replaces).catch(() => {});
+      // (What's printed on it, read from the photo as sent, within a day's readings: nothing saved from it until they
+      // add the cost.)
+      const m = /^data:([a-z]+\/[a-z0-9.+-]+);base64,(.+)$/i.exec(String(b.photoData || ''));
+      const may = m ? await takeReceiptRead(db, tenantId, `renter_${rid}`, today, 'renters').catch(() => false) : false;
+      const reading = m && may ? await readReceipt({ bytes: Buffer.from(m[2], 'base64'), mediaType: m[1].toLowerCase(), kinds: RENTER_COST_KINDS, today, tenantId, purpose: 'renter_receipt_read' }).catch(() => null) : null;
+      return reply({ ok: true, url: up.url, reading, ...(m && !may ? { capped: true } : {}) });
+    }
+    if (action === 'drop') { await dropUnused(b.url).catch(() => {}); return reply({ ok: true }); }
+
     if (action === 'add') {
       const c = cleanRenterCost(b, today); if (!c.ok) return reply({ ok: false, error: c.error }, 400);
+      const receiptUrl = b.receiptUrl ? String(b.receiptUrl) : '';
+      if (receiptUrl && !(await theirs(receiptUrl))) return reply({ ok: false, error: 'That photo didn’t upload. Try again.' }, 400);
       const ref = db.collection(`${T}/renterExpenses`).doc(); const now = new Date().toISOString();
       // (The same shape Earnings and expenses keeps, so a cost shows in both.)
-      await ref.set({ id: ref.id, renterId: rid, date: c.cost.date, cents: c.cost.cents, category: c.cost.category, note: c.cost.note, ...(c.cost.people ? { people: c.cost.people } : {}), createdAt: now, updatedAt: now });
+      await ref.set({ id: ref.id, renterId: rid, date: c.cost.date, cents: c.cost.cents, category: c.cost.category, note: c.cost.note, ...(c.cost.people ? { people: c.cost.people } : {}), ...(receiptUrl ? { receiptUrl } : {}), createdAt: now, updatedAt: now });
       return reply({ ok: true, id: ref.id });
     }
 

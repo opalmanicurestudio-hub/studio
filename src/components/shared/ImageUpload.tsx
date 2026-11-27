@@ -54,6 +54,8 @@ interface ImageUploadProps {
   tenantId?: string;
   /** The button's words, e.g. "Upload your logo". Defaults to "Upload an image" (or "Upload images"). */
   label?: string;
+  /** Kept as a JPEG whatever the photo was (a receipt: small enough to read, however it was taken). */
+  asJpeg?: boolean;
 }
 
 export const ImageUpload: React.FC<ImageUploadProps> = ({
@@ -67,6 +69,7 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
   clearOnUpload = false,
   enableMarkup = true,
   storageFolder = 'uploads',
+  asJpeg = false,
 }) => {
   const [imagePreview, setImagePreview] = useState<string | null>(initialImage);
   const [isMarkupOpen, setIsMarkupOpen] = useState(false);
@@ -142,9 +145,11 @@ export const ImageUpload: React.FC<ImageUploadProps> = ({
           canvas.width = width;
           canvas.height = height;
           const ctx = canvas.getContext('2d');
+          // (A JPEG has no see-through parts: white behind, not black.)
+          if (asJpeg && ctx) { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, width, height); }
           ctx?.drawImage(img, 0, 0, width, height);
 
-          const dataUrl = canvas.toDataURL(file.type);
+          const dataUrl = asJpeg ? canvas.toDataURL('image/jpeg', 0.85) : canvas.toDataURL(file.type);
           localDataUrlRef.current = dataUrl;
 
           setBusy(true);

@@ -151,7 +151,7 @@ export function renterYearItems(g: { year: number; wo: any; mi: any; tx: any; to
     const f = g.wo.found;
     out.push(f.toFinish ? { key: 'writeoffs', state: 'todo', title: `${plural(f.toFinish, 'cost')} to finish`, sub: 'Meals without who was there and what it was about, gifts without how many people.', view: 'writeoffs' }
       : { key: 'writeoffs', state: 'ok', title: 'Costs finished', sub: 'Every meal and gift has what the IRS asks for.' });
-    if (f.receipts) out.push({ key: 'receipts', state: 'info', title: `Keep ${plural(f.receipts, 'receipt')}`, sub: 'For meals, gifts and travel of $75 or more: the IRS asks for them.' });
+    if (f.receipts) out.push({ key: 'receipts', state: 'info', title: `Keep ${plural(f.receipts, 'receipt')}`, sub: 'For meals, gifts and travel of $75 or more with no photo of the receipt here: the IRS asks for them.' });
     const asks = RENTER_CHECKLIST.filter((c) => !g.wo.checklist?.[c.id]).length;
     if (asks) out.push({ key: 'missed', state: 'todo', title: `${plural(asks, 'often-missed write-off')} to answer`, sub: 'A home office, your phone, health insurance, retirement, tips: ask your accountant, or doesn’t apply.', view: 'writeoffs' });
     const missing = RENTER_USUAL.filter((u) => (g.wo.missing || []).includes(u.id));
@@ -173,7 +173,7 @@ export function renterPacketBody(o: { year: number; items: YearItem[]; earnedByM
     parts.push(sec('Earned through ClarityFlow', '<p class="sub">Bookings marked done, at your prices, however the client paid; packages and memberships sold; tips the front desk collected for you; and shop sales. Work that wasn’t booked in ClarityFlow, and tips clients paid you directly, aren’t in it.</p>'
       + table(['Month', 'Earned'], months.map((m) => [new Date(`${m}-15T12:00:00Z`).toLocaleDateString('en-US', { month: 'long', timeZone: 'UTC' }), usd((Number(o.earnedByMonth![m]) || 0) / 100)]).concat([['Total', usd(total / 100)]]), true)));
   }
-  if (o.wo?.found) parts.push(sec('Write-offs', (o.wo.deskTipsCents > 0 && o.earnedByMonth ? '<p class="sub">Tips the front desk collected for you are already in what you earned above: they’re listed here for the deduction for tips, not as a business cost.</p>' : '') + renterWriteOffsHtml({ found: o.wo.found, rent: o.wo.rent, space: o.wo.space, miles: o.wo.miles, deskTipsCents: o.wo.deskTipsCents || 0, checklist: o.wo.checklist || {}, missing: o.wo.missing || [] })));
+  if (o.wo?.found) parts.push(sec('Write-offs', (o.wo.deskTipsCents > 0 && o.earnedByMonth ? '<p class="sub">Tips the front desk collected for you are already in what you earned above: they’re listed here for the deduction for tips, not as a business cost.</p>' : '') + renterWriteOffsHtml({ found: o.wo.found, rent: o.wo.rent, space: o.wo.space, miles: o.wo.miles, deskTipsCents: o.wo.deskTipsCents || 0, checklist: o.wo.checklist || {}, missing: o.wo.missing || [], photos: o.wo.photos || [] })));
   if (o.mi?.trips?.length) parts.push(sec('Mileage log', logBodyHtml(o.mi.trips, o.year, o.mi.setup)));
   if (o.tx) parts.push(sec('Estimated tax payments recorded', paymentsHtml(Array.isArray(o.tx.payments) ? o.tx.payments : [], String(o.tx.stateName || '') || 'Your state')));
   return parts.join('\n');

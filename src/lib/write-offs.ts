@@ -149,17 +149,17 @@ export function cleanMeal(b: any): { ok: true; meal: { kind: MealKind; who: stri
   return { ok: true, meal: { kind, who, why } };
 }
 
-/** A receipt photo kept in the business's own storage (ImageUpload, its uploads folder), nothing else: the storage
- *  service's own address, one of the app's own buckets (`buckets`: lib/inspo-photos ourBuckets), and the object filed
- *  under this business's uploads. */
-export function receiptUrlOk(url: unknown, tenantId: string, buckets: string[]): boolean {
+/** A receipt photo kept in the business's own storage, nothing else: the storage service's own address, one of the
+ *  app's own buckets (`buckets`: lib/inspo-photos ourBuckets), and the object filed under tenants/{t}/{sub}/ (`sub`:
+ *  'uploads', ImageUpload's, from the app; a renter's own, renters/{id}/receipts, from the portal). */
+export function receiptUrlOk(url: unknown, tenantId: string, buckets: string[], sub = 'uploads'): boolean {
   if (typeof url !== 'string' || url.length > 1200) return false;
   try {
     const u = new URL(url);
     if (u.protocol !== 'https:' || u.hostname !== 'firebasestorage.googleapis.com' || u.username || u.password || u.port) return false;
     const m = /^\/v0\/b\/([A-Za-z0-9._-]+)\/o\/([^/]+)$/.exec(u.pathname);
     if (!m || !buckets.includes(m[1]) || u.searchParams.get('alt') !== 'media') return false;
-    const object = decodeURIComponent(m[2]); const dir = `tenants/${tenantId}/uploads/`;
+    const object = decodeURIComponent(m[2]); const dir = `tenants/${tenantId}/${sub}/`;
     return object.startsWith(dir) && /^[A-Za-z0-9._-]{1,120}$/.test(object.slice(dir.length));
   } catch { return false; }
 }

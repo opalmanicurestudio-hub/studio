@@ -28,9 +28,10 @@ export function costKindOf(category: unknown): RenterCostKind {
   return LEGACY[c] || ((RENTER_COST_KINDS as readonly string[]).includes(c) ? (c as RenterCostKind) : 'Other');
 }
 
-export type RenterCost = { id: string; day: string; title: string; kind: RenterCostKind; cents: number; note: string; people: number | null };
+/** `photo`: a photo of its receipt is kept with it (Add a cost's Snap a receipt). */
+export type RenterCost = { id: string; day: string; title: string; kind: RenterCostKind; cents: number; note: string; people: number | null; photo?: boolean };
 const costOf = (e: any): RenterCost => ({ id: String(e.id), day: String(e.date || '').slice(0, 10), kind: costKindOf(e.category), cents: Math.max(0, Math.round(Number(e.cents) || 0)),
-  note: String(e.note || ''), people: Number(e.people) >= 1 ? Math.floor(Number(e.people)) : null, title: String(e.note || costKindOf(e.category)).slice(0, 80) });
+  note: String(e.note || ''), people: Number(e.people) >= 1 ? Math.floor(Number(e.people)) : null, title: String(e.note || costKindOf(e.category)).slice(0, 80), ...(e.receiptUrl ? { photo: true } : {}) });
 
 /** How much of a cost counts, and why the rest doesn't. */
 export function renterCounts(c: RenterCost): { counts: number; why: string | null } {
@@ -46,7 +47,7 @@ export type RenterFound = {
   meals: { spent: number; counts: number; needNote: RenterCost[] };
   gifts: { needPeople: RenterCost[] };
   equipment: RenterCost[];
-  /** Meals, travel and gifts of $75 or more: the receipt is to keep. */
+  /** Meals, travel and gifts of $75 or more without a photo of the receipt kept with them: the receipt is to keep. */
   receipts: number;
   toFinish: number;
 };
@@ -63,7 +64,7 @@ export function renterFound(expenses: any[], year: number): RenterFound {
     meals: { spent: sum(meals, (c) => c.cents), counts: sum(meals, (c) => renterCounts(c).counts), needNote },
     gifts: { needPeople },
     equipment: mine.filter((c) => c.kind === 'Equipment' && c.cents >= EQUIPMENT_AT_CENTS),
-    receipts: mine.filter((c) => (c.kind === 'Meals' || c.kind === 'Gifts' || c.kind === 'Travel') && c.cents >= RECEIPT_AT_CENTS).length,
+    receipts: mine.filter((c) => (c.kind === 'Meals' || c.kind === 'Gifts' || c.kind === 'Travel') && c.cents >= RECEIPT_AT_CENTS && !c.photo).length,
     toFinish: needNote.length + needPeople.length,
   };
 }
@@ -153,8 +154,11 @@ export function cleanRenterCost(b: any, today: string): { ok: true; cost: { date
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' } as any)[c]);
 const usd = (c: number) => `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+export type RenterPhoto = { id: string; day: string; kind: string; cents: number; note: string; url: string };
 export type RenterYear = { found: RenterFound; rent: { cents: number; payments: number; creditsCents?: number }; space: string;
-  miles: { tenths: number; cents: number; rate: string; trips: number } | null; deskTipsCents: number; checklist: Record<string, string>; missing: string[] };
+  miles: { tenths: number; cents: number; rate: string; trips: number } | null; deskTipsCents: number; checklist: Record<string, string>; missing: string[];
+  /** Costs with a photo of the receipt kept (api/portal/renter-writeoffs list), each with its photo's link. */
+  photos?: RenterPhoto[] };
 
 /** The year's write-offs for their accountant (lib/print-style printPage wraps it). */
 export function renterWriteOffsHtml(y: RenterYear): string {
@@ -169,6 +173,7 @@ ${y.deskTipsCents > 0 ? row('Tips collected for you at the front desk', usd(y.de
 </tbody></table>
 ${missing.length ? `<h2>Nothing logged this year for</h2><ul>${missing.map((u) => `<li><b>${esc(u.title)}</b>: ${esc(u.text)}</li>`).join('')}</ul>` : ''}
 ${asks.length ? `<h2>To ask about</h2><ul>${asks.map((c) => `<li><b>${esc(c.title)}</b>: ${esc(c.text)}</li>`).join('')}</ul>` : ''}
+${y.photos?.length ? `<h2>Receipts kept as photos</h2><table class="t"><tbody>${y.photos.map((p) => `<tr><td>${esc(p.day)}</td><td>${esc(p.note ? `${p.kind}: ${p.note}` : p.kind)}</td><td class="num">${esc(usd(p.cents))}</td><td>${/^https:\/\/firebasestorage\.googleapis\.com\//.test(p.url) ? `<a href="${esc(p.url)}">The photo</a>` : ''}</td></tr>`).join('')}</tbody></table>` : ''}
 ${f.receipts ? `<p class="sub">Keep the receipt${f.receipts === 1 ? '' : 's'} for ${f.receipts} meal, gift or travel cost${f.receipts === 1 ? '' : 's'} of $75 or more: the IRS asks for ${f.receipts === 1 ? 'it' : 'them'}.</p>` : ''}
 ${f.toFinish ? `<p class="sub">Still to finish: ${f.meals.needNote.length} meal${f.meals.needNote.length === 1 ? '' : 's'} without who was there and what it was about, ${f.gifts.needPeople.length} gift${f.gifts.needPeople.length === 1 ? '' : 's'} without how many people.</p>` : ''}`;
 }

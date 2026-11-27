@@ -3109,6 +3109,15 @@ export async function POST(req: NextRequest) {
       const cur = ((await ref.get()).data() as any) || null;
       if (!cur || cur.renterId !== session.renterId) return NextResponse.json({ ok: false, error: 'Not yours.' }, { status: 403 });
       await ref.delete();
+      // (Its receipt photo goes with it, when it's in their own receipts and nothing else uses it.)
+      if (cur.receiptUrl) {
+        try {
+          const [{ receiptUrlOk }, { ourBuckets }, { dropReceiptPhoto }] = await Promise.all([import('@/lib/write-offs'), import('@/lib/inspo-photos'), import('@/lib/receipt-read')]);
+          const t: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
+          if (receiptUrlOk(cur.receiptUrl, tenantId, await ourBuckets(t), `renterReceipts/${session.renterId}`)
+            && !(await db.collection(`tenants/${tenantId}/renterExpenses`).where('receiptUrl', '==', String(cur.receiptUrl)).limit(1).get()).docs.length) await dropReceiptPhoto(String(cur.receiptUrl));
+        } catch { /* the photo stays; the cost is gone */ }
+      }
       return NextResponse.json({ ok: true });
     }
     // ── memberships: recurring, on the renter's Stripe ─────────────────────

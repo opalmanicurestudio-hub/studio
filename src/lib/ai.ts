@@ -32,8 +32,10 @@ function price(model: string): [number, number] {
 
 export interface AiResult { ok: boolean; text: string; costUsd: number; error?: string; stopReason?: string | null }
 
-/** `pdfBase64` (optional): a PDF sent alongside the prompt — e.g. a school's curriculum. */
-export async function askAI(opts: { system: string; prompt: string; tier?: 'fast' | 'smart' | 'interactive'; maxTokens?: number; effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'; purpose: string; tenantId?: string | null; pdfBase64?: string | null }): Promise<AiResult> {
+/** `pdfBase64` (optional): a PDF sent alongside the prompt — e.g. a school's curriculum. `image` (optional): a photo sent
+ *  alongside it — e.g. a receipt (lib/receipt-read). */
+export async function askAI(opts: { system: string; prompt: string; tier?: 'fast' | 'smart' | 'interactive'; maxTokens?: number; effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'; purpose: string; tenantId?: string | null; pdfBase64?: string | null;
+  image?: { data: string; mediaType: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif' } | null }): Promise<AiResult> {
   if (!aiConfigured()) return { ok: false, text: '', costUsd: 0, error: 'Writing help isn’t available yet.' };
   const model = MODELS[opts.tier || 'fast'];
   // Health privacy mode: nothing about clients goes to the model until the business confirms a signed agreement.
@@ -44,7 +46,8 @@ export async function askAI(opts: { system: string; prompt: string; tier?: 'fast
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-api-key': String(process.env.ANTHROPIC_API_KEY), 'anthropic-version': '2023-06-01' },
       // Effort guides how deeply the model thinks (thinking tokens count toward max_tokens).
-      body: JSON.stringify({ model, max_tokens: opts.maxTokens || 800, ...(opts.effort ? { output_config: { effort: opts.effort } } : {}), system: opts.system, messages: [{ role: 'user', content: opts.pdfBase64 ? [{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: opts.pdfBase64 } }, { type: 'text', text: opts.prompt }] : opts.prompt }] }),
+      body: JSON.stringify({ model, max_tokens: opts.maxTokens || 800, ...(opts.effort ? { output_config: { effort: opts.effort } } : {}), system: opts.system, messages: [{ role: 'user', content: opts.pdfBase64 ? [{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: opts.pdfBase64 } }, { type: 'text', text: opts.prompt }]
+        : opts.image ? [{ type: 'image', source: { type: 'base64', media_type: opts.image.mediaType, data: opts.image.data } }, { type: 'text', text: opts.prompt }] : opts.prompt }] }),
     });
     const d: any = await r.json().catch(() => ({}));
     if (!r.ok) return { ok: false, text: '', costUsd: 0, error: String(d?.error?.message || `AI error ${r.status}`) };

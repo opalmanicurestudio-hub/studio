@@ -132,6 +132,8 @@ export type BooksFilters = {
 export function BooksScreen(p: {
   lines: any[]; byId: Map<string, any>; loading: boolean; biz: any; staff: any[]; tenantId: string;
   filters: BooksFilters; reports: React.ReactNode; onNew: () => void;
+  /** Snap a receipt: Add a line with the photo first, filled in from it. */
+  onSnap?: () => void;
   onChangeCategory: (t: any, category: string) => Promise<boolean>; onReceipt: (t: any, url: string) => Promise<boolean>;
   onPreviewReceipt: (t: any) => void; onRefund: (t: any) => void; onUndo: (t: any) => Promise<boolean | string>;
   onCorrect: (t: any, lines: any[], summary: string) => Promise<boolean>; onDisputePack?: (t: any) => void;
@@ -163,7 +165,7 @@ export function BooksScreen(p: {
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0"><h1 className="text-[24px] font-semibold leading-tight">Books</h1>
           <p className="text-[14px]" style={{ color: MUTED }}>Every sale, cost and move of money, kept for you</p></div>
-        <div className="flex flex-wrap gap-2">{p.reports}<button type="button" onClick={p.onNew} className={btn} style={solid}>New entry</button></div>
+        <div className="flex flex-wrap gap-2">{p.reports}{p.onSnap && <button type="button" onClick={p.onSnap} className={btn} style={{ background: '#fff', color: INK, border: `1px solid ${INK}` }}>Snap a receipt</button>}<button type="button" onClick={p.onNew} className={btn} style={solid}>New entry</button></div>
       </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-2 rounded-3xl bg-[#fff] p-3" style={{ border: `1px solid ${LINE}` }}>

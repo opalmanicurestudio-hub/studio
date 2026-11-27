@@ -3,6 +3,8 @@
 // come through a checkout or the bank feed, with its date, what it was for, its category, who it was paid to or from,
 // business or personal, how it was paid, and a photo of the receipt. A sheet from the bottom on a phone, a dialog on a
 // computer. What's saved is the line as before, its report group stamped from the category (lib/categories bucketFor).
+// Snap a receipt: the photo first, then what's printed on it (api/money/receipt-read) fills the boxes still empty, for
+// the person to check before adding it.
 import React, { useEffect, useState } from 'react';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from '@/components/ui/sheet';
@@ -39,11 +41,16 @@ const transactionSchema = z.object({
 
 type TransactionFormData = z.infer<typeof transactionSchema>;
 
+export type ReceiptReading = { vendor: string; date: string | null; total: number | null; tax: number | null; kind: string };
 interface AddTransactionDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   staff: Staff[];
   onConfirm: (transaction: Omit<Transaction, 'id'>) => void;
+  /** Snap a receipt: the photo first. */
+  snap?: boolean;
+  /** Reads a receipt photo once it's uploaded (null: nothing read); left out, a photo is only kept. */
+  readReceipt?: (url: string) => Promise<ReceiptReading | null>;
 }
 
 /** How it was paid: the value kept with the line, and the words shown. */
@@ -64,10 +71,40 @@ const Field = ({ label, htmlFor, error, children, hint }: { label: string; htmlF
   </div>
 );
 
-const AddTransactionForm = () => {
-  const { control, register, watch, setValue, getValues, formState: { errors } } = useFormContext<TransactionFormData>();
+const AddTransactionForm = ({ snap = false, readReceipt }: { snap?: boolean; readReceipt?: (url: string) => Promise<ReceiptReading | null> }) => {
+  const { control, register, watch, setValue, getValues, formState: { errors, dirtyFields } } = useFormContext<TransactionFormData>();
   const txnType = watch('type');
   const [customCategory, setCustomCategory] = useState(false);
+  const [reading, setReading] = useState<'' | 'reading' | 'filled' | 'none'>('');
+  // (What the last reading filled in: a photo taken again replaces it, never what was typed.)
+  const filled = React.useRef<Partial<Record<'amount' | 'description' | 'clientOrVendor' | 'category', string>>>({});
+
+  // A receipt photo, once uploaded: what's printed on it fills the boxes still empty or filled by the last reading.
+  const onReceipt = async (url: string, keep: (v: string) => void) => {
+    keep(url);
+    if (!readReceipt || !/^https:\/\//.test(url) || getValues('type') !== 'expense') { setReading(''); return; }
+    setReading('reading');
+    const r = await readReceipt(url).catch(() => null);
+    // (Only for the photo still on the form: not one taken again since, nor a form closed and opened again.)
+    if (getValues('receiptUrl') !== url) return;
+    if (!r) { setReading('none'); return; }
+    const was = filled.current; const now: typeof was = {};
+    const free = (k: 'amount' | 'description' | 'clientOrVendor' | 'category') => { const v = String(getValues(k) ?? '').trim(); return !v || (k === 'amount' && !(Number(v) > 0)) || v === was[k]; };
+    const put = (k: 'amount' | 'description' | 'clientOrVendor' | 'category', v: string) => { setValue(k, v as any, { shouldValidate: true, shouldDirty: true }); now[k] = v; };
+    if (r.total != null && free('amount')) put('amount', r.total.toFixed(2));
+    if (r.date && !dirtyFields.date) { const [y, m, d] = r.date.split('-').map(Number); const n = new Date(getValues('date') || new Date()); n.setFullYear(y, m - 1, d); setValue('date', n, { shouldValidate: true }); }
+    if (r.vendor && free('clientOrVendor')) put('clientOrVendor', r.vendor);
+    if ((r.vendor || r.kind) && free('description')) put('description', r.vendor ? `${r.kind || 'Purchase'} from ${r.vendor}` : r.kind);
+    if (r.kind && !customCategory && free('category')) put('category', r.kind);
+    filled.current = now;
+    setReading('filled');
+  };
+  const receiptField = (
+    <Field label={snap ? 'The receipt' : 'Receipt'} hint={snap ? undefined : '(if you have one)'}>
+      <Controller name="receiptUrl" control={control} render={({ field: f }) => <ImageUpload onImageUploaded={(u) => { void onReceipt(u, f.onChange); }} label={snap ? 'Take a photo of the receipt' : 'Add a photo of the receipt'} enableMarkup={false} maxWidthOrHeight={1600} asJpeg />} />
+      {reading && <p role="status" className="text-[13px]" style={{ color: reading === 'none' ? AMBER : MUTED }}>{reading === 'reading' ? 'Reading the receipt…' : reading === 'filled' ? 'Filled in from the receipt. Check each box before you add it.' : 'The receipt couldn’t be read. Fill it in below: the photo stays with the line.'}</p>}
+    </Field>
+  );
 
   // When switching money in ↔ out, clear a category that no longer belongs to the list (one typed in stays).
   useEffect(() => {
@@ -78,6 +115,7 @@ const AddTransactionForm = () => {
 
   return (
     <div className="space-y-5" style={{ color: INK }}>
+      {snap && receiptField}
       <Controller name="type" control={control} render={({ field: f }) => (
         <div className="flex flex-wrap gap-2" role="group" aria-label="Money in or out">
           {([['expense', 'Money out'], ['income', 'Money in']] as const).map(([v, l]) => (
@@ -157,9 +195,7 @@ const AddTransactionForm = () => {
         </Field>
       </div>
 
-      <Field label="Receipt" hint="(if you have one)">
-        <Controller name="receiptUrl" control={control} render={({ field: f }) => <ImageUpload onImageUploaded={f.onChange} label="Add a photo of the receipt" enableMarkup={false} />} />
-      </Field>
+      {!snap && receiptField}
     </div>
   );
 };
@@ -169,7 +205,7 @@ const EMPTY = (): Partial<TransactionFormData> => ({
   date: new Date(), context: 'Business', type: 'expense', amount: undefined,
 });
 
-export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({ open, onOpenChange, onConfirm }) => {
+export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({ open, onOpenChange, onConfirm, snap = false, readReceipt }) => {
   const isMobile = useIsMobile();
   const methods = useForm<TransactionFormData>({ resolver: zodResolver(transactionSchema), defaultValues: EMPTY() });
   const { handleSubmit, reset } = methods;
@@ -201,11 +237,11 @@ export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({ open
         <FormProvider {...methods}>
           <form onSubmit={handleSubmit(handleFormSubmit)} className="flex min-h-0 flex-1 flex-col" style={{ color: INK }}>
             <div className="shrink-0 px-6 pb-3 pt-6 text-left">
-              <Title className="text-[22px] font-semibold leading-tight" style={{ color: INK }}>Add a line to your books</Title>
-              <Description className="mt-1 text-[14px]" style={{ color: MUTED }}>Money in or out that didn’t come through a checkout or your bank feed.</Description>
+              <Title className="text-[22px] font-semibold leading-tight" style={{ color: INK }}>{snap ? 'Snap a receipt' : 'Add a line to your books'}</Title>
+              <Description className="mt-1 text-[14px]" style={{ color: MUTED }}>{snap ? 'Take a photo of it, and what’s printed on it fills in below for you to check.' : 'Money in or out that didn’t come through a checkout or your bank feed.'}</Description>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-6 pt-2">
-              <AddTransactionForm />
+              <AddTransactionForm key={open ? 'open' : 'shut'} snap={snap} readReceipt={readReceipt} />
             </div>
             <div className="flex shrink-0 gap-2 px-6 py-4" style={{ borderTop: `1px solid ${LINE}` }}>
               <button type="submit" className={btn} style={{ background: INK, color: '#fff' }}>Add it</button>

@@ -7,7 +7,7 @@
 import * as React from 'react';
 import { OpenScreenContext, ScreenYearContext } from '@/components/rent/shared';
 import { printPage } from '@/lib/print-style';
-import { RENTER_CHECKLIST, RENTER_COST_KINDS, RENTER_USUAL, renterWriteOffsHtml, type RenterCost, type RenterCostKind, type RenterFound } from '@/lib/renter-write-offs';
+import { RENTER_CHECKLIST, RENTER_COST_KINDS, RENTER_USUAL, renterWriteOffsHtml, type RenterCost, type RenterCostKind, type RenterFound, type RenterPhoto } from '@/lib/renter-write-offs';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', GREEN_TINT = '#eaf6ef', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
 const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
@@ -18,7 +18,7 @@ const usd = (c: number) => `$${(c / 100).toLocaleString('en-US', { minimumFracti
 const md = (day: string) => new Date(`${day}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 
 type Data = { year: number; years: number[]; today: string; space: string; found: RenterFound; rent: { cents: number; payments: number; creditsCents: number }; deskTipsCents: number; missing: string[];
-  miles: { tenths: number; cents: number; rate: string; trips: number; stale: boolean; rateYear: number } | null; checklist: Record<string, string> };
+  miles: { tenths: number; cents: number; rate: string; trips: number; stale: boolean; rateYear: number } | null; checklist: Record<string, string>; photos?: RenterPhoto[] };
 
 const NOTE_HINT: Partial<Record<RenterCostKind, string>> = { Meals: 'Who was there, and what it was about', Gifts: 'Who it was for', Education: 'The class or show', Travel: 'Where, and what for' };
 
@@ -29,18 +29,78 @@ function Row({ title, sub, value }: { title: string; sub: string; value?: string
   </div>;
 }
 
-function AddCost({ today, kind0, busy, onSave, onCancel }: { today: string; kind0: RenterCostKind; busy: boolean; onSave: (x: any) => void; onCancel: () => void }) {
+/** A phone photo made small enough to send (the longest side 1600 pixels, as a JPEG), or null if it isn't a picture. */
+function shrink(file: File): Promise<string | null> {
+  return new Promise((resolve) => {
+    if (!/^image\//.test(file.type)) { resolve(null); return; }
+    const img = new Image(); const src = URL.createObjectURL(file);
+    img.onload = () => {
+      const k = Math.min(1, 1600 / Math.max(img.width, img.height)); const c = document.createElement('canvas');
+      c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext('2d')?.drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(src);
+      try { resolve(c.toDataURL('image/jpeg', 0.85)); } catch { resolve(null); }
+    };
+    img.onerror = () => { URL.revokeObjectURL(src); resolve(null); };
+    img.src = src;
+  });
+}
+
+type Snapped = { ok: boolean; url?: string; reading?: { vendor: string; date: string | null; total: number | null; kind: string } | null; error?: string };
+
+function AddCost({ today, kind0, busy, onSave, onCancel, onSnap, onDrop }: { today: string; kind0: RenterCostKind; busy: boolean; onSave: (x: any) => void; onCancel: () => void;
+  /** Snap a receipt: the photo kept and read for what's on it (api/portal/renter-writeoffs 'receipt'); `replaces`: the
+   *  photo taken before it, no longer wanted. */
+  onSnap?: (photoData: string, replaces: string) => Promise<Snapped>;
+  /** A photo from a cost not saved, removed. */
+  onDrop?: (url: string) => void }) {
   const [date, setDate] = React.useState(today); const [amount, setAmount] = React.useState(''); const [kind, setKind] = React.useState<RenterCostKind>(kind0);
   const [note, setNote] = React.useState(''); const [people, setPeople] = React.useState('');
-  const id = React.useId();
+  const [photo, setPhoto] = React.useState(''); const [snap, setSnap] = React.useState<'' | 'reading' | 'filled' | 'none' | 'failed'>(''); const [snapErr, setSnapErr] = React.useState('');
+  const kindTouched = React.useRef(false);
+  const id = React.useId(); const fileRef = React.useRef<HTMLInputElement | null>(null);
+  // (Only the latest photo's reading counts; what an earlier reading filled in, and nothing typed since, is replaced.)
+  const seq = React.useRef(0); const filled = React.useRef<{ amount?: string; date?: string; note?: string }>({});
+  const took = async (file: File | undefined) => {
+    if (!file || !onSnap) return;
+    const mine = ++seq.current;
+    setSnap('reading'); setSnapErr('');
+    const data = await shrink(file); if (mine !== seq.current) return;
+    if (!data) { setSnap('failed'); setSnapErr('That isn’t a photo. Try again.'); return; }
+    const r = await onSnap(data, photo);
+    // (A photo that came back after it stopped mattering, taken again or cancelled, is removed.)
+    if (mine !== seq.current) { if (r?.ok && r.url && onDrop) onDrop(r.url); return; }
+    if (!r?.ok || !r.url) { setSnap('failed'); setSnapErr(r?.error || 'That photo didn’t upload. Try again.'); return; }
+    setPhoto(r.url);
+    const x = r.reading; if (!x) { setSnap('none'); return; }
+    // (What's printed on it fills what's still empty or what the last reading filled; the kind only when it's still the
+    // plain one they opened with; a meal's or a gift's note is theirs to write: who and why.)
+    const k = !kindTouched.current && kind0 === 'Supplies' && (RENTER_COST_KINDS as readonly string[]).includes(x.kind) ? (x.kind as RenterCostKind) : null;
+    const f = filled.current; const next: typeof f = {};
+    if (x.total != null) { const v = x.total.toFixed(2); setAmount((a) => (!a || a === f.amount ? (next.amount = v) : a)); }
+    if (x.date) { const v = x.date; setDate((d) => (d === today || d === f.date ? (next.date = v) : d)); }
+    if (k) setKind(k);
+    const kNow = k || kind;
+    if (x.vendor && kNow !== 'Meals' && kNow !== 'Gifts') { const v = x.vendor; setNote((n) => (!n.trim() || n === f.note ? (next.note = v) : n)); }
+    filled.current = next;
+    setSnap('filled');
+  };
+  const cancel = () => { seq.current++; if (photo && onDrop) onDrop(photo); onCancel(); };
   return <div className={`${card} flex flex-col gap-3 py-4`}>
     <h2 className="text-[16px] font-semibold">Add a cost</h2>
+    {onSnap && <div className="flex flex-col gap-2">
+      <input ref={fileRef} type="file" accept="image/*" className="sr-only" tabIndex={-1} aria-hidden="true" onChange={(e) => { void took(e.target.files?.[0]); e.target.value = ''; }} />
+      <div className="flex flex-wrap items-center gap-3">
+        <button type="button" disabled={busy || snap === 'reading'} onClick={() => fileRef.current?.click()} className={btn} style={{ background: '#fff', color: INK, border: `1px solid ${INK}` }}>{snap === 'reading' ? 'Reading the receipt…' : photo ? 'Take it again' : 'Snap a receipt'}</button>
+        {photo && <img src={photo} alt="The receipt" className="h-14 w-14 rounded-xl object-cover" style={{ border: `1px solid ${LINE}` }} />}
+      </div>
+      {snap && snap !== 'reading' && <p role="status" className="text-[13px]" style={{ color: snap === 'filled' ? MUTED : AMBER }}>{snap === 'filled' ? 'Filled in from the receipt. Check each before you save it; the photo is kept with the cost.' : snap === 'none' ? 'The receipt couldn’t be read. Fill it in below: the photo is kept with the cost.' : snapErr}</p>}
+    </div>}
     <div className="grid grid-cols-2 gap-2">
       <label className="flex flex-col gap-1"><span className="text-[13px] font-semibold" style={{ color: MUTED }}>Day</span><input type="date" value={date} max={today} onChange={(e) => setDate(e.target.value)} className={field} style={{ borderColor: LINE }} /></label>
       <label className="flex flex-col gap-1"><span className="text-[13px] font-semibold" style={{ color: MUTED }}>Amount</span><input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^\d.,$]/g, '').slice(0, 12))} placeholder="24.50" className={field} style={{ borderColor: LINE }} /></label>
     </div>
     <label className="flex flex-col gap-1"><span className="text-[13px] font-semibold" style={{ color: MUTED }}>What it was</span>
-      <select id={`${id}-kind`} value={kind} onChange={(e) => setKind(e.target.value as RenterCostKind)} className={field} style={{ borderColor: LINE }}>{RENTER_COST_KINDS.map((k) => <option key={k}>{k}</option>)}</select></label>
+      <select id={`${id}-kind`} value={kind} onChange={(e) => { kindTouched.current = true; setKind(e.target.value as RenterCostKind); }} className={field} style={{ borderColor: LINE }}>{RENTER_COST_KINDS.map((k) => <option key={k}>{k}</option>)}</select></label>
     {kind === 'Meals' && <p className="text-[13px]" style={{ color: MUTED }}>A meal with a client, a supplier or someone you work with, or on an overnight work trip: half counts. Tickets, shows, games and meals just for you don’t count.</p>}
     {kind === 'Gifts' && <p className="text-[13px]" style={{ color: MUTED }}>Up to $25 a person a year counts.</p>}
     <label className="flex flex-col gap-1"><span className="text-[13px] font-semibold" style={{ color: MUTED }}>{NOTE_HINT[kind] || 'A note, if you like'}</span>
@@ -48,8 +108,8 @@ function AddCost({ today, kind0, busy, onSave, onCancel }: { today: string; kind
     {kind === 'Gifts' && <label className="flex flex-col gap-1"><span className="text-[13px] font-semibold" style={{ color: MUTED }}>How many people</span>
       <input inputMode="numeric" value={people} onChange={(e) => setPeople(e.target.value.replace(/[^\d]/g, '').slice(0, 3))} placeholder="1" className={field} style={{ borderColor: LINE }} /></label>}
     <div className="flex gap-2">
-      <button type="button" disabled={busy || !amount} onClick={() => onSave({ date, amount, kind, note, ...(kind === 'Gifts' && people ? { people: Number(people) } : {}) })} className={`${btn} flex-1`} style={{ background: INK, color: '#fff' }}>{busy ? 'Saving…' : 'Save'}</button>
-      <button type="button" onClick={onCancel} className={btn} style={{ background: '#fff', color: INK, border: `1px solid ${LINE}` }}>Cancel</button>
+      <button type="button" disabled={busy || !amount || snap === 'reading'} onClick={() => onSave({ date, amount, kind, note, ...(kind === 'Gifts' && people ? { people: Number(people) } : {}), ...(photo ? { receiptUrl: photo } : {}) })} className={`${btn} flex-1`} style={{ background: INK, color: '#fff' }}>{busy ? 'Saving…' : 'Save'}</button>
+      <button type="button" onClick={cancel} className={btn} style={{ background: '#fff', color: INK, border: `1px solid ${LINE}` }}>Cancel</button>
     </div>
   </div>;
 }
@@ -102,7 +162,7 @@ export function RenterWriteOffs({ tenantId, token, business }: { tenantId: strin
   const print = () => {
     const w = window.open('', '_blank'); if (!w) { setErr('Your browser blocked the new window. Allow pop-ups for ClarityFlow and try again.'); return; }
     w.document.write(printPage({ title: `${d.year} write-offs`, heading: `${d.year} <b>write-offs</b>`, shopName: business, subtitle: 'Found in ClarityFlow, for your accountant.',
-      body: renterWriteOffsHtml({ found: f, rent: d.rent, space: d.space, miles: d.miles, deskTipsCents: d.deskTipsCents, checklist: d.checklist, missing: d.missing }),
+      body: renterWriteOffsHtml({ found: f, rent: d.rent, space: d.space, miles: d.miles, deskTipsCents: d.deskTipsCents, checklist: d.checklist, missing: d.missing, photos: d.photos || [] }),
       footNote: `Rent from your payments to ${d.space}; miles from your mileage log; costs as you logged them. A starting point: your accountant decides what goes on your return.` }));
     w.document.close();
   };
@@ -122,7 +182,7 @@ export function RenterWriteOffs({ tenantId, token, business }: { tenantId: strin
       </div>
     </section>
     {msg}
-    {adding && <AddCost key={adding} today={d.today} kind0={adding} busy={busy === 'add'} onCancel={() => setAdding(null)}
+    {adding && <AddCost key={adding} today={d.today} kind0={adding} busy={busy === 'add'} onCancel={() => setAdding(null)} onSnap={(photoData, replaces) => post({ action: 'receipt', photoData, ...(replaces ? { replaces } : {}) })} onDrop={(url) => { void post({ action: 'drop', url }); }}
       onSave={(x) => act('add', { action: 'add', ...x }, 'Saved. It’s in Earnings and expenses too.').then((ok) => { if (ok) setAdding(null); })} />}
 
     <section aria-label="Found for you" className={`${card} pb-1`}>
@@ -148,6 +208,15 @@ export function RenterWriteOffs({ tenantId, token, business }: { tenantId: strin
       {f.meals.needNote.map((c) => <FinishMeal key={c.id} c={c} busy={busy === `m_${c.id}`} onSave={(note) => act(`m_${c.id}`, { action: 'finish', id: c.id, note }, 'Saved with the meal.')} />)}
       {f.gifts.needPeople.map((c) => <FinishGift key={c.id} c={c} busy={busy === `g_${c.id}`} onSave={(n) => act(`g_${c.id}`, { action: 'finish', id: c.id, people: n }, 'Saved with the gift.')} />)}
       {f.receipts > 0 && <p className="py-3 text-[14px]" style={{ borderTop: `1px solid ${LINE}` }}>Keep the receipt{f.receipts === 1 ? '' : 's'} for {f.receipts} meal, gift or travel cost{f.receipts === 1 ? '' : 's'} of $75 or more. A photo is fine.</p>}
+    </section>}
+
+    {(d.photos || []).length > 0 && <section aria-label="Receipts kept" className={`${card} pb-1`}>
+      <h2 className="pt-3 text-[16px] font-semibold">Receipts kept</h2>
+      <p className="pb-2 text-[13px]" style={{ color: MUTED }}>Photos you took with Snap a receipt, kept with each cost. They print with the rest for your accountant.</p>
+      {(d.photos || []).map((p) => <div key={p.id} className="flex items-center gap-3 py-2.5" style={{ borderTop: `1px solid ${LINE}` }}>
+        <div className="min-w-0 flex-1"><span className="block text-[15px] font-semibold">{p.note ? `${p.kind}: ${p.note}` : p.kind}</span><span className="block text-[13px]" style={{ color: MUTED }}>{md(p.day)}, {usd(p.cents)}</span></div>
+        <a href={p.url} target="_blank" rel="noopener noreferrer" className={`${btn} shrink-0`} style={{ background: '#fff', color: INK, border: `1px solid ${LINE}` }} aria-label={`See the receipt for ${p.kind}, ${md(p.day)}`}>See the receipt</a>
+      </div>)}
     </section>}
 
     {d.missing.length > 0 && <section aria-label="Nothing logged yet" className={`${card} pb-1`}>
