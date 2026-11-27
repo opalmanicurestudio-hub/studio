@@ -5,6 +5,7 @@ import { RenterPrep } from '@/components/rent/RenterPrep';
 import { RenterFollowUps } from '@/components/rent/RenterFollowUps';
 import { RenterMessages } from '@/components/rent/RenterMessages';
 import { MyGiftCards } from '@/components/rent/MyGiftCards';
+import { RenterMileage } from '@/components/rent/RenterMileage';
 import { StaleCopyBanner } from '@/components/shared/StaleCopyBanner';
 import { downscaleImageToDataUrl } from '@/lib/client-image';
 import { getApps, initializeApp } from 'firebase/app';
@@ -428,6 +429,7 @@ export default function RenterPortalPage() {
       </div>);
       case 'books': return <MyBooks tenantId={tenantId} token={token} />;
       case 'payouts': return <MyPayments data={data} tenantId={tenantId} token={token} />;
+      case 'mileage': return <RenterMileage tenantId={tenantId} token={token} business={renterBrand || String(data?.renter?.name || data?.name || '')} />;
       case 'followups': return <RenterFollowUps tenantId={tenantId} token={token} />;
       case 'campaigns': return <MyCampaigns data={data} tenantId={tenantId} token={token} />;
       case 'reconnect': return <MyReconnect tenantId={tenantId} token={token} />;
@@ -524,6 +526,7 @@ export default function RenterPortalPage() {
       case 'history': return { title: 'Payments and past bookings', sub: 'Everything you’ve paid, and your past space bookings' };
       case 'books': return { title: 'Earnings and expenses', sub: 'Earned, rent, expenses and what’s left, by month' };
       case 'payouts': return { title: 'Payouts', sub: 'Where your money lands' };
+      case 'mileage': return { title: 'Mileage', sub: 'Drives for your business, logged as you go' };
       case 'followups': return { title: 'Follow-ups', sub: 'Who to check in with, and a text ready to send' };
       case 'campaigns': return { title: 'Campaigns', sub: 'One message to a group of your clients' };
       case 'reconnect': return { title: 'Win back', sub: 'Clients you haven’t seen in a while' };

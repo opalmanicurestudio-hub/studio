@@ -195,7 +195,7 @@ const ex2 = (id: string, category: string, amount: number, extra: any = {}) => e
   check('personal purchases, for the owner: booked as the business’s through the bank’s own booking, naming who did it, or kept as personal', /'\/api\/plaid', \{ actor, action: 'resolve', bankTxnId: p\.id, mode: 'create', contextOverride: 'Business' \}/.test(screen) && /actor=\{writeOffsActor\}/.test(page)
     && /w!\.owner && f\.personal\.length > 0 && <Row title="Was this for the business\?"/.test(screen) && /action: 'personal', id: p\.id/.test(screen));
   const mileage = src('src/app/api/mileage/route.ts');
-  check('the mileage log suggests drives to the owner only (they come from the owner’s card purchases too)', /const sugg = year === thisYear && a\.isTenantOwner \?/.test(mileage));
+  check('the mileage log suggests drives to the owner only (they come from the owner’s card purchases too)', /suggest: !!a\.isTenantOwner/.test(mileage) && /const sugg = year === thisYear && c\.suggest \?/.test(src('src/lib/mileage-actions.ts')));
   check('a closed month: said in the activity, the books’ own figures kept', /is closed; the books stay as they were/.test(src('src/app/api/writeoffs/route.ts')) && /writeOff`, isn't a figure either/.test(src('src/lib/books-close.ts')));
   check('a meal’s form shows what counts as it’s picked, and prints for the accountant', /of \{usd\(line\.cents\)\} counts/.test(screen) && /Print for your accountant/.test(screen) && /writeOffsBodyHtml\(w\.found/.test(screen));
   check('the tab ends saying the tax summary counts them the same way, and the accountant decides', /The Tax summary in Reports counts meals and gifts the same way/.test(screen));

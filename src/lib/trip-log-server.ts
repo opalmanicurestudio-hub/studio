@@ -1,5 +1,6 @@
 // src/lib/trip-log-server.ts — THE MILEAGE LOG, KEPT (server; lib/trip-log is the rules; api/mileage asks for it).
-// Everything here is server only, in tenants/{t}/private:
+// Everything here is server only, in tenants/{t}/private (a renter's own log, `who`, in
+// tenants/{t}/private/renter_{renterId}/mileage, the same shape):
 //   trip_{id}       one trip (lib/trip-log Trip)
 //   tripSetup       home, whether home is the main place of business, the odometer readings, suggestions passed over
 //   tripPlaces      addresses already found on the map (Mapbox's lookups that may be kept), so each is asked once
@@ -14,11 +15,13 @@ import { milesBetween } from '@/lib/delivery-plan';
 import { tenantTimeZone, todayIn, addDays } from '@/lib/tenant-time';
 import { tripTenths, isCommute, cleanPlace, type Trip, type TripPlace, type TripSetup, type TripProof, type Purpose } from '@/lib/trip-log';
 
-const priv = (t: string) => `tenants/${t}/private`;
-export const setupRef = (db: any, t: string) => db.doc(`${priv(t)}/tripSetup`);
-export const tripRef = (db: any, t: string, id: string) => db.doc(`${priv(t)}/trip_${id}`);
-export const driveRef = (db: any, t: string, uid: string) => db.doc(`${priv(t)}/drive_${String(uid).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 80)}`);
-const placesRef = (db: any, t: string) => db.doc(`${priv(t)}/tripPlaces`);
+/** Whose log: the business's (none), or a renter's own (their renter id: api/portal/renter-mileage). */
+export type LogOf = string | null | undefined;
+const priv = (t: string, who?: LogOf) => (who ? `tenants/${t}/private/renter_${String(who).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 128)}/mileage` : `tenants/${t}/private`);
+export const setupRef = (db: any, t: string, who?: LogOf) => db.doc(`${priv(t, who)}/tripSetup`);
+export const tripRef = (db: any, t: string, id: string, who?: LogOf) => db.doc(`${priv(t, who)}/trip_${id}`);
+export const driveRef = (db: any, t: string, uid: string, who?: LogOf) => db.doc(`${priv(t, who)}/drive_${String(uid).replace(/[^A-Za-z0-9_-]/g, '').slice(0, 80)}`);
+const placesRef = (db: any, t: string, who?: LogOf) => db.doc(`${priv(t, who)}/tripPlaces`);
 
 /** A place this close to a kept one is that place (a parking lot away). */
 const SAME_PLACE_MILES = 0.2;
@@ -32,12 +35,12 @@ const SUGGEST_DAYS = 45;
 export const newTripId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 export const todayFor = (tenant: any) => todayIn(tenantTimeZone(tenant));
 
-export async function loadSetup(db: any, t: string): Promise<TripSetup> {
-  return ((await setupRef(db, t).get()).data() || {}) as TripSetup;
+export async function loadSetup(db: any, t: string, who?: LogOf): Promise<TripSetup> {
+  return ((await setupRef(db, t, who).get()).data() || {}) as TripSetup;
 }
 
-export async function tripsOf(db: any, t: string, year: number): Promise<Trip[]> {
-  const snap = await db.collection(priv(t)).where('kind', '==', 'trip').where('year', '==', year).limit(4000).get();
+export async function tripsOf(db: any, t: string, year: number, who?: LogOf): Promise<Trip[]> {
+  const snap = await db.collection(priv(t, who)).where('kind', '==', 'trip').where('year', '==', year).limit(4000).get();
   return snap.docs.map((d: any) => d.data() as Trip).filter((x: Trip) => x && x.id)
     .sort((a: Trip, b: Trip) => b.day.localeCompare(a.day) || String(b.at).localeCompare(String(a.at)));
 }
@@ -45,9 +48,9 @@ export async function tripsOf(db: any, t: string, year: number): Promise<Trip[]>
 const onMap = (p: any): p is { lat: number; lng: number } => !!p && Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lng));
 
 /** An address on the map, looked up once and kept (tripPlaces). Null when it can't be found or the map is down. */
-async function findAddress(db: any, t: string, address: string): Promise<{ label: string; lat: number; lng: number } | null> {
+async function findAddress(db: any, t: string, address: string, who?: LogOf): Promise<{ label: string; lat: number; lng: number } | null> {
   const key = address.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().slice(0, 120); if (key.length < 5) return null;
-  const ref = placesRef(db, t); const kept: any = (await ref.get()).data() || {};
+  const ref = placesRef(db, t, who); const kept: any = (await ref.get()).data() || {};
   const hit: any = kept.found?.[key.replace(/\s/g, '_')];
   if (hit && onMap({ ...hit })) return { label: String(hit.label || address), lat: Number(hit.lat), lng: Number(hit.lng) };
   const g = await geocode(address, { keep: true });
@@ -62,11 +65,11 @@ async function findAddress(db: any, t: string, address: string): Promise<{ label
 
 /** The places trips start and end at most: the business's own (on the map: theirs, or their address looked up), home,
  *  and places driven to before. */
-export async function keptPlaces(db: any, t: string, setup: TripSetup, recent: Trip[] = []): Promise<TripPlace[]> {
+export async function keptPlaces(db: any, t: string, setup: TripSetup, recent: Trip[] = [], who?: LogOf): Promise<TripPlace[]> {
   const out: TripPlace[] = [];
   for (const l of await bizLocationsOf(db, t).catch(() => [])) {
     let at = l.coordinates; let label = l.address ? `${l.name}, ${l.address}` : l.name;
-    if (!at && l.address) { const f = await findAddress(db, t, l.address); if (f) at = { lat: f.lat, lng: f.lng }; }
+    if (!at && l.address) { const f = await findAddress(db, t, l.address, who); if (f) at = { lat: f.lat, lng: f.lng }; }
     if (at) out.push({ label: label.slice(0, 160), lat: at.lat, lng: at.lng, ref: `biz:${l.id}` });
     else out.push({ label: label.slice(0, 160), ref: `biz:${l.id}` });
   }
@@ -112,14 +115,14 @@ export function keptAt(point: { lat?: number; lng?: number }, kept: TripPlace[])
 /** A place as the owner sent it: a kept place (by its ref, or the place it's at), else its address looked up on the map
  *  here. Never a place on the map the page made up: only a kept place's is taken as sent, so "from the map" miles are
  *  the map's, and home typed out is still home. */
-export async function resolvePlace(db: any, t: string, p: any, kept: TripPlace[]): Promise<TripPlace | null> {
+export async function resolvePlace(db: any, t: string, p: any, kept: TripPlace[], who?: LogOf): Promise<TripPlace | null> {
   const ref = typeof p?.ref === 'string' ? p.ref : '';
   if (ref) { const k = kept.find((x) => x.ref === ref); if (k) return k; }
   const c = cleanPlace(p); if (!c) return null;
   if (/^(my )?home$/i.test(c.label)) { const h = kept.find((x) => x.ref === 'home'); if (h) return h; }
   const sent = onMap(c) ? keptAt(c, kept) : null;
   if (sent && sent.label.toLowerCase() === c.label.toLowerCase()) return sent;
-  const f = await findAddress(db, t, c.label);
+  const f = await findAddress(db, t, c.label, who);
   if (!f) return { label: c.label, ref: null };
   return keptAt(f, kept) || { label: f.label.slice(0, 160), lat: f.lat, lng: f.lng, ref: null };
 }

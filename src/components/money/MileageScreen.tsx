@@ -25,7 +25,10 @@ type Drive = { startedAt: string; from: TripPlace; ended: string | null; to: Tri
 export type MileageData = { year: number; today: string; years: number[]; summary: Summary; trips: Trip[]; places: TripPlace[]; origin: TripPlace | null; suggestions: Sugg[]; drive: Drive | null; owner?: boolean; setup: { home: TripPlace | null; homeIsMain: boolean; odometer: Record<string, { start?: number | null; end?: number | null }> } };
 type Draft = { from: TripPlace; to: TripPlace; oneWayTenths: number; road: boolean; commute: boolean; fromDrive: boolean; started?: string; ended?: string; typed?: string };
 
-export function MileageScreen(p: { post: (body: any) => Promise<any>; where: () => Promise<{ lat: number; lng: number } | null>; business: string; backHref?: string; initial?: MileageData | null; startView?: 'home' | 'log' | 'add' | 'setup' }) {
+export function MileageScreen(p: { post: (body: any) => Promise<any>; where: () => Promise<{ lat: number; lng: number } | null>; business: string; backHref?: string; initial?: MileageData | null; startView?: 'home' | 'log' | 'add' | 'setup';
+  /** A renter's own log, in their portal (api/portal/renter-mileage): the portal's header names it, and where the space is
+   *  rented is where drives start. */
+  renter?: boolean }) {
   const [d, setD] = React.useState<MileageData | null>(p.initial || null);
   const [year, setYear] = React.useState<number | null>(p.initial?.year ?? null);
   const [view, setView] = React.useState<'home' | 'log' | 'add' | 'setup' | 'save'>(p.startView || 'home');
@@ -118,7 +121,7 @@ export function MileageScreen(p: { post: (body: any) => Promise<any>; where: () 
   if (view === 'setup') return wrap(<>
     {header('Places', () => setView('home'))}
     {msg}
-    <Setup setup={d.setup} places={d.places} busy={busy === 'setup'} onSave={(x) => act('setup', { action: 'setup', ...x }, () => { setSaid('Saved.'); void load(year); })} />
+    <Setup setup={d.setup} places={d.places} renter={!!p.renter} busy={busy === 'setup'} onSave={(x) => act('setup', { action: 'setup', ...x }, () => { setSaid('Saved.'); void load(year); })} />
   </>);
 
   /* ─── The year's log ─── */
@@ -137,7 +140,7 @@ export function MileageScreen(p: { post: (body: any) => Promise<any>; where: () 
 
   /* ─── Home ─── */
   return wrap(<>
-    {header('Mileage')}
+    {!p.renter && header('Mileage')}
     <section aria-label={`${d.year} so far`} className={`${card} flex flex-col gap-1`}>
       <p className="text-[13px] font-semibold" style={{ color: MUTED }}>{past ? d.year : `${d.year} so far`}</p>
       <p className="text-[34px] font-bold tracking-[-0.02em]">{milesText(s.businessTenths, true)} miles</p>
@@ -152,7 +155,9 @@ export function MileageScreen(p: { post: (body: any) => Promise<any>; where: () 
     {msg}
     {d.owner === false && <p className="rounded-2xl px-4 py-3 text-[14px]" style={{ background: SOFT, color: MUTED }}>The owner keeps the mileage log, as it’s for their car. You can see it and download it.</p>}
     {d.owner !== false && !d.setup.home && !d.setup.homeIsMain && <p className="rounded-2xl px-4 py-3 text-[14px]" style={{ background: SOFT, color: MUTED }}>Add your home under Home and places, so drives between home and work are kept as commuting, which isn’t a write-off, and drives from home for the business are counted.</p>}
-    {!d.origin && <p className="rounded-2xl px-4 py-3 text-[14px]" style={{ background: SOFT, color: MUTED }}>To suggest drives and work out miles from your business, its address needs to be on the map. Check it in Settings, Locations{d.setup.homeIsMain ? '' : ', or set your home below if you run the business from home'}.</p>}
+    {!d.origin && (p.renter
+      ? <p className="rounded-2xl px-4 py-3 text-[14px]" style={{ background: SOFT, color: MUTED }}>Miles are worked out from where you rent your space, and its address isn’t on the map yet. Until it is, type the miles when you add a trip.</p>
+      : <p className="rounded-2xl px-4 py-3 text-[14px]" style={{ background: SOFT, color: MUTED }}>To suggest drives and work out miles from your business, its address needs to be on the map. Check it in Settings, Locations{d.setup.homeIsMain ? '' : ', or set your home below if you run the business from home'}.</p>)}
 
     {!past && d.owner !== false && d.suggestions.length > 0 && <section aria-label="Did you drive to these?" className="flex flex-col gap-2">
       <h2 className="mx-1 mt-1 text-[16px] font-bold">Did you drive to these?</h2>
@@ -181,6 +186,7 @@ export function MileageScreen(p: { post: (body: any) => Promise<any>; where: () 
       <button type="button" onClick={() => setView('log')} className={btn} style={quiet}>The year’s log</button>
       {d.owner !== false && <button type="button" onClick={() => setView('setup')} className={btn} style={quiet}>Home and places</button>}
     </div>
+    {p.renter && <p className="mx-1 text-[13px]" style={{ color: MUTED }}>Your log is yours: download it from The year’s log any time, and before your lease ends, as it goes with your portal.</p>}
   </>);
 }
 
@@ -280,20 +286,20 @@ function AddTrip({ places, origin, onNext, busy, msg }: { places: TripPlace[]; o
   </>;
 }
 
-function Setup({ setup, places, onSave, busy }: { setup: MileageData['setup']; places: TripPlace[]; onSave: (x: any) => void; busy: boolean }) {
+function Setup({ setup, places, onSave, busy, renter }: { setup: MileageData['setup']; places: TripPlace[]; onSave: (x: any) => void; busy: boolean; renter?: boolean }) {
   const [home, setHome] = React.useState(setup.home?.label || ''); const [main, setMain] = React.useState(!!setup.homeIsMain);
   const biz = places.filter((x) => (x.ref || '').startsWith('biz:'));
   return <>
     <section className={`${card} flex flex-col gap-2`}>
-      <h2 className="text-[16px] font-bold">Your business</h2>
-      {biz.length ? biz.map((x) => <p key={x.ref} className="text-[15px]">{x.label}{x.lat == null && <span className="block text-[13px]" style={{ color: AMBER }}>Not found on the map. Check the address in Settings, Locations.</span>}</p>)
-        : <p className="text-[14px]" style={{ color: MUTED }}>No address yet. Add it in Settings, Locations.</p>}
+      <h2 className="text-[16px] font-bold">{renter ? 'Where you rent your space' : 'Your business'}</h2>
+      {biz.length ? biz.map((x) => <p key={x.ref} className="text-[15px]">{x.label}{x.lat == null && <span className="block text-[13px]" style={{ color: AMBER }}>{renter ? 'Not found on the map: type the miles when you add a trip.' : 'Not found on the map. Check the address in Settings, Locations.'}</span>}</p>)
+        : <p className="text-[14px]" style={{ color: MUTED }}>{renter ? 'No address on the map yet: type the miles when you add a trip.' : 'No address yet. Add it in Settings, Locations.'}</p>}
     </section>
     <section className={`${card} flex flex-col gap-3`}>
       <h2 className="text-[16px] font-bold">Home</h2>
-      <p className="text-[13px]" style={{ color: MUTED }}>So drives between home and work are kept as commuting, which isn’t a write-off. Kept only for the mileage log, and seen only by people who keep the books.</p>
+      <p className="text-[13px]" style={{ color: MUTED }}>So drives between home and work are kept as commuting, which isn’t a write-off. Kept only for the mileage log, and seen only by {renter ? 'you: never by the business you rent from' : 'people who keep the books'}.</p>
       <input value={home} onChange={(e) => setHome(e.target.value)} maxLength={160} className={field} style={{ borderColor: LINE }} placeholder="12 Oak St, Raleigh, NC" autoComplete="street-address" aria-label="Home address" />
-      <label className="flex min-h-[44px] cursor-pointer items-center gap-3 text-[15px]"><input type="checkbox" checked={main} onChange={(e) => setMain(e.target.checked)} className="h-5 w-5 accent-[#16171a]" />I run the business from home</label>
+      {!renter && <label className="flex min-h-[44px] cursor-pointer items-center gap-3 text-[15px]"><input type="checkbox" checked={main} onChange={(e) => setMain(e.target.checked)} className="h-5 w-5 accent-[#16171a]" />I run the business from home</label>}
       {main && <p className="text-[13px]" style={{ color: MUTED }}>Then drives from home for the business usually count, and none are commuting. Your accountant can confirm home is your main place of business.</p>}
       <button type="button" disabled={busy} onClick={() => onSave({ home: home.trim() ? { label: home.trim() } : null, homeIsMain: main })} className={btn} style={solid}>{busy ? 'Saving…' : 'Save'}</button>
     </section>
