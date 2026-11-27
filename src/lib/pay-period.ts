@@ -31,6 +31,13 @@ export type PayLine = {
   tierBonus: number; refundTakeBack: number; refunds: number;   // both already inside servicePay
   nonServicePay: number; nonServiceHours: number;               // training / meetings / other paid time (commission / per service people)
   overtimePremium: number;     // overtime owed beyond what hourly pay already covers (commission / per service / the commission part of hourly + commission)
+  /** The overtime the federal law requires, for box 12 code TT of the W-2 from 2026 (lib/payroll-yearend): the "half" of
+   *  time and a half, at the week's regular rate, for hours past 40 in a week that overtime was paid on. Not daily
+   *  overtime or double time a state adds, nor overtime a business pays by choice. */
+  qualifiedOvertime: number;
+  /** The part of it from weeks a commissioned employee may be exempt from federal overtime (section 7(i): a regular
+   *  rate over 1.5 times the federal minimum wage, more than half the pay commission), for the accountant to confirm. */
+  qualifiedOvertime7i: number;
   minWageTopUp: number;
   tips: number; total: number;
   contractor: boolean;         // a 1099 contractor: no overtime or minimum-wage top-up
@@ -39,7 +46,7 @@ export type PayLine = {
   missingClockOuts: number;    // sessions waiting for a manager — not paid until fixed
   unapprovedSessions: number;  // with "pay approved hours only": sessions still waiting for approval
   noHours: boolean;            // earned from services but has no hours on the clock (minimum wage and overtime can't be checked)
-  weeks: { weekStart: string; hours: number; overtimeHours: number; doubleTimeHours: number; earned: number; topUp: number; premium: number }[];
+  weeks: { weekStart: string; hours: number; overtimeHours: number; doubleTimeHours: number; earned: number; topUp: number; premium: number; qualifiedOt: number }[];
 };
 
 const r2 = (v: number) => Math.round(v * 100) / 100;
@@ -129,7 +136,7 @@ export function periodPay(input: {
   const salaryNonExempt = ps === 'salary' && (m.overtimeExempt === false || m.overtimeNonExempt === true);
 
   // Per workweek: overtime on other pay, and the minimum-wage check
-  let overtimePremium = 0, minWageTopUp = 0; const weekRows: PayLine['weeks'] = [];
+  let overtimePremium = 0, minWageTopUp = 0, qualifiedOvertime = 0, qualifiedOvertime7i = 0; const weekRows: PayLine['weeks'] = [];
   // A tip credit, only where the business switched it on and its state allows one (lib/pay-extras tipCreditOf): tips that
   // week can make up minimum wage above the cash wage. Tips for the period are shared across weeks by hours when they
   // come from a pool. Off by default: tips never count.
@@ -156,13 +163,21 @@ export function periodPay(input: {
       topUp = Math.max(0, rules.minimumWage * svcH - svcPay) + Math.max(0, rules.minimumWage * nsH - nsPay);
     }
     overtimePremium += premium; minWageTopUp += topUp;
-    weekRows.push({ weekStart: w.weekStart, hours: r2(h), overtimeHours: contractor ? 0 : r2(ot), doubleTimeHours: contractor ? 0 : r2(dt), earned: r2(straight), topUp: r2(topUp), premium: r2(premium) });
+    // (The law's part of it, for the W-2's code TT: half the week's regular rate, with any minimum wage top-up in it, for
+    // hours past 40 that overtime was paid on. A salaried person's regular rate is the week's salary over 40 hours; with a
+    // tip credit, it's never under the minimum wage. Weeks a commissioned person may be exempt, section 7(i), are said.)
+    const flsaHours = !contractor && (ps !== 'salary' || salaryNonExempt) && h > 40 ? Math.min(h - 40, ot + dt) : 0;
+    const rr = ps === 'salary' ? salaryWeekly / 40 : Math.max((straight + topUp) / (h || 1), tc !== null ? rules.minimumWage : 0);
+    const qOt = flsaHours > 0 ? 0.5 * rr * flsaHours : 0;
+    qualifiedOvertime += qOt;
+    if (qOt > 0 && (ps === 'commission' || ps === 'per_service' || ps === 'hourly_plus_commission') && rr > 1.5 * 7.25 && other > 0.5 * (straight + topUp)) qualifiedOvertime7i += qOt;
+    weekRows.push({ weekStart: w.weekStart, hours: r2(h), overtimeHours: contractor ? 0 : r2(ot), doubleTimeHours: contractor ? 0 : r2(dt), earned: r2(straight), topUp: r2(topUp), premium: r2(premium), qualifiedOt: r2(qOt) });
   }
 
   const total = hourlyPay + salaryPay + servicePay + retail + extras + nonServicePay + overtimePremium + minWageTopUp + tips;
   return { staffId: m.id, name: m.name, payStructure: ps, hours: r2(hours), regularHours: r2(contractor ? hours : regHours), overtimeHours: contractor ? 0 : r2(otHours), doubleTimeHours: contractor ? 0 : r2(dtHours),
     hourlyPay: r2(hourlyPay), salaryPay: r2(salaryPay), servicePay: r2(servicePay), retail: r2(retail), extras: r2(extras), tierBonus: r2(tiers), refundTakeBack: r2(refunds.total), refunds: refunds.count, nonServicePay, nonServiceHours: r2(nsMinutes / 60),
-    overtimePremium: r2(overtimePremium), minWageTopUp: r2(minWageTopUp), tips: r2(tips), total: r2(total), contractor, cashTips: r2(cashTips), tipsInHand: r2(tipsInHand), missingClockOuts, unapprovedSessions: unapproved,
+    overtimePremium: r2(overtimePremium), qualifiedOvertime: r2(qualifiedOvertime), qualifiedOvertime7i: r2(qualifiedOvertime7i), minWageTopUp: r2(minWageTopUp), tips: r2(tips), total: r2(total), contractor, cashTips: r2(cashTips), tipsInHand: r2(tipsInHand), missingClockOuts, unapprovedSessions: unapproved,
     noHours: (earns && servicePay > 0 && hours === 0), weeks: weekRows };
 }
 

@@ -149,8 +149,8 @@ const pay = (from: string, to: string, extra: any = {}) => ({ periodKey: `${from
   check('your own W-4: your choice, with the IRS’s estimator', /What you choose is up to you/.test(tf) && /href="https:\/\/www\.irs\.gov\/individuals\/tax-withholding-estimator"/.test(tf));
   const st = src('src/app/(app)/settings/page.tsx');
   check('Settings, Payroll: whose tables, who sends and files, and whether it’s agreed', /withholding tables\. You send the payments and file the forms\./.test(st) && /payrollTermsOk\(selectedTenant\) \? `Agreed to how payroll works here/.test(st));
-  check('Settings writes payroll’s settings by path, never what the server keeps (the agreement, check numbers, W-2s given)', /changed\[`payrollTax\.\$\{k\}`\] = a\[k\] \?\? null/.test(st)
-    && /\['termsAgreed', 'nextCheckNo', 'checkLayout', 'checkNudge', 'w2Given'\]\.includes\(k\)/.test(st) && /delete changed\.payrollTax;/.test(st));
+  check('Settings writes payroll’s settings by path, never what the server keeps (the agreement, check numbers, W-2s given, tipped occupations)', /changed\[`payrollTax\.\$\{k\}`\] = a\[k\] \?\? null/.test(st)
+    && /\['termsAgreed', 'nextCheckNo', 'checkLayout', 'checkNudge', 'w2Given', 'ttoc', 'ttoc000'\]\.includes\(k\)/.test(st) && /delete changed\.payrollTax;/.test(st));
 
   console.log(failures ? `\n${failures} failed` : '\nAll passed');
   process.exit(failures ? 1 : 0);

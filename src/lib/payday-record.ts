@@ -19,7 +19,10 @@ import { runByOf, paydayTaxes, ytdFrom, payDateFor, dueDates, yearRunsFrom, setu
 
 export type PaydayPerson = { staffId: string; name: string; amount: number; cash: number; contractor: boolean; method?: PayMethod; checkNo?: string; tips?: number;
   /** Hours worked in the period, when the time clock has them (the tip credit's minimum wage test: lib/tip-credit). */
-  hours?: number };
+  hours?: number;
+  /** The overtime the federal law requires in the period (lib/pay-period qualifiedOvertime): the W-2's code TT; and the
+   *  part from weeks a commissioned person may be exempt (section 7(i)), for the accountant to confirm. */
+  otQualified?: number; otMaybeExempt?: number };
 export type PaydayInput = { periodKey: string; from: string; to: string; people: PaydayPerson[]; setAsides: { key: 'tax' | 'owner' | 'profit'; label: string; amount: number }[];
   /** Pay between paydays (a bonus, a last paycheck, pay that was missed): paid on `date`, any number of times, never
    *  claimed against the regular paydays' dates. `supplemental`: taxed at the bonus rates, else as a paycheck of its own. */
@@ -57,9 +60,9 @@ export function cleanPayday(b: any): PaydayInput | string {
     if (!staffId || staffId.length > 128 || staffId.includes('/') || amount === null || cash === null) return 'One person’s pay isn’t a number.';
     const method = ['transfer', 'check', 'cash'].includes(p?.method) ? p.method as PayMethod : undefined;
     const checkNo = method === 'check' ? String(p?.checkNo || '').replace(/[^0-9A-Za-z-]/g, '').slice(0, 12) : '';
-    const tips = money(p?.tips ?? 0, 0, 1e6) ?? 0; const hours = money(p?.hours ?? 0, 0, 1000) ?? 0;
+    const tips = money(p?.tips ?? 0, 0, 1e6) ?? 0; const hours = money(p?.hours ?? 0, 0, 1000) ?? 0; const otQualified = money(p?.otQualified ?? 0, 0, 1e6) ?? 0; const otMaybeExempt = Math.min(otQualified, money(p?.otMaybeExempt ?? 0, 0, 1e6) ?? 0);
     people.push({ staffId, name: String(p?.name || 'Team member').replace(/\s+/g, ' ').trim().slice(0, 80) || 'Team member', amount, cash, contractor: p?.contractor === true,
-      ...(method ? { method } : {}), ...(checkNo ? { checkNo } : {}), ...(tips ? { tips } : {}), ...(hours > 0 ? { hours } : {}) });
+      ...(method ? { method } : {}), ...(checkNo ? { checkNo } : {}), ...(tips ? { tips } : {}), ...(hours > 0 ? { hours } : {}), ...(otQualified > 0 ? { otQualified, ...(otMaybeExempt > 0 ? { otMaybeExempt } : {}) } : {}) });
   }
   const asides: PaydayInput['setAsides'] = [];
   for (const a of Array.isArray(b?.setAsides) ? b.setAsides.slice(0, 4) : []) {
@@ -172,7 +175,9 @@ export async function recordPayday(db: any, tenantId: string, tenant: any, input
       payDate, runBy: runByOf(tenant),
       people: input.people.map((p) => { const w = tax?.by[p.staffId];
         return { staffId: p.staffId, name: p.name, paid: paid(p), cashTips: cash(p), contractor: p.contractor, ...(p.method ? { method: p.method } : {}), ...(p.checkNo ? { checkNo: p.checkNo } : {}),
-          ...(p.tips ? { tips: p.tips } : {}), ...(p.hours ? { hours: p.hours } : {}), ...(w ? { taxes: keepOf(w), takeHome: w.takeHome } : {}) }; }),
+          ...(p.tips ? { tips: p.tips } : {}), ...(p.hours ? { hours: p.hours } : {}), ...(p.otQualified ? { otQualified: p.otQualified, ...(p.otMaybeExempt ? { otMaybeExempt: p.otMaybeExempt } : {}) } : {}), ...(w ? { taxes: keepOf(w), takeHome: w.takeHome } : {}) }; }),
+      // (Paydays from now on say each person's overtime the law requires, none included: the W-2's code TT, lib/payroll-yearend.)
+      otKept: true,
       employeesTotal: employeePay, contractorsTotal: contractorPay, cashTipsTotal: cashTips, setAsides: input.setAsides,
       ...(bank.length ? { viaBank: bank.map((b: any) => b.id), viaBankCents } : {}),
       ...(tax ? { taxes: { employee: tax.employeeTotal, employer: tax.employerTotal, takeHome: tax.takeHome, pretax: tax.pretax, owed: tax.owed, due: dueDates(payDate, tenant),

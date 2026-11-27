@@ -3,13 +3,18 @@
 // (lib/payroll-prior): each employee's W-2, box by box; the W-3 that sends them to Social Security; Form 940, federal
 // unemployment for the year; the state's own year-end reconciliation (North Carolina's NC-3, California's DE 9…, by
 // lib/state-payroll filing.annual); and a 1099-NEC for each contractor paid $2,000 or more ($600 before 2026). For
-// printing, copying onto the forms, or handing to an accountant. Social Security numbers, the EIN and contractors' tax
+// printing, copying onto the forms, or handing to an accountant. From 2026 a W-2 also says each person's tips (box 12
+// code TP, cash and card, with the occupation they were received in, box 14b: lib/tipped-occupations) and the overtime
+// the federal law requires (code TT, the "half" of time and a half: lib/pay-period), for the new tax deductions on them. Social Security numbers, the EIN and contractors' tax
 // ID numbers go on the forms themselves: ClarityFlow never keeps them.
 import { payDateOf, payrollStateOf, setupOf, nextBusinessDay, CREDIT_REDUCTION } from './payroll-taxes';
 import { stateSpec } from './state-payroll';
 import { tablesFor } from './withholding';
 import { priorOf } from './payroll-prior';
 import { owedItems, paymentsOf } from './payroll-owed';
+import { ttocsOf } from './tipped-occupations';
+/** The first year the W-2 has codes TP and TT and box 14b. */
+export const TIPS_OT_FROM = 2026;
 
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 const n = (v: any) => Number(v) || 0;
@@ -28,8 +33,19 @@ export type W2 = {
   b12: { code: string; label: string; amount: number }[];
   /** Box 13, retirement plan. */
   b13: boolean;
-  /** Box 14, other: the state's programs taken from pay (California's SDI, New Jersey's family leave…). */
+  /** Box 14 (14a from 2026), other: the state's programs taken from pay (California's SDI, New Jersey's family leave…). */
   b14: { label: string; amount: number }[];
+  /** Box 14b from 2026: the occupation code the tips in code TP were received in, when there are any (empty: not picked
+   *  yet, and the business's kind doesn't suggest one). */
+  b14b: string[];
+  /** Paydays this year recorded before each person's overtime was kept (not pay between paydays): code TT leaves out any
+   *  overtime in them until it's worked out again from the time clock (api/payroll/forms 'otBackfill'). */
+  otNotKept: number;
+  /** The part of code TT from weeks a commissioned person may be exempt from federal overtime (section 7(i)). */
+  ttMaybeExempt: number;
+  /** Paydays whose overtime, worked out again later from the time clock, came out at different pay than was recorded (a
+   *  rate change or an edit since): no TT from them, for the accountant to check. */
+  otUnsure: number;
   /** Boxes 15 to 17. */
   state: { code: string; name: string; wages: number; tax: number } | null;
   /** Boxes 18 to 20: the city's or county's part (`withState`: paid with the state's), and taxes the business added. */
@@ -45,7 +61,7 @@ export function w2sFor(runs: any[], tenant: any, year: number): W2[] {
   const added = new Map((setupOf(tenant).other || []).map((o: any) => [String(o?.id || ''), String(o?.name || 'City tax')]));
   const by = new Map<string, W2 & { _12: Record<string, number>; _14: Record<string, number>; _loc: Record<string, { wages: number; tax: number; withState?: boolean }>; _stW: number; _stT: number }>();
   const get = (id: string, name: string) => { let w = by.get(id);
-    if (!w) { w = { staffId: id, name, paydays: 0, b1: 0, b2: 0, b3: 0, b4: 0, b5: 0, b6: 0, b7: 0, b12: [], b13: false, b14: [], state: null, locals: [], prior: false, _12: {}, _14: {}, _loc: {}, _stW: 0, _stT: 0 }; by.set(id, w); }
+    if (!w) { w = { staffId: id, name, paydays: 0, b1: 0, b2: 0, b3: 0, b4: 0, b5: 0, b6: 0, b7: 0, b12: [], b13: false, b14: [], b14b: [], otNotKept: 0, ttMaybeExempt: 0, otUnsure: 0, state: null, locals: [], prior: false, _12: {}, _14: {}, _loc: {}, _stW: 0, _stT: 0 }; by.set(id, w); }
     return w; };
   for (const run of yearRuns(runs, tenant, year)) for (const p of run.people || []) {
     const t = p?.taxes; if (!p?.staffId || p.contractor || !t) continue;
@@ -58,6 +74,8 @@ export function w2sFor(runs: any[], tenant: any, year: number): W2[] {
     if (inHand > 0 && n(sh.socialSecurity)) w._12.A = (w._12.A || 0) + Math.min(n(sh.socialSecurity), r2(Math.min(inHand, ss) * 0.062));
     if (inHand > 0 && n(sh.medicare)) w._12.B = (w._12.B || 0) + Math.min(n(sh.medicare), r2(inHand * 0.0145));
     if (n(t.pretax?.retirement)) w._12.D = (w._12.D || 0) + n(t.pretax.retirement);
+    // (From 2026: every tip reported, cash and card, and the overtime the law requires, kept on paydays from December 2026.)
+    if (year >= TIPS_OT_FROM) { if (n(p.tips) > 0) w._12.TP = (w._12.TP || 0) + n(p.tips); if (n(p.otQualified) > 0) w._12.TT = (w._12.TT || 0) + n(p.otQualified); w.ttMaybeExempt += n(p.otMaybeExempt); if (!run.otKept && !run.offCycle) w.otNotKept++; if (Array.isArray(run.otUnsure) && run.otUnsure.includes(String(p.staffId))) w.otUnsure++; }
     const local = n(e.stateLocal);
     if (t.stateHow !== 'none') { w._stW += n(wg.state ?? wg.federal); w._stT += n(e.state) - local; }
     if (local > 0) { const k = String(e.localName || 'Local'); const l = w._loc[k] || { wages: 0, tax: 0, withState: true }; l.wages += n(wg.state ?? wg.federal); l.tax += local; w._loc[k] = l; }
@@ -73,14 +91,18 @@ export function w2sFor(runs: any[], tenant: any, year: number): W2[] {
     const w = get(String(x.staffId), String(x.name || 'Team member')); w.prior = true;
     const fed = n(x.fedWages ?? x.wages); const ssW = Math.min(n(x.wages), ssBase); const tips = Math.min(n(x.tips), ssW);
     w.b1 += fed; w.b2 += n(x.federal); w.b3 += ssW - tips; w.b7 += tips; w.b4 += n(x.ss); w.b5 += n(x.wages); w.b6 += n(x.medicare);
+    if (year >= TIPS_OT_FROM && n(x.tips) > 0) w._12.TP = (w._12.TP || 0) + n(x.tips);
     if (spec && !spec.noTax) { w._stW += fed; w._stT += n(x.state); }
   }
-  const LABEL: Record<string, string> = { A: 'Social Security on tips that couldn’t be withheld', B: 'Medicare on tips that couldn’t be withheld', D: 'Retirement taken out before taxes (401(k); your plan’s own code if it’s another kind)' };
+  const LABEL: Record<string, string> = { A: 'Social Security on tips that couldn’t be withheld', B: 'Medicare on tips that couldn’t be withheld', D: 'Retirement taken out before taxes (401(k); your plan’s own code if it’s another kind)',
+    TP: 'Tips reported to you, cash and card', TT: 'Overtime the law requires: the half of time and a half, for hours past 40 a week' };
   return [...by.values()].map(({ _12, _14, _loc, _stW, _stT, ...w }) => ({
     ...w, b1: r2(w.b1), b2: r2(w.b2), b3: r2(w.b3), b4: r2(w.b4), b5: r2(w.b5), b6: r2(w.b6), b7: r2(w.b7),
     b12: Object.entries(_12).filter(([, v]) => v > 0).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => ({ code: k, label: LABEL[k], amount: r2(v) })),
     b13: (_12.D || 0) > 0,
     b14: Object.entries(_14).filter(([, v]) => v > 0).map(([k, v]) => ({ label: k, amount: r2(v) })),
+    b14b: (_12.TP || 0) > 0 ? ttocsOf(tenant, w.staffId) : [],
+    otNotKept: year >= TIPS_OT_FROM ? w.otNotKept : 0, ttMaybeExempt: r2(w.ttMaybeExempt), otUnsure: year >= TIPS_OT_FROM ? w.otUnsure : 0,
     state: spec && !spec.noTax && (_stW > 0 || _stT > 0) ? { code: spec.code, name: spec.name, wages: r2(_stW), tax: r2(_stT) } : null,
     locals: Object.entries(_loc).map(([k, v]) => ({ name: k, wages: r2(v.wages), tax: r2(v.tax), ...(v.withState ? { withState: true } : {}) })),
   })).filter((w) => w.b1 > 0 || w.b5 > 0 || w.b2 > 0).sort((a, b) => a.name.localeCompare(b.name));

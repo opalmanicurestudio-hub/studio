@@ -99,7 +99,7 @@ const run = (tenant: any, d: string, k: string, ppl: { id: string; name: string;
   console.log('On Payday');
   const page = src('src/app/(app)/money/page.tsx'); const dlg = src('src/components/money/YearEndDialog.tsx'); const screen = src('src/components/money/PaydayScreen.tsx');
   check('from November to April: the year ending, then the year just over', /return m >= 11 \? y : m <= 4 \? y - 1 : null;/.test(page) && /o\?\.yearEnd && /.test(screen));
-  check('never asks for a Social Security number or an EIN: they’re written on the forms', !/<input/.test(dlg) && /ClarityFlow never keeps them/.test(dlg));
+  check('never asks for a Social Security number or an EIN: they’re written on the forms (its only box is a tick)', !/<input(?! type="checkbox")/.test(dlg) && /ClarityFlow never keeps them/.test(dlg));
   check('house style', !/className="[^"]*uppercase/.test(dlg) && !/ · /.test(dlg) && !/>[^<{}]*[A-Za-z]'[A-Za-z][^<{}]*</.test(dlg) && !/\{\/\*/.test(dlg));
 
   if (failures) { console.log(`\n${failures} failed`); process.exit(1); } else console.log('\nAll passed');

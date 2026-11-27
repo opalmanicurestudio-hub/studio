@@ -1005,7 +1005,10 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
             ...(selfRunOn && m ? { method: m.method, ...(m.method === 'check' && m.checkNo ? { checkNo: m.checkNo } : {}) } : {}),
             tips: Math.round(((Number(o.tips) || 0) + (Number(o.cashTips) || 0)) * 100) / 100,
             // (Hours, when the time clock has them: the tip credit's minimum wage test, lib/tip-credit.)
-            ...(!o.noHours && Number(o.hours) > 0 ? { hours: Math.round(Number(o.hours) * 100) / 100 } : {}) }; });
+            ...(!o.noHours && Number(o.hours) > 0 ? { hours: Math.round(Number(o.hours) * 100) / 100 } : {}),
+            // (The overtime the federal law requires, for the W-2's code TT: lib/pay-period, lib/payroll-yearend.)
+            ...(Number(o.line?.qualifiedOvertime) > 0 ? { otQualified: Math.round(Number(o.line.qualifiedOvertime) * 100) / 100,
+              ...(Number(o.line?.qualifiedOvertime7i) > 0 ? { otMaybeExempt: Math.round(Number(o.line.qualifiedOvertime7i) * 100) / 100 } : {}) } : {}) }; });
     const setAsides = suggestions.filter(b => b.amount > 0 && b.key !== 'opex').map(b => ({ key: b.key, label: b.label, amount: Number(b.amount.toFixed(2)) }));
     if (!people.length && !setAsides.length) return;
     setIsSubmitting(true);
@@ -1203,7 +1206,11 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
             return r.numbers as string[]; }} />}
       {selfRunOn && selectedTenant && yeYear && <YearEndDialog open={!!yearEndAt} onOpenChange={(o) => { if (!o) setYearEndAt(null); }} runs={yearRuns || []} tenant={selectedTenant}
         year={yeYear} today={todayBiz} businessName={String((selectedTenant as any)?.name || '')} tab={yearEndAt?.tab} person={yearEndAt?.person}
-        onGiveW2s={async (year, given) => { const r = await payrollForms({ action: 'giveW2s', year, given }); return r?.ok ? null : (r?.error || 'Not saved. Try again.'); }} />}
+        onGiveW2s={async (year, given) => { const r = await payrollForms({ action: 'giveW2s', year, given }); return r?.ok ? null : (r?.error || 'Not saved. Try again.'); }}
+        onTtoc={async (staffId, code, notListed) => { const r = await payrollForms({ action: 'ttoc', staffId, code, notListed }); return r?.ok ? null : (r?.error || 'Not saved. Try again.'); }}
+        onOtBackfill={async (year) => { const r: any = await payrollForms({ action: 'otBackfill', year });
+          if (!r?.ok) return { error: r?.error || 'That didn’t go through. Try again: what’s done is kept.' };
+          return { note: r.left ? `Worked out ${r.paydays}. ${r.left} more to go: tap again.` : `Worked out ${r.paydays} payday${r.paydays === 1 ? '' : 's'}.` }; }} />}
       {selfRunOn && selectedTenant && <PayrollFormsDialog open={taxFormsOpen} onOpenChange={setTaxFormsOpen} runs={yearRuns || []} tenant={selectedTenant} state={taxState || null} today={todayBiz} businessName={String((selectedTenant as any)?.name || '')} />}
     </div>
   );

@@ -33,7 +33,9 @@ export type DraftLine = {
   extras?: number;         // membership sale bonus + share of no-show fees (part of commission)
   bonus?: number;          // overtime on commission / per service pay + minimum-wage top-ups (+ approved pay corrections)
   adjustments?: number;    // approved pay corrections dated in this period (lib/pay-questions)
-  overtimePremium?: number; minWageTopUp?: number; salary?: number; hours?: number; missingClockOuts?: number; unapprovedSessions?: number; noHours?: boolean;
+  overtimePremium?: number; minWageTopUp?: number; salary?: number; hours?: number;
+  /** The overtime the federal law requires, and the part from weeks a commissioned person may be exempt (lib/pay-period). */
+  qualifiedOvertime?: number; qualifiedOvertime7i?: number; missingClockOuts?: number; unapprovedSessions?: number; noHours?: boolean;
   tips: number;             // paid on the paycheck
   cashTips?: number;        // cash tips they took home the same day: reported to payroll, not paid again
   contractor?: boolean;     // a 1099 contractor: not on the employee payroll, no employer taxes
@@ -138,6 +140,7 @@ export async function buildPayrollDraft(
       ...(l.extras ? { extras: l.extras } : {}),
       ...(f.bonus ? { bonus: f.bonus, overtimePremium: l.overtimePremium, minWageTopUp: l.minWageTopUp } : {}),
       ...(l.salaryPay ? { salary: l.salaryPay } : {}),
+      ...(l.qualifiedOvertime ? { qualifiedOvertime: l.qualifiedOvertime, ...(l.qualifiedOvertime7i ? { qualifiedOvertime7i: l.qualifiedOvertime7i } : {}) } : {}),
       ...(l.missingClockOuts ? { missingClockOuts: l.missingClockOuts } : {}),
       ...(l.unapprovedSessions ? { unapprovedSessions: l.unapprovedSessions } : {}),
       ...(l.noHours ? { noHours: true } : {}),

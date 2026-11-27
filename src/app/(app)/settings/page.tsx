@@ -419,7 +419,7 @@ function SettingsPageImpl() {
     // the W-2s given: api/payroll/forms) are never written back from here: only what changed here, by path.
     if (changed.payrollTax && typeof changed.payrollTax === 'object') {
       const a = cur.payrollTax || {}, was = base.payrollTax || {}; delete changed.payrollTax;
-      for (const k of Object.keys(a)) if (!['termsAgreed', 'nextCheckNo', 'checkLayout', 'checkNudge', 'w2Given'].includes(k) && JSON.stringify(a[k] ?? null) !== JSON.stringify(was[k] ?? null)) changed[`payrollTax.${k}`] = a[k] ?? null;
+      for (const k of Object.keys(a)) if (!['termsAgreed', 'nextCheckNo', 'checkLayout', 'checkNudge', 'w2Given', 'ttoc', 'ttoc000'].includes(k) && JSON.stringify(a[k] ?? null) !== JSON.stringify(was[k] ?? null)) changed[`payrollTax.${k}`] = a[k] ?? null;
     }
     if (dirty.current.kiosk || changed.kioskSettings) changed.kioskSettings = { ...(tenantData.kioskSettings || {}), kioskSchedule: tenantData.kioskSettings?.useSpecificHours ? localKioskSchedule : null };
     const svcIds = Array.from(dirty.current.svc); const sched = dirty.current.sched && !!activeProfile && !!localSchedule;
