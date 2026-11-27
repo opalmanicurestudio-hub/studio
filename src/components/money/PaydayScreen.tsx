@@ -34,6 +34,8 @@ export type PersonTax = {
   gross: number; takeHome: number; employeeTotal: number; federal: number; fica: number; state: number;
   other: { name: string; amount: number }[]; pretax: number; short: number;
   stateHow: 'none' | 'built_in' | 'percent' | 'missing'; noW4: boolean; noStateForm: boolean; exempt: boolean;
+  /** The county the state's tax needs (Indiana, Maryland) isn't on their form. */
+  countyMissing?: boolean;
 };
 /** Payroll run in ClarityFlow: each employee's taxes and take-home, and what the payday owes, to whom and when. */
 export type SelfRun = {
@@ -42,6 +44,8 @@ export type SelfRun = {
   owed: { key: string; name: string; sub: string; amount: number }[]; owedTotal: number;
   /** "North Carolina"; the state's own form ("NC-4") when it's built in. */
   stateName: string; stateForm?: string | null;
+  /** The state's income tax is worked out here (from its own form, or the federal W-4 where it uses that). */
+  stateTax?: boolean;
   methods: Record<string, { method: PayMethod; checkNo: string }>;
   onMethod: (id: string, method: PayMethod, checkNo: string) => void;
   /** Open someone's tax forms (managers): left out for someone who can't change them. */
@@ -50,6 +54,10 @@ export type SelfRun = {
   payrollHref: string;
   /** The tax tables are older than the payday's year. */
   stale?: boolean;
+  /** No state unemployment rate to use: the state's depends on the industry, and none is in Settings yet. */
+  suiMissing?: boolean;
+  /** The state has programs that depend on the business's size, and Settings doesn't say how many employees. */
+  teamSizeMissing?: boolean;
 };
 /** A payroll tax owed or paid, across paydays (lib/payroll-owed), as the screen shows it. */
 export type OwedRow = { key: string; name: string; sub: string; amount: number; late?: boolean;
@@ -64,6 +72,8 @@ export type OwedProps = {
   onPaid?: (key: string, amount: number, paidOn: string) => Promise<string | null>;
   onUnpaid?: (key: string) => Promise<void>;
   onForms: () => void; formsWords: string; today: string;
+  /** The quarter's forms by name: "Form 941, NC-5 and NCUI 101". */
+  formsNames?: string;
 };
 const METHODS: { v: PayMethod; label: string }[] = [{ v: 'transfer', label: 'Bank transfer' }, { v: 'check', label: 'Check' }, { v: 'cash', label: 'Cash' }];
 /** One part of the split: taxes, the owner's own pay, profit, and what stays to run the business. */
@@ -118,7 +128,8 @@ function TaxLines({ t, self, id }: { t: PersonTax; self: SelfRun; id: string }) 
   const form = self.stateForm || 'state form';
   const missing = t.noW4 && t.noStateForm ? { text: `No W-4 or ${form} on file. Taxed as single until they’re added, as the IRS and ${self.stateName} require.`, add: 'Add them' }
     : t.noW4 ? { text: 'No W-4 on file. Taxed as single until one is added, as the IRS requires.', add: 'Add W-4' }
-    : t.noStateForm ? { text: `No ${form} on file. ${self.stateName} tax is as single with no allowances until one is added.`, add: `Add ${form}` } : null;
+    : t.noStateForm ? { text: `No ${form} on file. ${self.stateName} tax is as single with no allowances until one is added.`, add: `Add ${form}` }
+    : t.countyMissing ? { text: `No county on their ${form}. ${self.stateName}’s county tax depends on where they live: until it’s added, ${self.stateName === 'Indiana' ? 'none is taken' : 'the usual 3.2% is used'}.`, add: 'Add their county' } : null;
   return (<>
     <span className="block text-[13px]" style={{ color: MUTED }}>Withheld {usd(t.employeeTotal)}: {parts.join(', ')}{t.exempt ? '. Exempt from federal income tax on their W-4' : ''}</span>
     {t.pretax > 0 && <span className="block text-[13px]" style={{ color: MUTED }}>{usd(t.pretax)} taken out before taxes for retirement and health</span>}
@@ -358,8 +369,10 @@ export function PaydayScreen(p: PaydayScreenProps) {
       {runBy === 'gusto' && p.gusto.connected && !!p.gustoUnmatched?.length && <Note warn>Match {peopleOf(p.gustoUnmatched)} to Gusto first, below, then send payroll.</Note>}
       {runBy !== 'clarityflow' && p.onExport && <div className="mt-2 flex flex-wrap items-center gap-2"><button type="button" onClick={p.onExport} disabled={!!p.blocked} className={btn} style={runBy === 'company' ? solid : plain}>Download for {runBy === 'company' ? 'your' : 'another'} payroll company</button>
         <span className="text-[13px]" style={{ color: MUTED }}>Hours and pay for these dates, as a spreadsheet for ADP, Paychex, QuickBooks Payroll or your bookkeeper.</span></div>}
-      {runBy === 'clarityflow' && <p className="mt-3 text-[13px]" style={{ color: MUTED }}>Taxes worked out here, using the IRS’s{self?.stateForm ? ` and ${self.stateName}’s` : ''} tables. You send the pay and the taxes from your bank, and file the forms or hand them to your accountant. <a href={self?.payrollHref || '/settings?tab=payroll'} className="underline underline-offset-2" style={{ color: INK }}>Use Gusto or another payroll company instead</a></p>}
+      {runBy === 'clarityflow' && <p className="mt-3 text-[13px]" style={{ color: MUTED }}>Taxes worked out here, using the IRS’s{self?.stateTax ? ` and ${self.stateName}’s` : ''} tables. You send the pay and the taxes from your bank, and file the forms or hand them to your accountant. <a href={self?.payrollHref || '/settings?tab=payroll'} className="underline underline-offset-2" style={{ color: INK }}>Use Gusto or another payroll company instead</a></p>}
       {self?.stale && <Note warn>The tax tables are from an earlier year. Check each person’s taxes with your accountant until this year’s are in.</Note>}
+      {self?.teamSizeMissing && <Note>Some of {self.stateName}’s paid leave programs depend on how many employees you have. Until you say, the people paid each payday are counted. <a href={self.payrollHref} className={`font-semibold underline underline-offset-2 ${RING}`}>Set it in Settings</a></Note>}
+      {self?.suiMissing && <Note warn>{self.stateName} unemployment isn’t worked out yet: its rate for a new business depends on your industry. <a href={self.payrollHref} className={`font-semibold underline underline-offset-2 ${RING}`}>Put in the rate from your state’s letter</a></Note>}
       {contractors > 0 && <Note>Contractors aren’t on payroll: nothing is withheld for them, and no employer taxes are owed. Pay them directly, then record payday.{runBy !== 'clarityflow' ? ' If your payroll company pays them, book its withdrawal for them as Contract Labor.' : ''}</Note>}
       <div className="mt-3 flex min-h-[56px] items-center justify-between gap-3 py-2" style={{ borderTop: `1px solid ${LINE}` }}>
         <span className="min-w-0"><span className="block">A payroll draft each payday</span>
@@ -447,7 +460,7 @@ export function PaydayScreen(p: PaydayScreenProps) {
         {o.paid.map((x) => <OwedLine key={x.key} x={x} o={o} paid />)}
       </div>}
       {o && <div className="mt-3 flex min-h-[56px] flex-wrap items-center justify-between gap-3 py-2" style={{ borderTop: `1px solid ${LINE}` }}>
-        <span className="min-w-0"><span className="block">{o.formsWords}</span><span className="block text-[13px]" style={{ color: MUTED }}>Form 941{self?.stateForm ? ', NC-5 and NCUI 101' : ''}: the numbers, line by line</span></span>
+        <span className="min-w-0"><span className="block">{o.formsWords}</span><span className="block text-[13px]" style={{ color: MUTED }}>{o.formsNames || 'Form 941'}: the numbers, line by line</span></span>
         <button type="button" onClick={o.onForms} className={btn} style={plain}>See the numbers</button>
       </div>}
       <p className="mt-2 pb-1 text-[13px]" style={{ color: MUTED }}>When you pay one, its bank line is sorted as Payroll Tax Deposit: it’s in your books from payday already, so it isn’t counted twice.</p>

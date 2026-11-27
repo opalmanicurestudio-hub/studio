@@ -3,8 +3,9 @@
 // each figure worked by hand:
 //   Federal income tax for a 2020-or-later W-4 (each filing status, the step 2 box, steps 3 and 4), a 2019-or-earlier
 //   one (allowances), and exempt. Social Security to its wage base, Medicare, and the extra 0.9% past $200,000.
-//   Federal and state unemployment to their wage bases. North Carolina's tax, a state with none, a state at the
-//   business's percentage, and a state with nothing set (flagged). Before-tax deductions. A paycheck too small for its
+//   Federal and state unemployment to their wage bases. North Carolina's tax, a state with none, Pennsylvania's flat
+//   rate, a place not built in at the business's percentage, and one with nothing set (flagged). (Every state's own
+//   formula: scripts/verify/state-withholding.verify.ts.) Before-tax deductions. A paycheck too small for its
 //   taxes (cash tips taken home): Social Security and Medicare first, the rest short and said so.
 //   What a payday owes the IRS and the state; when each is due (monthly and twice-a-week deposits, holidays, weekends).
 //   What each person has been taxed on so far this year, from the paydays recorded.
@@ -43,10 +44,10 @@ console.log('State income tax');
 check('North Carolina, head of household, 2 allowances, monthly $4,000 → $81', stateIncomeTax(4000, 12, 'NC', { status: 'hoh', allowances: 2 }, {}, Y) === 81, stateIncomeTax(4000, 12, 'NC', { status: 'hoh', allowances: 2 }, {}, Y));
 check('North Carolina, married uses the same $12,750 as single, plus extra', stateIncomeTax(1780.5, 26, 'NC', { status: 'married', extra: 10 }, {}, Y) === 63);
 check('Texas: no income tax on wages', stateIncomeTax(1780.5, 26, 'TX', null, {}, Y) === 0 && stateHow('TX') === 'none');
-check('Pennsylvania at the business’s 3.07%', stateIncomeTax(1000, 26, 'PA', null, { statePct: 3.07 }, Y) === 30.7 && stateHow('PA', { statePct: 3.07 }) === 'percent');
-check('a person’s own percentage wins over the business’s', stateIncomeTax(1000, 26, 'PA', { pct: 4 }, { statePct: 3.07 }, Y) === 40);
-const ga = withholdingFor({ ...base, state: 'GA', gross: 1000 });
-check('a state with nothing set: none taken out, and said so', ga.employee.state === 0 && ga.flags.includes('state_missing') && ga.stateHow === 'missing', ga.flags);
+check('Pennsylvania: 3.07% of wages, built in', stateIncomeTax(1000, 26, 'PA', null, {}, Y) === 30.7 && stateHow('PA') === 'built_in');
+check('a place not built in (Puerto Rico) at the business’s percentage, and a person’s own wins', stateIncomeTax(1000, 26, 'PR', null, { statePct: 3.07 }, Y) === 30.7 && stateHow('PR', { statePct: 3.07 }) === 'percent' && stateIncomeTax(1000, 26, 'PR', { pct: 4 }, { statePct: 3.07 }, Y) === 40);
+const pr = withholdingFor({ ...base, state: 'PR', gross: 1000 });
+check('one with nothing set: none taken out, and said so', pr.employee.state === 0 && pr.flags.includes('state_missing') && pr.stateHow === 'missing', pr.flags);
 check('no W-4 and no NC-4 are both said', jo.flags.length === 0 && withholdingFor({ ...base, gross: 500 }).flags.includes('no_w4') && withholdingFor({ ...base, gross: 500 }).flags.includes('no_state_form'));
 
 console.log('Before-tax deductions, and a paycheck too small');
@@ -84,7 +85,7 @@ check('twice a week: a Thursday payday by the next Wednesday', dueDates('2026-12
 check('twice a week: a Tuesday payday by the Friday', dueDates('2026-12-01', semi).irs === '2026-12-04');
 check('twice a week: Thanksgiving in the three days moves it to Monday', dueDates('2026-11-24', semi).irs === '2026-11-30', dueDates('2026-11-24', semi));
 check('North Carolina quarterly: the end of the month after the quarter', dueDates('2026-12-03', semi).state === '2027-02-01');
-check('another state’s own dates aren’t known here', dueDates('2026-12-03', { ...tenant, taxState: 'GA' }).state === null);
+check('another state’s by its own schedule (Georgia monthly: the 15th), and none for a state with no income tax', dueDates('2026-12-03', { ...tenant, taxState: 'GA' }).state === '2027-01-15' && dueDates('2026-12-03', { ...tenant, taxState: 'TX' }).state === null);
 
 console.log('So far this year');
 const runs = [

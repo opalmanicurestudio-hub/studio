@@ -85,7 +85,7 @@ const now = '2026-12-02T15:00:00.000Z';
   check('Payroll Tax Deposit and Payroll Deductions Paid: in the pickers, never an expense', !!dep && dep.taxBucket === 'transfer' && !dep.system && !!ded && ded.taxBucket === 'transfer');
   const sync = src('src/lib/plaid-sync.ts');
   check('the bank suggests Payroll Tax Deposit for an IRS payment, or a state one for what paydays owe it, and a payee rule never books it as a second expense',
-    /const selfRun = runByOf\(tenantDoc\) === 'clarityflow'/.test(sync) && /USATAXPYMT\|EFTPS/.test(sync) && /near\(irsOwed\) \? 'paid' : 'maybe'/.test(sync) && /near\(stateOwed\) \? 'paid' : null/.test(sync) && /near\(suiOwed\) \? 'paid' : null/.test(sync) && /deposit === 'maybe' \? \{ hint: 'A payment to the IRS\. Payroll taxes\?/.test(sync)
+    /const selfRun = runByOf\(tenantDoc\) === 'clarityflow'/.test(sync) && /USATAXPYMT\|EFTPS/.test(sync) && /near\(irsOwed\) \? 'paid' : 'maybe'/.test(sync) && /\(rv && near\(stateOwed\)\) \|\| \(ui && near\(suiOwed\)\) \? 'paid' : null/.test(sync) && /deposit === 'maybe' \? \{ hint: 'A payment to the IRS\. Payroll taxes\?/.test(sync)
     && /if \(deposit\) sugg = \{ category: 'Payroll Tax Deposit'/.test(sync) && /&& !\(deposit && rule\.category !== 'Payroll Tax Deposit'\)/.test(sync));
   const RB = await import('../../src/lib/report-builders');
   const reg = RB.payrollCsv(all as any, [], { code: 'NC', employerPayrollTaxPct: 9.25 }, [run]);
@@ -118,7 +118,7 @@ const now = '2026-12-02T15:00:00.000Z';
   check('each person: takes home, of what they earned, and what’s withheld under it', /Takes home<\/span>/.test(screen) && /of \{usd\(tx\.gross\)\} earned/.test(screen) && /Withheld \{usd\(t\.employeeTotal\)\}/.test(screen));
   check('no W-4 on file: said plainly, with Add W-4 for a manager', /No W-4 on file\. Taxed as single until one is added, as the IRS requires\./.test(screen) && /add: 'Add W-4'/.test(screen) && /onForms: canEditForms \?/.test(page));
   check('how each person is paid, and a check number for a check', /aria-label=\{`How \$\{name\} is paid`\}/.test(screen) && /m\.method === 'check' && <label/.test(screen) && /method: m\.method, \.\.\.\(m\.method === 'check' && m\.checkNo/.test(page));
-  check('this payday’s payroll taxes, each with when it’s due', /From this payday, once it’s recorded/.test(screen) && /Due \$\{on\(due\.irs\)\}/.test(page) && /Form NC-5\. Due/.test(page));
+  check('this payday’s payroll taxes, each with when it’s due', /From this payday, once it’s recorded/.test(screen) && /Due \$\{on\(due\.irs\)\}/.test(page) && /Form \$\{spec\.filing\.deposit\}\. ` : ''\}Due \$\{on\(due\.state\)\}/.test(page));
   check('no Connect Gusto while ClarityFlow runs payroll, and the way to change that', /\{runBy === 'gusto' && <div className="mt-3 flex flex-wrap items-center gap-2">/.test(screen) && /Use Gusto or another payroll company instead/.test(screen)
     && /gustoSlot=\{gusto\.connected && runBy === 'gusto' \?/.test(page));
   check('Payday asks once who works out the taxes, and only the owner answers', /Who works out your team’s payroll taxes\?/.test(screen) && /askRunBy=\{selectedTenant && !runByChosen\(selectedTenant\) && !gusto\.connected \?/.test(page)
@@ -126,7 +126,7 @@ const now = '2026-12-02T15:00:00.000Z';
   check('tax forms are kept off the staff record the team reads, by the rules too', /'overtimeExempt', 'overtimeNonExempt', 'taxForms'\]/.test(src('firestore.rules')));
   check('Payday works the taxes out the same way the server does', /paydayTaxes\(\{ tenant: selectedTenant, payDate, forms, ytd: ytdFrom\(yearRuns \|\| \[\], selectedTenant, taxYear, periodKey\)/.test(page));
   const dlg = src('src/components/staff/TaxFormsDialog.tsx');
-  check('the tax forms: W-4 steps, NC-4, before-tax plans, how they’re paid', /Filing status \(step 1c\)/.test(dlg) && /step 2c/.test(dlg) && /from their NC-4/.test(dlg) && /Retirement plan/.test(dlg) && /Bank transfer/.test(dlg));
+  check('the tax forms: W-4 steps, NC-4, before-tax plans, how they’re paid', /Filing status \(step 1c\)/.test(dlg) && /step 2c/.test(dlg) && /taxes, from their \$\{sf\.name\}/.test(dlg) && /Retirement plan/.test(dlg) && /Bank transfer/.test(dlg));
   check('…and never a Social Security number or tax ID asked for', !/<input[^>]*(ssn|social|taxId|ein)/i.test(dlg) && /never asks for or keeps Social Security numbers/.test(dlg));
   check('tax forms live with pay, where only managers and the person read them', (PAY_FIELDS as readonly string[]).includes('taxForms') && /'taxForms'\]/.test(src('src/firebase/firestore/pay-overlay.ts')));
   const set = src('src/app/(app)/settings/page.tsx');

@@ -89,7 +89,7 @@ const rae = (amount: number, cash: number, tips = 0) => ({ staffId: 'rae', name:
   check('a bank payment for what one has left marks it paid, from the bank, within a dollar', /if \(deposit === 'paid'\) \{/.test(sync) && /fits\.length === 1/.test(sync) && /Math\.abs\(Math\.round\(i\.left \* 100\) - cents\) <= 100/.test(sync)
     && /owedOpen = owedItems\(all, tenantDoc, '9999-12-31'\)\.filter\(\(i\) => i\.left >= 0\.01 && !i\.carries\)/.test(sync) && /covers: it\.amount, parts/.test(sync) && /\.\.\.\(taxPayKey \? \{ taxPayKey \} : \{\}\)/.test(sync));
   check('…to whom it’s owed: the IRS for federal, the Department of Revenue for income tax, Employment Security for unemployment',
-    /\? \['irs', 'futa'\] : \/REVENUE\|NCDOR\/\.test\(payee\) \? \['state'\] : \/EMPLOYMENT SECURITY\|NCDES\|UNEMPLOYMENT\/\.test\(payee\) \? \['sui'\] : \['state', 'sui'\]/.test(sync));
+    /\? \['irs', 'futa'\] : \[\.\.\.\(rv \? \['state'\] : \[\]\), \.\.\.\(ui \|\| !rv \? \['sui', 'other'\] : \[\]\)\]/.test(sync) && /rx\(stSpec\?\.bank\.revenue\)/.test(sync));
   // The bank line sorted as something else: the mark goes; a hand payment with it stays.
   const mdb = makeDb();
   await mdb.doc('tenants/t1/payrollRuns/taxpay_irs_2026-12-15').set({ kind: 'taxpayment', key: 'irs_2026-12-15', amount: 150, covers: 140, paidOn: '2026-12-11', source: 'mixed', bankTransactionId: 'b9',
@@ -105,7 +105,7 @@ const rae = (amount: number, cash: number, tips = 0) => ({ staffId: 'rae', name:
   check('…when it’s ignored, matched to lines that aren’t payday’s payroll taxes, booked or changed to another category (Payroll Taxes or Payroll Tax Deposit keep it, everywhere)',
     (plaidRoute.match(/dropBankTaxMark\(db, tenantId, /g) || []).length === 5 && (plaidRoute.match(/\/\^payroll tax\(es\| deposit\)\$\/i\.test\(/g) || []).length === 4);
   check('the hint for a state payment goes by whom it’s paid to: income tax withheld to Revenue, unemployment to Employment Security',
-    /if \(\/DEPT\? OF REVENUE\|DEPARTMENT OF REVENUE\|NCDOR\/\.test\(n\)\) return near\(stateOwed\)/.test(sync) && /\/EMPLOYMENT SECURITY\|NCDES\|UNEMPLOYMENT\/\.test\(n\) && near\(suiOwed\)/.test(sync) && /if \(sui\) \{ suiOwed\.add\(sui\)/.test(sync));
+    /return \(rv && near\(stateOwed\)\) \|\| \(ui && near\(suiOwed\)\) \? 'paid' : null;/.test(sync) && /if \(sui\) \{ suiOwed\.add\(sui\)/.test(sync));
   console.log('January');
   check('what’s owed and the forms are read from January 1 of last year: Payday, the bank sync and the reminders', owedRunsFrom(2027) === '2026-01-01'
     && /where\('recordedAt', '>=', owedRunsFrom\(runsYear\)\), limit\(1500\)/.test(src('src/app/(app)/money/page.tsx')) && /owedRunsFrom\(Number\(todayIn\(tenantDoc\)\.slice\(0, 4\)\)\)/.test(sync)
@@ -165,8 +165,8 @@ const rae = (amount: number, cash: number, tips = 0) => ({ staffId: 'rae', name:
   check('one still adding up with no due date says when it’s due', /i\.open \? `\$\{i\.due \? `Due \$\{on\(i\.due\)\}` : 'Due when it’s filed'\}\. Still adding up/.test(page));
   check('the forms go back no further than the paydays read (January of last year)', /const first = at\.year \* 4 \+ at\.q - 1 <= \(Number\(p\.today\.slice\(0, 4\)\) - 1\) \* 4;/.test(dlg) && /disabled=\{first\} aria-label="The quarter before"/.test(dlg));
   check('the forms open on the quarter to file (in January, October to December), due by the IRS’s own day, a weekend moved on', /\(m - 1\) % 3 === 0 \? \(q === 1 \? \{ year: y - 1, q: 4 \}/.test(dlg) && /afterQuarter\(qEnd\)/.test(dlg) && !/const DUE = /.test(dlg));
-  check('the forms: 941 always, NC-5 and NCUI 101 for North Carolina, a quarter at a time, to print or download', /\['941', \.\.\.\(p\.nc \? \['nc5', 'ncui'\] : \[\]\)\]/.test(dlg) && /aria-label="The quarter before"/.test(dlg) && /downloadCsv\(/.test(dlg) && /printPage\(/.test(dlg)
-    && /nc=\{taxState === 'NC'\}/.test(page));
+  check('the forms: 941 always, the state’s withholding return and wage report by their own names, a quarter at a time, to print or download', /\['941', \.\.\.\(hasSt \? \['st'\] : \[\]\), \.\.\.\(hasUi \? \['ui'\] : \[\]\)\]/.test(dlg) && /aria-label="The quarter before"/.test(dlg) && /downloadCsv\(/.test(dlg) && /printPage\(/.test(dlg)
+    && /state=\{taxState \|\| null\}/.test(page));
   check('never a Social Security number or EIN asked for', !/<input/.test(dlg) && /ClarityFlow never keeps them/.test(dlg));
   check('house style', !/className="[^"]*uppercase/.test(dlg + screen) && !/ · /.test(dlg) && !/>[^<{}]*[A-Za-z]'[A-Za-z][^<{}]*</.test(dlg + screen));
 

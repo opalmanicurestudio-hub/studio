@@ -90,8 +90,9 @@ import { ReportsScreen } from '@/components/money/ReportsScreen';
 import { PaydayScreen, spanWords, type SelfRun, type PersonTax, type PayMethod, type OwedProps } from '@/components/money/PaydayScreen';
 import { PayrollFormsDialog } from '@/components/money/PayrollFormsDialog';
 import { owedItems } from '@/lib/payroll-owed';
+import { stateSpec } from '@/lib/state-payroll';
 import { TaxFormsDialog } from '@/components/staff/TaxFormsDialog';
-import { runByOf, runByChosen, paydayTaxes, ytdFrom, payDateFor, dueDates, owedRunsFrom, quarterWords } from '@/lib/payroll-taxes';
+import { runByOf, runByChosen, paydayTaxes, ytdFrom, payDateFor, dueDates, owedRunsFrom, quarterWords, stateFilingOf } from '@/lib/payroll-taxes';
 import type { TaxForms } from '@/lib/withholding';
 import { saveStaffPay } from '@/lib/staff-pay-client';
 import { payOverlayReady } from '@/firebase/firestore/pay-overlay';
@@ -831,23 +832,31 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
           fica: r2(w.employee.socialSecurity + w.employee.medicare + w.employee.additionalMedicare), state: w.employee.state,
           other: w.employee.other.map((o) => ({ name: o.name, amount: o.amount })), pretax: r2(w.pretax.retirement + w.pretax.health),
           short: r2(w.short.socialSecurity + w.short.medicare + w.short.federal + w.short.state), stateHow: w.stateHow,
-          noW4: w.flags.includes('no_w4'), noStateForm: w.flags.includes('no_state_form'), exempt: w.flags.includes('exempt'),
+          noW4: w.flags.includes('no_w4'), noStateForm: w.flags.includes('no_state_form'), exempt: w.flags.includes('exempt'), countyMissing: w.flags.includes('county_missing'),
       };
       const due = dueDates(payDate, selectedTenant);
       const on = (d: string | null) => (d ? new Date(`${d}T12:00:00`).toLocaleDateString('en-US', { month: 'long', day: 'numeric' }) : '');
-      const o = selfTaxes.owed; const nc = taxState === 'NC';
+      const o = selfTaxes.owed; const spec = stateSpec(taxState);
+      const progOf = (id: string) => (spec?.programs || []).find((x) => x.id === id.replace(/_er$/, ''));
       const owed: SelfRun['owed'] = [];
       if (o.irs > 0) owed.push({ key: 'irs', name: 'IRS', sub: `Federal income tax, Social Security and Medicare. Due ${on(due.irs)}`, amount: o.irs });
-      if (o.state > 0) owed.push({ key: 'state', name: `${stateName} income tax`, sub: nc ? `Form NC-5. Due ${on(due.state)}` : `Due when ${stateName} says, for how often you file`, amount: o.state });
+      // (New York's: 5 business days after the payday that brings what's unpaid to $700, else with the quarter's NYS-45.)
+      const nyFreq = stateFilingOf(selectedTenant); const ny = nyFreq === 'ny5' || nyFreq === 'ny3';
+      if (o.state > 0) owed.push({ key: 'state', name: `${stateName} income tax`, amount: o.state,
+          sub: ny ? `Due ${nyFreq === 'ny3' ? 3 : 5} business days after the payday that brings what’s unpaid to $700, or with the NYS-45 by ${on(due.state)}` : due.state ? `${spec?.filing?.deposit ? `Form ${spec.filing.deposit}. ` : ''}Due ${on(due.state)}` : `Due when ${stateName} says, for how often you file` });
       if (o.sui > 0) owed.push({ key: 'sui', name: `${stateName} unemployment`, sub: `With the quarter’s wage report. Due ${on(due.sui)}`, amount: o.sui });
       if (o.futa > 0) owed.push({ key: 'futa', name: 'Federal unemployment', sub: `Paid by ${on(due.futa)} once it passes $500 for the year, or with Form 940 in January`, amount: o.futa });
-      for (const x of o.other) owed.push({ key: `other_${x.id}`, name: x.name, sub: 'Due when it’s filed', amount: x.amount });
+      // (A state program: with the quarter's wage report, with state withholding, or to an insurance company.)
+      for (const x of o.other) { const pg = progOf(x.id);
+        owed.push({ key: `other_${x.id}`, name: x.name, amount: x.amount, sub: pg?.paid === 'withholding' && due.state ? `Paid with ${stateName} income tax. Due ${on(due.state)}` : pg?.paid === 'quarterly' ? `With the quarter’s report. Due ${on(due.sui)}` : pg?.paid === 'carrier' ? 'Paid to your insurance company' : 'Due when it’s filed' }); }
       return {
           people, takeHome: selfTaxes.takeHome, employeeTaxes: selfTaxes.employeeTotal, employerTaxes: selfTaxes.employerTotal, pretax: selfTaxes.pretax,
-          owed, owedTotal: o.total, stateName: hasTaxLocation ? stateProfile.name : '', stateForm: nc ? 'NC-4' : null,
+          owed, owedTotal: o.total, stateName: hasTaxLocation ? stateProfile.name : '', stateForm: spec && !spec.noTax && spec.form?.name && !spec.form.federal ? spec.form.name : null, stateTax: !!spec && !spec.noTax,
           methods: methodsNow, onMethod: (id, method, checkNo) => setMethods((m) => ({ ...m, [id]: { method, checkNo } })),
           onForms: canEditForms ? (id) => setFormsFor(id) : undefined, payrollHref: '/settings?tab=payroll',
           stale: Object.values(selfTaxes.by).some((w) => w.flags.includes('stale_tables')),
+          suiMissing: Object.values(selfTaxes.by).some((w) => w.flags.includes('sui_rate_missing')),
+          teamSizeMissing: Object.values(selfTaxes.by).some((w) => w.flags.includes('team_size_missing')),
       };
   }, [selfTaxes, selectedTenant, payDate, taxState, stateName, hasTaxLocation, stateProfile, methodsNow, canEditForms]);
   // Payroll taxes owed and paid across paydays, and the quarter's forms (lib/payroll-owed).
@@ -871,9 +880,10 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
                   sub: `${i.paid!.bankTransactionId ? 'Paid' : 'Marked paid'} ${on(i.paid!.paidOn)}${i.paid!.bankTransactionId ? ', from your bank' : ''}${i.due && i.paid!.paidOn > i.due ? `, after it was due ${on(i.due)}` : ''}` })),
           onPaid: (key, amount, paidOn) => call('POST', { key, amount, paidOn }),
           onUnpaid: async (key) => { const e = await call('DELETE', { key }); if (e) toast({ variant: 'destructive', title: 'Not changed', description: e }); },
+          formsNames: (() => { const sp = stateSpec(taxState); const n = [...new Set(['Form 941', ...(sp && !sp.noTax && sp.filing ? [sp.filing.quarterly] : []), ...(sp ? [sp.sui.report] : [])])]; return n.length > 1 ? `${n.slice(0, -1).join(', ')} and ${n[n.length - 1]}` : n[0]; })(),
           onForms: () => setTaxFormsOpen(true), formsWords: `Forms for ${quarterWords((Number(todayBiz.slice(5, 7)) - 1) % 3 === 0 ? new Date(Date.parse(`${todayBiz.slice(0, 8)}01T12:00:00Z`) - 86400000).toISOString().slice(0, 10) : todayBiz)}`, today: todayBiz,
       };
-  }, [selfRunOn, owedList, todayBiz, tenantId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selfRunOn, owedList, todayBiz, tenantId, taxState]); // eslint-disable-line react-hooks/exhaustive-deps
   const saveForms = async (forms: TaxForms) => {
       if (!firestore || !tenantId || !formsFor) return 'Not saved. Try again.';
       try { await saveStaffPay(firestore as any, tenantId, formsFor, { taxForms: forms }); return null; }
@@ -1050,7 +1060,7 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
       />
       {formsPerson && <TaxFormsDialog open={!!formsFor} onOpenChange={(o) => { if (!o) setFormsFor(null); }} name={String(formsPerson.name || 'Team member')} forms={formsPerson.taxForms || null}
         state={taxState} stateName={stateName} onSave={saveForms} notReady={!!tenantId && !payOverlayReady(tenantId)} />}
-      {selfRunOn && selectedTenant && <PayrollFormsDialog open={taxFormsOpen} onOpenChange={setTaxFormsOpen} runs={yearRuns || []} tenant={selectedTenant} nc={taxState === 'NC'} today={todayBiz} businessName={String((selectedTenant as any)?.name || '')} />}
+      {selfRunOn && selectedTenant && <PayrollFormsDialog open={taxFormsOpen} onOpenChange={setTaxFormsOpen} runs={yearRuns || []} tenant={selectedTenant} state={taxState || null} today={todayBiz} businessName={String((selectedTenant as any)?.name || '')} />}
     </div>
   );
 };

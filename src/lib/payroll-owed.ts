@@ -12,7 +12,8 @@
 // settles it (`covers`), a cent or a dollar either way; a payday recorded later that adds to it leaves the rest to pay.
 // And the numbers for the quarter's forms, line by line: Form 941, NC-5 and
 // NCUI 101 (each person's wages, never a Social Security number: those go on the form itself).
-import { payDateOf, afterQuarter, quarterWords, setupOf, payrollStateOf } from './payroll-taxes';
+import { payDateOf, afterQuarter, quarterWords, setupOf, payrollStateOf, stateFilingOf, businessDaysAfter } from './payroll-taxes';
+import { stateSpec } from './state-payroll';
 
 export type Agency = 'irs' | 'state' | 'sui' | 'futa' | 'other';
 export type TaxPayment = { key: string; amount: number; paidOn: string; bankTransactionId?: string | null; recordedAt?: string;
@@ -57,23 +58,56 @@ export function owedItems(runs: any[], tenant: any, today: string, stateName = '
     g.amount = r2(g.amount + amount); if (!g.paydays.includes(payday)) g.paydays.push(payday); g.open = g.open || open; groups.set(key, g);
   };
   const futa = new Map<string, { amount: number; paydays: string[] }>();   // by quarter ("2026q4")
-  const setup = setupOf(tenant); const nc = payrollStateOf(tenant) === 'NC';
-  for (const run of taxedRuns(runs)) {
+  const setup = setupOf(tenant); const spec = stateSpec(payrollStateOf(tenant));
+  const progOf = (id: string) => (spec?.programs || []).find((x) => x.id === id.replace(/_er$/, ''));
+  // (New York's, held until what's unpaid reaches $700: worked out after, payday by payday in order.)
+  const nyQueue: { d: string; k: string; amount: number; tax: string; days: number }[] = [];
+  for (const run of [...taxedRuns(runs)].sort((a, b) => payDateOf(a, tenant).localeCompare(payDateOf(b, tenant)))) {
     const d = payDateOf(run, tenant); if (!d) continue; const o = run.taxes.owed || {}; const due = run.taxes.due || {}; const k = String(run.periodKey || d);
     // (How each was to be paid, kept with the payday; a payday kept before that, by the settings now.)
-    const sched = run.taxes.schedule || { irs: setup.federalDeposits === 'semiweekly' ? 'semiweekly' : 'monthly', state: nc ? (setup.stateFiling || 'monthly') : null };
+    const sched = run.taxes.schedule || { irs: setup.federalDeposits === 'semiweekly' ? 'semiweekly' : 'monthly', state: stateFilingOf(tenant) };
     const semi = sched.irs === 'semiweekly';
     put(`irs_${due.irs || d.slice(0, 7)}`, 'irs', semi ? `IRS, payday of ${dayWords(d)}` : `IRS, ${monthName(d)}’s paydays`, due.irs || null, Number(o.irs) || 0, k, !semi && today <= monthEnd(d));
-    if (Number(o.state) > 0) {
-      const st = sched.state;
-      if (st === 'quarterly') put(`state_${due.state}`, 'state', `${stateName} income tax, ${quarterWords(d)}`, due.state || null, Number(o.state), k, today <= quarterEnd(d));
-      else if (st === 'semiweekly') put(`state_${due.state}`, 'state', `${stateName} income tax, payday of ${dayWords(d)}`, due.state || null, Number(o.state), k, false);
-      else put(`state_${due.state || d.slice(0, 7)}`, 'state', `${stateName} income tax, ${monthName(d)}`, due.state || null, Number(o.state), k, today <= monthEnd(d));
+    // State income tax, by how often it's filed; a program the state collects with it (California's SDI, Rhode Island's
+    // TDI) is in the same payment, so it's in the same item.
+    const withWh = (o.other || []).filter((x: any) => progOf(String(x.id))?.paid === 'withholding');
+    const stAmount = r2((Number(o.state) || 0) + withWh.reduce((n: number, x: any) => n + (Number(x.amount) || 0), 0));
+    if (stAmount > 0) {
+      const st = sched.state; const tax = `${stateName} ${withWh.length ? `income tax and ${[...new Set(withWh.map((x: any) => progOf(String(x.id))!.short || 'disability insurance'))].join(' and ')}` : 'income tax'}`;
+      if (st === 'ny5' || st === 'ny3') nyQueue.push({ d, k, amount: stAmount, tax, days: st === 'ny3' ? 3 : 5 });
+      else if (st === 'quarterly') put(`state_${due.state}`, 'state', `${tax}, ${quarterWords(d)}`, due.state || null, stAmount, k, today <= quarterEnd(d));
+      else if (st === 'semiweekly') put(`state_${due.state}`, 'state', `${tax}, payday of ${dayWords(d)}`, due.state || null, stAmount, k, false);
+      else if (st === 'semimonthly') { const early = Number(d.slice(8, 10)) <= 15;
+        put(`state_${due.state || d.slice(0, 7)}`, 'state', `${tax}, ${monthName(d)} ${early ? '1 to 15' : `16 to ${Number(monthEnd(d).slice(8, 10))}`}`, due.state || null, stAmount, k, today <= (early ? `${d.slice(0, 8)}15` : monthEnd(d))); }
+      else if (st === 'annually') put(`state_${d.slice(0, 4)}`, 'state', `${tax}, ${d.slice(0, 4)}`, due.state || null, stAmount, k, today <= `${d.slice(0, 4)}-12-31`);
+      else put(`state_${due.state || d.slice(0, 7)}`, 'state', `${tax}, ${monthName(d)}`, due.state || null, stAmount, k, today <= monthEnd(d));
     }
-    put(`sui_${qKey(d)}`, 'sui', `${stateName} unemployment, ${quarterWords(d)}`, afterQuarter(d), Number(o.sui) || 0, k, today <= quarterEnd(d));
-    for (const x of o.other || []) put(`other_${String(x.id).replace(/[^A-Za-z0-9]/g, '')}_${qKey(d)}`, 'other', `${x.name}, ${quarterWords(d)}`, null, Number(x.amount) || 0, k, today <= quarterEnd(d));
+    // State unemployment for the quarter, with what's paid on the same report and payment (an employee's share, New
+    // Jersey's disability and family leave, Oregon's transit tax, Rhode Island's TDI).
+    const withUi = (o.other || []).filter((x: any) => progOf(String(x.id))?.paid === 'ui');
+    const uiNames = [...new Set(withUi.map((x: any) => progOf(String(x.id))!.short || progOf(String(x.id))!.name))];
+    put(`sui_${qKey(d)}`, 'sui', `${stateName} unemployment${uiNames.length ? ` and ${uiNames.join(' and ')}` : ''}, ${quarterWords(d)}`, afterQuarter(d),
+      r2((Number(o.sui) || 0) + withUi.reduce((n: number, x: any) => n + (Number(x.amount) || 0), 0)), k, today <= quarterEnd(d));
+    // (The state's other programs: a quarterly report of their own, those on one report together; or to an insurance
+    // company; the employee's part and the business's together. One the business added: when it's filed.)
+    for (const x of o.other || []) {
+      const pg = progOf(String(x.id)); if (pg?.paid === 'withholding' || pg?.paid === 'ui') continue;
+      const id = String(pg ? pg.group || pg.id : x.id).replace(/[^A-Za-z0-9]/g, '');
+      const together = pg?.group ? (spec?.programs || []).filter((q) => q.group === pg.group).map((q) => q.name) : null;
+      put(`other_${id}_${qKey(d)}`, 'other', `${together ? together.join(' and ') : pg ? pg.name : x.name}, ${quarterWords(d)}${pg?.paid === 'carrier' ? ', to your insurance company' : ''}`, pg?.paid === 'quarterly' ? afterQuarter(d) : null, Number(x.amount) || 0, k, today <= quarterEnd(d));
+    }
     if (Number(o.futa) > 0) { const f = futa.get(qKey(d)) || { amount: 0, paydays: [] }; f.amount = r2(f.amount + Number(o.futa)); f.paydays.push(k); futa.set(qKey(d), f); }
   }
+  // New York: what's unpaid builds up, payday by payday, within the quarter; the payday that brings it to $700 or more
+  // makes it all due 5 business days later (3, for a business that withheld $15,000 or more last year). What's left at
+  // the quarter's end is paid with the NYS-45.
+  const acc = new Map<string, { amount: number; parts: { k: string; amount: number }[] }>();
+  for (const x of nyQueue) {
+    const qk = qKey(x.d); const a = acc.get(qk) || { amount: 0, parts: [] }; a.amount = r2(a.amount + x.amount); a.parts.push({ k: x.k, amount: x.amount }); acc.set(qk, a);
+    if (a.amount >= 700) { const due = businessDaysAfter(x.d, x.days); for (const pt of a.parts) put(`state_${due}`, 'state', `${x.tax}, through the payday of ${dayWords(x.d)}`, due, pt.amount, pt.k, false); acc.delete(qk); }
+  }
+  for (const [qk, a] of acc) { const last = nyQueue.filter((x) => qKey(x.d) === qk).pop()!;
+    for (const pt of a.parts) put(`state_${qk}`, 'state', `${last.tax}, ${quarterWords(last.d)}, with the NYS-45`, afterQuarter(last.d), pt.amount, pt.k, today <= quarterEnd(last.d)); }
   // Federal unemployment: paid for a quarter once the year's unpaid total passes $500; otherwise it carries over to the
   // next, and the fourth quarter's is paid with Form 940. A quarter still going shows what's built up so far.
   for (const year of [...new Set([...futa.keys()].map((k) => k.slice(0, 4)))].sort()) {
@@ -160,28 +194,34 @@ export function form941(runs: any[], tenant: any, year: number, q: number, withP
 }
 
 /** North Carolina's NC-5 for the quarter: what was withheld each month, and paid. */
-export function formNC5(runs: any[], tenant: any, year: number, q: number) {
-  const paid = paymentsOf(runs); const items = owedItems(runs, tenant, '9999-12-31', 'North Carolina').filter((i) => i.agency === 'state');
-  const lines: FormLine[] = [0, 1, 2].map((i) => { const mm = String((q - 1) * 3 + i + 1).padStart(2, '0');
-    const v = r2(taxedRuns(runs).filter((r) => payDateOf(r, tenant).slice(0, 7) === `${year}-${mm}`).reduce((s, r) => s + (Number(r.taxes.owed?.state) || 0), 0));
-    return { line: MONTH[(q - 1) * 3 + i], label: 'North Carolina income tax withheld', amount: v }; });
+export function formStateWithholding(runs: any[], tenant: any, year: number, q: number) {
+  const spec = stateSpec(payrollStateOf(tenant)); const name = spec?.name || 'State'; const form = spec?.filing?.quarterly || 'the state’s return';
+  const paid = paymentsOf(runs); const items = owedItems(runs, tenant, '9999-12-31', name).filter((i) => i.agency === 'state');
+  // (What the state collects with its income tax, California's SDI, on lines of its own.)
+  const wh = (spec?.programs || []).filter((x) => x.paid === 'withholding');
+  const month = (i: number) => { const mm = String((q - 1) * 3 + i + 1).padStart(2, '0'); return taxedRuns(runs).filter((r) => payDateOf(r, tenant).slice(0, 7) === `${year}-${mm}`); };
+  const lines: FormLine[] = [0, 1, 2].map((i) => ({ line: MONTH[(q - 1) * 3 + i], label: `${name} income tax withheld`, amount: r2(month(i).reduce((s, r) => s + (Number(r.taxes.owed?.state) || 0), 0)) }));
+  const progLines: FormLine[] = wh.map((pg) => ({ line: pg.short || pg.name, label: `${pg.name} withheld`, amount: r2([0, 1, 2].flatMap(month).reduce((s, r) => s + (r.taxes.owed?.other || []).filter((x: any) => String(x.id).replace(/_er$/, '') === pg.id).reduce((n: number, x: any) => n + (Number(x.amount) || 0), 0), 0)) }));
   const total = r2(lines.reduce((s, l) => s + l.amount, 0));
   const keys = new Set(taxedRuns(runs).filter((r) => inQuarter(payDateOf(r, tenant), year, q)).map((r) => String(r.periodKey)));
   const paidQ = r2(items.filter((i) => i.paydays.some((k) => keys.has(k))).reduce((s, i) => s + (paid[i.key]?.amount || 0), 0));
-  return { lines: [...lines, { line: 'Quarter', label: 'Withheld in all', amount: total }, { line: 'Paid', label: 'Paid with NC-5', amount: paidQ }], total };
+  return { lines: [...lines, { line: 'Quarter', label: 'Withheld in all', amount: total }, ...progLines, { line: 'Paid', label: `Paid with ${form}`, amount: paidQ }], total, form, name };
 }
+/** North Carolina's NC-5 for the quarter (formStateWithholding, kept by its name). */
+export const formNC5 = formStateWithholding;
 
-/** North Carolina's quarterly wage report (NCUI 101): each person's wages this quarter, what's over the year's wage
- *  limit, what unemployment is on, and the contributions due. */
-export function formNCUI101(runs: any[], tenant: any, year: number, q: number) {
+/** The state's quarterly unemployment wage report (North Carolina's NCUI 101, California's DE 9C…): each person's wages
+ *  this quarter, what's over the year's wage limit, what unemployment is on, and the contributions due. */
+export function formStateWageReport(runs: any[], tenant: any, year: number, q: number) {
   const rows = peopleOf(runs, tenant, year, q); const by = new Map<string, { name: string; gross: number; taxable: number }>();
   for (const x of rows) { const cur = by.get(x.p.staffId) || { name: String(x.p.name || 'Team member'), gross: 0, taxable: 0 };
     cur.gross = r2(cur.gross + (Number(x.p.taxes.wages?.medicare) || 0)); cur.taxable = r2(cur.taxable + (Number(x.p.taxes.wages?.sui) || 0)); by.set(x.p.staffId, cur); }
   const people = [...by.values()].sort((a, b) => a.name.localeCompare(b.name)).map((p) => ({ ...p, excess: r2(p.gross - p.taxable) }));
   const due = r2(rows.reduce((s, x) => s + (Number(x.p.taxes.employer?.sui) || 0), 0));
   const t = (k: 'gross' | 'taxable' | 'excess') => r2(people.reduce((s, p) => s + p[k], 0));
-  return { people, totals: { gross: t('gross'), taxable: t('taxable'), excess: t('excess') }, due };
+  return { people, totals: { gross: t('gross'), taxable: t('taxable'), excess: t('excess') }, due, form: stateSpec(payrollStateOf(tenant))?.sui.report || 'wage report' };
 }
+export const formNCUI101 = formStateWageReport;
 
 // ── Reminders ──
 export type TaxReminder = { key: string; stage: 'soon' | 'today' | 'late'; title: string; body: string };

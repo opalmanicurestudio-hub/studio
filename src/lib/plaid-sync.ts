@@ -18,7 +18,8 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { findCategory } from './categories';
 import { drawerCashCents, lineCents, nearOk, notBankMoney, saleOf } from './bank-match';
 import { coverWithPayday } from './payroll-bank';
-import { runByOf, payDateOf, owedRunsFrom } from './payroll-taxes';
+import { runByOf, payDateOf, owedRunsFrom, payrollStateOf } from './payroll-taxes';
+import { stateSpec } from './state-payroll';
 import { todayIn } from './pay-periods';
 import { owedItems, type OwedItem } from './payroll-owed';
 
@@ -168,7 +169,7 @@ async function syncBody(db: any, tenantId: string): Promise<SyncResult> {
     const runs = all.filter((r: any) => r.kind === 'payday' && r.taxes?.owed);
     // (What's still to pay on each, all of it or the rest: a payment for exactly that, to whom it's owed, marks it paid.)
     owedOpen = owedItems(all, tenantDoc, '9999-12-31').filter((i) => i.left >= 0.01 && !i.carries);
-    for (const i of owedOpen) (['irs', 'futa'].includes(i.agency) ? irsOwed : i.agency === 'sui' ? suiOwed : stateOwed).add(Math.round(i.left * 100));
+    for (const i of owedOpen) (['irs', 'futa'].includes(i.agency) ? irsOwed : i.agency === 'sui' || i.agency === 'other' ? suiOwed : stateOwed).add(Math.round(i.left * 100));
     const sums = new Map<string, number>(); const add = (k: string, v: number) => sums.set(k, (sums.get(k) || 0) + v);
     for (const r of runs) {
       const d = payDateOf(r, tenantDoc); const q = `${d.slice(0, 4)}q${Math.floor((Number(d.slice(5, 7)) - 1) / 3)}`;
@@ -181,13 +182,18 @@ async function syncBody(db: any, tenantId: string): Promise<SyncResult> {
     }
     for (const [k, v] of sums) (/^(im|iq|fq|fy)/.test(k) ? irsOwed : /^u/.test(k) ? suiOwed : stateOwed).add(v);
   }
+  // Who a state payment is to, by the names the state's payments show under (lib/state-payroll), or any state's.
+  const stSpec = stateSpec(payrollStateOf(tenantDoc)); const rx = (src: string | undefined) => { try { return src && src !== '^$' ? new RegExp(src) : null; } catch { return null; } };
+  const REV = new RegExp([rx(stSpec?.bank.revenue)?.source, 'DEPT? OF REVENUE|DEPARTMENT OF REVENUE|DEPT? OF TAX(ATION)?|DIV(ISION)? OF TAXATION|TAX COMMISSION|COMPTROLLER'].filter(Boolean).join('|'));
+  const UI = new RegExp([rx(stSpec?.bank.ui)?.source, 'EMPLOYMENT SECURITY|UNEMPLOYMENT|WORKFORCE|DEPT? OF LABOR'].filter(Boolean).join('|'));
   // 'paid': the amount is what recent paydays owe; 'maybe': a payment to the IRS that matches nothing (the owner's own
   // estimated tax, a penalty): suggested all the same, and asked.
   const taxDeposit = (name: string, cents: number): 'paid' | 'maybe' | null => {
     if (!selfRun) return null; const n = name.toUpperCase(); const near = (set: Set<number>) => [...set].some((v) => Math.abs(v - cents) <= 100);
     if (/\bIRS\b|USATAXPYMT|EFTPS|TREAS(URY)? TAX/.test(n)) return near(irsOwed) ? 'paid' : 'maybe';
-    if (/DEPT? OF REVENUE|DEPARTMENT OF REVENUE|NCDOR/.test(n)) return near(stateOwed) ? 'paid' : null;
-    return /EMPLOYMENT SECURITY|NCDES|UNEMPLOYMENT/.test(n) && near(suiOwed) ? 'paid' : null;
+    // (A payee that's both, California's EDD, or a state whose unemployment goes to its revenue department: either.)
+    const rv = REV.test(n), ui = UI.test(n) || (rv && !!stSpec?.sui.paidTo);
+    return (rv && near(stateOwed)) || (ui && near(suiOwed)) ? 'paid' : null;
   };
 
   const added: any[] = []; const removed: string[] = []; const needsLogin: string[] = []; const cursors: { ref: any; cursor: any }[] = [];
@@ -463,7 +469,8 @@ async function syncBody(db: any, tenantId: string): Promise<SyncResult> {
     let taxPayKey: string | null = null;
     if (deposit === 'paid') {
       const payee = `${bt.merchant_name || ''} ${bt.name || ''}`.toUpperCase();
-      const to = /\bIRS\b|USATAXPYMT|EFTPS|TREAS(URY)? TAX/.test(payee) ? ['irs', 'futa'] : /REVENUE|NCDOR/.test(payee) ? ['state'] : /EMPLOYMENT SECURITY|NCDES|UNEMPLOYMENT/.test(payee) ? ['sui'] : ['state', 'sui'];
+      const rv = REV.test(payee), ui = UI.test(payee) || (rv && !!stSpec?.sui.paidTo);
+      const to = /\bIRS\b|USATAXPYMT|EFTPS|TREAS(URY)? TAX/.test(payee) ? ['irs', 'futa'] : [...(rv ? ['state'] : []), ...(ui || !rv ? ['sui', 'other'] : [])];
       const fits = owedOpen.filter((i) => to.includes(i.agency) && Math.abs(Math.round(i.left * 100) - cents) <= 100);
       if (fits.length === 1) {
         const it = fits[0]; owedOpen = owedOpen.filter((x) => x !== it); taxPayKey = it.key;

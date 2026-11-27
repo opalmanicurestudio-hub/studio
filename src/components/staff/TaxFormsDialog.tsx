@@ -1,13 +1,15 @@
 'use client';
 // src/components/staff/TaxFormsDialog.tsx — A PERSON'S TAX FORMS, when payroll is run in ClarityFlow (design board
-// "Payroll run in ClarityFlow", tax forms): what they wrote on their W-4 and their state's form (North Carolina's NC-4;
-// another state's percentage), anything taken out before taxes, and how they're paid. Saved with their pay
+// "Payroll run in ClarityFlow", tax forms): what they wrote on their W-4 and their state's own form (California's DE 4,
+// New York's IT-2104…, each with its own fields: lib/state-payroll), anything taken out before taxes, and how they're
+// paid. Saved with their pay
 // (staffPay.taxForms: managers only, lib/staff-pay), and read by Payday and the server to work out each paycheck's taxes
 // (lib/withholding). Opened from Payday ("Add W-4") and from the person's page.
 // Never asks for a Social Security number: the business adds those when it files.
 import * as React from 'react';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { cleanTaxForms, NO_WAGE_TAX, BUILT_IN_STATES, type TaxForms, type PayMethod } from '@/lib/withholding';
+import { stateSpec, fieldLabel } from '@/lib/state-payroll';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
 const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
@@ -19,6 +21,7 @@ const fieldStyle = { border: `1px solid ${LINE}`, color: INK };
 type Draft = {
   form: '2020' | 'pre2020'; status: string; multipleJobs: boolean; dependents: string; otherIncome: string; deductions: string; extra: string; exempt: boolean; allowances: string;
   sStatus: string; sAllowances: string; sExtra: string; sExempt: boolean; sPct: string;
+  sAdditional: string; sRate: string; sCode: string; sLocal: string; sAmount: string; sFlag: boolean; sReduce: string;
   retirement: string; health: string; payMethod: PayMethod;
 };
 const str = (n: any) => (Number(n) > 0 ? String(n) : '');
@@ -26,7 +29,9 @@ const draftOf = (t: TaxForms | null | undefined): Draft => ({
   form: t?.federal?.form === 'pre2020' ? 'pre2020' : '2020', status: t?.federal?.status || 'single', multipleJobs: !!t?.federal?.multipleJobs,
   dependents: str(t?.federal?.dependents), otherIncome: str(t?.federal?.otherIncome), deductions: str(t?.federal?.deductions), extra: str(t?.federal?.extra),
   exempt: !!t?.federal?.exempt, allowances: t?.federal?.allowances != null ? String(t.federal.allowances) : '',
-  sStatus: t?.state?.status || 'single', sAllowances: t?.state?.allowances != null ? String(t.state.allowances) : '', sExtra: str(t?.state?.extra), sExempt: !!t?.state?.exempt, sPct: str(t?.state?.pct),
+  sStatus: t?.state?.status || '', sAllowances: t?.state?.allowances != null ? String(t.state.allowances) : '', sExtra: str(t?.state?.extra), sExempt: !!t?.state?.exempt, sPct: str(t?.state?.pct),
+  sAdditional: str(t?.state?.additional), sRate: t?.state?.rate ? String(t.state.rate) : '', sCode: t?.state?.code || '', sLocal: t?.state?.local || '', sAmount: str(t?.state?.amount),
+  sFlag: !!t?.state?.flag, sReduce: str(t?.state?.reduce),
   retirement: str(t?.pretax?.retirement), health: str(t?.pretax?.health), payMethod: t?.payMethod || 'transfer',
 });
 
@@ -69,13 +74,19 @@ export function TaxFormsDialog(p: {
   const set = (k: keyof Draft) => (v: any) => setD((x) => ({ ...x, [k]: v }));
   const first = (p.name || 'They').split(' ')[0];
   const code = String(p.state || '').toUpperCase(); const noTax = NO_WAGE_TAX.includes(code); const builtIn = BUILT_IN_STATES.includes(code);
+  const spec = stateSpec(code); const sf = spec?.form; const has = (k: Parameters<typeof fieldLabel>[1]) => !!sf?.fields.includes(k);
+  // (On file only when it's this state's form: lib/withholding.)
+  const fs = p.forms?.state; const stOn = !!fs && (fs.state ? fs.state === code : code === 'NC' && !(Number(fs.pct) > 0));
   const save = async () => {
     setBusy(true); setError(null);
     try {
       const forms = cleanTaxForms({
         federal: d.form === 'pre2020' ? { form: 'pre2020', status: d.status === 'hoh' ? 'single' : d.status, allowances: d.allowances, extra: d.extra, exempt: d.exempt }
           : { form: '2020', status: d.status, multipleJobs: d.multipleJobs, dependents: d.dependents, otherIncome: d.otherIncome, deductions: d.deductions, extra: d.extra, exempt: d.exempt },
-        ...(code && !noTax ? { state: builtIn ? { status: d.sStatus, allowances: d.sAllowances, extra: d.sExtra, exempt: d.sExempt } : { pct: d.sPct, extra: d.sExtra } } : {}),
+        ...(code && !noTax ? { state: builtIn ? { state: code, ...(has('status') ? { status: d.sStatus || sf?.statuses?.[0]?.v } : {}), allowances: d.sAllowances, extra: d.sExtra, exempt: has('exempt') && d.sExempt,
+          ...(has('additional') ? { additional: d.sAdditional } : {}), ...(has('rate') && d.sRate ? { rate: Number(d.sRate) } : {}), ...(has('code') && d.sCode ? { code: d.sCode } : {}),
+          ...(has('local') && d.sLocal ? { local: d.sLocal } : {}), ...(has('amount') ? { amount: d.sAmount } : {}), ...(has('flag') ? { flag: d.sFlag } : {}), ...(has('reduce') ? { reduce: d.sReduce } : {}) }
+          : { pct: d.sPct, extra: d.sExtra } } : {}),
         pretax: { retirement: d.retirement, health: d.health }, payMethod: d.payMethod,
       });
       const r = await p.onSave({ ...forms, updatedAt: new Date().toISOString() });
@@ -123,14 +134,23 @@ export function TaxFormsDialog(p: {
             </Section>
 
             {code && noTax && <Section title={`${p.stateName} taxes`} note={`${p.stateName} has no income tax on wages, so there’s no state form to fill in.`} />}
-            {code && builtIn && <Section title={`${p.stateName} taxes, from their NC-4`} note={!p.forms?.state ? 'No NC-4 on file yet. Until one is saved here, they’re taxed as single with no allowances.' : undefined}>
-              {sel('tf-sstatus', 'Filing status', d.sStatus, set('sStatus'), [['single', 'Single or married filing separately'], ['hoh', 'Head of household'], ['married', 'Married filing jointly or surviving spouse']])}
+            {code && builtIn && sf && <Section title={sf.federal || !sf.name ? `${p.stateName} income tax` : `${p.stateName} taxes, from their ${sf.name}`}
+              note={sf.federal ? `${p.stateName} works it out from the federal W-4 above${has('amount') ? `, or their ${sf.name} when they have one` : ''}.` : !sf.name ? `${p.stateName} takes ${sf.none} from everyone: there’s no form to fill in.` : !stOn ? `No ${sf.name} on file yet. Until one is saved here: ${sf.none.charAt(0).toLowerCase()}${sf.none.slice(1)}.` : undefined}>
+              {has('status') && sf.statuses && sel('tf-sstatus', fieldLabel(spec!, 'status'), d.sStatus || sf.statuses[0].v, set('sStatus'), sf.statuses.map((x) => [x.v, x.label] as [string, string]))}
+              {has('code') && sf.codes && sel('tf-scode', fieldLabel(spec!, 'code'), d.sCode, set('sCode'), [...(sf.codes.some((x) => x.v === '') ? [] : [['', `None on file (${sf.none.charAt(0).toLowerCase()}${sf.none.slice(1)})`] as [string, string]]), ...sf.codes.map((x) => [x.v, x.label] as [string, string])])}
+              {has('rate') && sf.rates && sel('tf-srate', fieldLabel(spec!, 'rate'), d.sRate, set('sRate'), [['', `None on file (${sf.none})`], ...sf.rates.map((r) => [String(r), `${r}%`] as [string, string])])}
+              {has('local') && sf.locals && sel('tf-slocal', fieldLabel(spec!, 'local'), d.sLocal, set('sLocal'), [...(sf.locals.some((x) => x.v === '') ? [] : [['', 'Pick one'] as [string, string]]), ...sf.locals.map((x) => [x.v, x.label] as [string, string])])}
               <div className="grid gap-3 sm:grid-cols-2">
-                <label htmlFor="tf-sallow" className="flex flex-col gap-1 text-[14px]" style={{ color: MUTED }}>Allowances
-                  <input id="tf-sallow" type="number" inputMode="numeric" min={0} step={1} placeholder="0" value={d.sAllowances} onChange={(e) => set('sAllowances')(e.target.value)} className={field} style={fieldStyle} /></label>
-                <Money id="tf-sext" label="Extra each paycheck" value={d.sExtra} onChange={set('sExtra')} />
+                {has('allowances') && <label htmlFor="tf-sallow" className="flex flex-col gap-1 text-[14px]" style={{ color: MUTED }}>{fieldLabel(spec!, 'allowances')}
+                  <input id="tf-sallow" type="number" inputMode="numeric" min={0} step={1} placeholder="0" value={d.sAllowances} onChange={(e) => set('sAllowances')(e.target.value)} className={field} style={fieldStyle} /></label>}
+                {has('additional') && <label htmlFor="tf-sadd" className="flex flex-col gap-1 text-[14px]" style={{ color: MUTED }}>{fieldLabel(spec!, 'additional')}
+                  <input id="tf-sadd" type="number" inputMode="numeric" min={0} step={1} placeholder="0" value={d.sAdditional} onChange={(e) => set('sAdditional')(e.target.value)} className={field} style={fieldStyle} /></label>}
+                {has('amount') && <Money id="tf-samt" label={fieldLabel(spec!, 'amount')} value={d.sAmount} onChange={set('sAmount')} />}
+                {has('reduce') && <Money id="tf-sred" label={fieldLabel(spec!, 'reduce')} value={d.sReduce} onChange={set('sReduce')} />}
+                {has('extra') && <Money id="tf-sext" label="Extra each paycheck" value={d.sExtra} onChange={set('sExtra')} />}
               </div>
-              <Check label="They claimed exempt on their NC-4" checked={d.sExempt} onChange={set('sExempt')} />
+              {has('flag') && <Check label={fieldLabel(spec!, 'flag')} checked={d.sFlag} onChange={set('sFlag')} />}
+              {has('exempt') && sf.name && <Check label={`They claimed exempt on their ${sf.federal ? 'W-4' : sf.name}`} checked={d.sExempt} onChange={set('sExempt')} />}
             </Section>}
             {code && !noTax && !builtIn && <Section title={`${p.stateName} income tax`} note={`${p.stateName}’s own withholding isn’t worked out here yet. Put in the percentage from ${p.stateName}’s withholding tables for ${first}, or leave it empty to use the business’s rate in Settings, Payroll.`}>
               <div className="grid gap-3 sm:grid-cols-2">

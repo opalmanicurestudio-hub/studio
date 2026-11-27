@@ -11,6 +11,7 @@ import { moduleEnabled, MODULES, SETTINGS_TAB_MODULE } from '@/lib/modules';
 import { Section, Row, Toggle, Choice, More, cfInput, cfInputStyle, toPicker, fromPicker } from '@/components/settings/settings-ui';
 import { runByOf, payrollStateOf } from '@/lib/payroll-taxes';
 import { NO_WAGE_TAX, BUILT_IN_STATES, suiOf, TABLES_YEAR } from '@/lib/withholding';
+import { stateSpec } from '@/lib/state-payroll';
 import { getStateProfile, STATE_OPTIONS } from '@/lib/state-tax-profiles';
 import { GuestWifiRows } from '@/components/settings/GuestWifiRows';
 import { stripPrivate } from '@/lib/tenant-private-fields';
@@ -989,7 +990,11 @@ function SettingsPageImpl() {
             <TabsContent value="payroll" className="mt-0 space-y-10 text-left">
               {(() => { const pt: any = (tenantData as any).payrollTax || {}; const set = (patch: any) => setTenantData((prev: any) => ({ ...prev, payrollTax: { ...((prev as any).payrollTax || {}), ...patch } }));
                 const runBy = runByOf(tenantData); const st = payrollStateOf(tenantData); const stName = st ? getStateProfile(st).name : '';
-                const noTax = !!st && NO_WAGE_TAX.includes(st); const builtIn = !!st && BUILT_IN_STATES.includes(st); const sui = suiOf(st, null, TABLES_YEAR);
+                const noTax = !!st && NO_WAGE_TAX.includes(st); const builtIn = !!st && BUILT_IN_STATES.includes(st); const sui = suiOf(st, null, TABLES_YEAR); const spec = stateSpec(st);
+                const FREQ: Record<string, string> = { monthly: 'Each month', quarterly: 'Each quarter', semiweekly: 'Twice a week', semimonthly: 'Twice a month', annually: 'Once a year', weekly: 'Each week',
+                  ny5: 'Within 5 business days once $700 builds up', ny3: 'Within 3 business days once $700 builds up ($15,000 or more withheld last year)' };
+                const progs = spec?.programs || []; const pgs: Record<string, any> = pt.programs && typeof pt.programs === 'object' ? pt.programs : {};
+                const setPg = (id: string, patch: any) => set({ programs: { ...pgs, [id]: { ...(pgs[id] || {}), ...patch } } });
                 const num = (v: string, lo: number, hi: number) => (v === '' ? null : Math.max(lo, Math.min(hi, Number(v) || 0)));
                 const other: any[] = Array.isArray(pt.other) ? pt.other : []; const setOther = (list: any[]) => set({ other: list });
                 const ipt = { ...cfInputStyle, maxWidth: 140 } as any;
@@ -1006,7 +1011,7 @@ function SettingsPageImpl() {
                 </Section>
                 {runBy === 'clarityflow' && (<>
                 <Section title="Payroll taxes">
-                  <Row label="Your state" help={st ? (noTax ? `${stName} has no income tax on wages.` : builtIn ? `${stName}’s withholding is worked out from its own tables (NC-30).` : `${stName}’s own withholding isn’t worked out here yet: set a percentage below.`) : 'Where your team works. State income tax and unemployment follow it.'} inline>
+                  <Row label="Your state" help={st ? (noTax ? `${stName} has no income tax on wages.` : builtIn ? `${stName}’s withholding is worked out from its own ${TABLES_YEAR} tables${spec?.form?.federal ? ', from each person’s W-4' : spec?.form?.name ? `, from each person’s ${spec.form.name}` : ''}.` : `${stName}’s own withholding isn’t worked out here yet: set a percentage below.`) : 'Where your team works. State income tax and unemployment follow it.'} inline>
                     <select value={st || ''} onChange={(e) => setTenantData((prev: any) => ({ ...prev, taxState: e.target.value || null }))} aria-label="Your state" className={cfInput} style={{ ...cfInputStyle, maxWidth: 240 } as any}>
                       <option value="">Pick your state</option>{STATE_OPTIONS.map((x) => <option key={x.code} value={x.code}>{x.name}</option>)}
                     </select>
@@ -1014,21 +1019,37 @@ function SettingsPageImpl() {
                   <Row label="How often you pay the IRS" help="The IRS tells you which in its letter each fall: each month unless your payroll taxes came to more than $50,000 in a year.">
                     <Choice label="How often you pay the IRS" value={pt.federalDeposits === 'semiweekly' ? 'semiweekly' : 'monthly'} options={[{ value: 'monthly', label: 'Each month' }, { value: 'semiweekly', label: 'Twice a week' }]} onChange={(v) => set({ federalDeposits: v })} />
                   </Row>
-                  {builtIn && <Row label={`How often you file ${stName} withholding`} help="By what you withhold a month on average: each quarter under $250, each month from $250, twice a week from $2,000. North Carolina tells you which when you register.">
-                    <Choice label={`How often you file ${stName} withholding`} value={pt.stateFiling === 'quarterly' || pt.stateFiling === 'semiweekly' ? pt.stateFiling : 'monthly'} options={[{ value: 'quarterly', label: 'Each quarter' }, { value: 'monthly', label: 'Each month' }, { value: 'semiweekly', label: 'Twice a week' }]} onChange={(v) => set({ stateFiling: v })} />
+                  {builtIn && spec?.filing && <Row label={`How often you pay ${stName} withholding`} help={`${spec.filing.agency} tells you which when you register, by how much you withhold. ${spec.filing.deposit === spec.filing.quarterly ? `Form ${spec.filing.deposit}` : `Payments on ${spec.filing.deposit}, the quarter on ${spec.filing.quarterly}`}${spec.filing.annual ? `, and ${spec.filing.annual} for the year` : ''}.`}>
+                    <Choice label={`How often you pay ${stName} withholding`} value={spec.filing.frequencies.includes(pt.stateFiling) ? pt.stateFiling : spec.filing.frequencies[0]} options={spec.filing.frequencies.map((f) => ({ value: f, label: FREQ[f] }))} onChange={(v) => set({ stateFiling: v })} />
+                  </Row>}
+                  {builtIn && spec?.filing && (spec.filing.frequencies.includes(pt.stateFiling) ? pt.stateFiling : spec.filing.frequencies[0]) === 'monthly' && <Row label="Due each month by" help={`The day of the next month. ${stName}’s is usually the ${spec.filing.monthlyDue === 'last' ? 'last day' : `${spec.filing.monthlyDue}th`}: change it if your letter says another.`} inline>
+                    <span className="inline-flex items-center gap-2 text-[15px]"><span className="cf-muted">day</span><input type="number" min={1} max={31} step={1} inputMode="numeric" value={pt.stateDueDay ?? ''} placeholder={spec.filing.monthlyDue === 'last' ? 'last' : String(spec.filing.monthlyDue)} onChange={(e) => set({ stateDueDay: num(e.target.value, 1, 31) })} aria-label="Day of the month it’s due" className={cfInput} style={ipt} /></span>
                   </Row>}
                   {st && !noTax && !builtIn && <Row label={`${stName} income tax`} help={`A percentage of wages, from ${stName}’s withholding tables. A person’s own percentage, on their tax forms, is used instead when they have one.`} inline>
                     <span className="inline-flex items-center gap-2 text-[15px]"><input type="number" min={0} max={20} step={0.01} inputMode="decimal" value={pt.statePct ?? ''} placeholder="0" onChange={(e) => set({ statePct: num(e.target.value, 0, 20) })} aria-label={`${stName} income tax percent`} className={cfInput} style={ipt} /><span className="cf-muted">%</span></span>
                   </Row>}
-                  <Row label="Your state unemployment rate" help={`From the notice your state sends each year.${st === 'NC' ? ' North Carolina’s rate for a new business is 1%.' : ''}`} inline>
+                  <Row label="Your state unemployment rate" help={`From the notice ${spec?.sui.agency || 'your state'} sends each year${spec?.sui.note ? `, ${spec.sui.note}` : ''}.${spec ? (spec.sui.newRate != null ? ` ${stName}’s rate for a new business is ${spec.sui.newRate}%.` : ` ${stName}’s rate for a new business depends on your industry: put yours in, or none is worked out.`) : ''}`} inline>
                     <span className="inline-flex items-center gap-2 text-[15px]"><input type="number" min={0} max={20} step={0.01} inputMode="decimal" value={pt.suiRate ?? ''} placeholder={sui.rate ? String(sui.rate) : '0'} onChange={(e) => set({ suiRate: num(e.target.value, 0, 20) })} aria-label="State unemployment rate" className={cfInput} style={ipt} /><span className="cf-muted">%</span></span>
                   </Row>
-                  <Row label="Wage limit per person" help={`Each person’s wages a year that state unemployment is on.${sui.base && st === 'NC' ? ` North Carolina’s is $${sui.base.toLocaleString('en-US')} for ${TABLES_YEAR}.` : ''}`} inline>
+                  <Row label="Wage limit per person" help={`Each person’s wages a year that state unemployment is on.${sui.base && spec ? ` ${stName}’s is $${sui.base.toLocaleString('en-US')} for ${TABLES_YEAR}.` : ''}`} inline>
                     <span className="inline-flex items-center gap-2 text-[15px]">$<input type="number" min={0} step={100} inputMode="decimal" value={pt.suiWageBase ?? ''} placeholder={sui.base ? String(sui.base) : '0'} onChange={(e) => set({ suiWageBase: num(e.target.value, 0, 1000000) })} aria-label="State unemployment wage limit" className={cfInput} style={ipt} /></span>
                   </Row>
                 </Section>
+                {progs.length > 0 && <Section title={`${stName}’s paid leave and disability programs`}>
+                  {progs.some((pg) => pg.tiers?.length) && <Row label="Employees on payroll" help={`Some of ${stName}’s programs depend on it. Left empty, each payday’s count is used.`} inline>
+                    <input type="number" min={1} max={100000} step={1} inputMode="numeric" value={pt.teamSize ?? ''} placeholder="by payday" onChange={(e) => set({ teamSize: num(e.target.value, 1, 100000) })} aria-label="Employees on payroll" className={cfInput} style={ipt} />
+                  </Row>}
+                  {progs.map((pg) => { const ov = pgs[pg.id] || {}; const isOff = typeof ov.off === 'boolean' ? ov.off : !!pg.defaultOff; return (
+                    <Row key={pg.id} label={pg.name} help={`${pg.employee ? `Up to ${pg.employee}% from pay` : ''}${pg.employee && pg.employer ? ', and ' : ''}${pg.employer ? `${pg.employer}% from you` : ''}${pg.base ? `, on the first $${pg.base.toLocaleString('en-US')} a year` : ''}.${pg.note ? ` ${pg.note}` : ''} ${pg.paid === 'carrier' ? 'Paid to your insurance company.' : pg.paid === 'withholding' ? `Paid with ${stName} income tax.` : 'Paid with the quarter’s report.'}`}>
+                      <div className="flex flex-wrap items-center gap-2 text-[15px]">
+                        <Choice label={pg.name} value={isOff ? 'off' : 'on'} options={[{ value: 'on', label: 'Taken out' }, { value: 'off', label: 'Not for us' }]} onChange={(v) => setPg(pg.id, { off: v === 'off' })} />
+                        {!isOff && pg.employee != null && <span className="inline-flex items-center gap-2"><span className="cf-muted">from pay</span><input type="number" min={0} max={10} step={0.001} inputMode="decimal" value={ov.employee ?? ''} placeholder={String(pg.employee)} onChange={(e) => setPg(pg.id, { employee: num(e.target.value, 0, 10) })} aria-label={`${pg.name}, from pay, percent`} className={cfInput} style={{ ...cfInputStyle, maxWidth: 100 } as any} /><span className="cf-muted">%</span></span>}
+                        {!isOff && <span className="inline-flex items-center gap-2"><span className="cf-muted">from you</span><input type="number" min={0} max={10} step={0.001} inputMode="decimal" value={ov.employer ?? ''} placeholder={String(pg.employer ?? 0)} onChange={(e) => setPg(pg.id, { employer: num(e.target.value, 0, 10) })} aria-label={`${pg.name}, from you, percent`} className={cfInput} style={{ ...cfInputStyle, maxWidth: 100 } as any} /><span className="cf-muted">%</span></span>}
+                      </div>
+                    </Row>); })}
+                </Section>}
                 <Section title="Other payroll taxes">
-                  <Row label="A city or county tax, or a state paid-leave program" help="Each one at a rate of wages, paid by the employee (taken out of their pay) or by you, up to a wage limit if it has one.">
+                  <Row label="A city or county tax" help={`${spec?.localNote ? `${spec.localNote} ` : ''}Each one at a rate of wages, paid by the employee (taken out of their pay) or by you, up to a wage limit if it has one.`}>
                     <div className="space-y-2 text-[15px]">
                       {!other.length && <p className="cf-muted text-[14px]">None yet.</p>}
                       {other.map((o: any, i: number) => { const put = (patch: any) => setOther(other.map((x: any, j: number) => (j === i ? { ...x, ...patch } : x))); return (

@@ -2,6 +2,7 @@
 // been taxed on so far this year, and when each payday's taxes are due. lib/withholding works out the taxes on one
 // paycheck; this puts a payday's together, for the Payday screen and the server alike.
 import { periodOf, periodSettings, todayIn } from './pay-periods';
+import { stateSpec, type Freq } from './state-payroll';
 import { withholdingFor, owedOf, EMPTY_YTD, type PayrollTaxSetup, type TaxForms, type Withholding, type YearToDate, type Owed } from './withholding';
 
 export type RunBy = 'clarityflow' | 'gusto' | 'company';
@@ -51,13 +52,14 @@ export function ytdFrom(runs: any[], tenant: any, year: number, skipPeriod?: str
     if (payDateOf(run, tenant).slice(0, 4) !== String(year)) continue;
     for (const p of run.people || []) {
       if (!p?.staffId || p.contractor) continue;
-      const y = by[p.staffId] || (by[p.staffId] = { ...EMPTY_YTD, other: {} });
+      const y = by[p.staffId] || (by[p.staffId] = { ...EMPTY_YTD, other: {}, taken: {} });
       const w = p.taxes?.wages; const gross = r2((Number(p.paid) || 0) + (Number(p.cashTips) || 0));
       y.ssWages = r2(y.ssWages + (w ? Number(w.socialSecurity) || 0 : gross));
       y.medicareWages = r2(y.medicareWages + (w ? Number(w.medicare) || 0 : gross));
       y.futaWages = r2(y.futaWages + (w ? Number(w.futa) || 0 : gross));
       y.suiWages = r2(y.suiWages + (w ? Number(w.sui) || 0 : gross));
       for (const o of [...(p.taxes?.employee?.other || []), ...(p.taxes?.employer?.other || [])]) if (o?.id) y.other![o.id] = r2((y.other![o.id] || 0) + (Number(o.wages) || gross));
+      for (const o of p.taxes?.employee?.other || []) if (o?.id) y.taken![o.id] = r2((y.taken![o.id] || 0) + (Number(o.amount) || 0));
     }
   }
   return by;
@@ -72,7 +74,8 @@ export function paydayTaxes(input: { tenant: any; payDate: string; people: Payda
   const by: Record<string, Withholding> = {};
   for (const p of input.people) {
     if (p.contractor || !(p.gross > 0)) continue;
-    by[p.staffId] = withholdingFor({ year, periods, gross: p.gross, inHand: p.inHand, forms: input.forms[p.staffId] || null, state, setup, ytd: input.ytd[p.staffId] || null });
+    by[p.staffId] = withholdingFor({ year, periods, gross: p.gross, inHand: p.inHand, forms: input.forms[p.staffId] || null, state, setup, ytd: input.ytd[p.staffId] || null,
+      teamSize: input.people.filter((x) => !x.contractor && x.gross > 0).length });
   }
   const list = Object.values(by); const sum = (f: (w: Withholding) => number) => r2(list.reduce((n, w) => n + f(w), 0));
   return { by, owed: owedOf(list), employeeTotal: sum((w) => w.employeeTotal), employerTotal: sum((w) => w.employerTotal), takeHome: sum((w) => w.takeHome), pretax: sum((w) => w.pretax.retirement + w.pretax.health) };
@@ -96,6 +99,8 @@ export function federalHolidays(y: number): string[] {
 const businessDay = (d: string) => dow(d) !== 0 && dow(d) !== 6 && !federalHolidays(Number(d.slice(0, 4))).includes(d);
 /** A due date on a weekend or holiday moves to the next business day. */
 export const nextBusinessDay = (d: string) => { let x = d; for (let i = 0; i < 10 && !businessDay(x); i++) x = addDays(x, 1); return x; };
+/** The day `n` business days after `d`. */
+export const businessDaysAfter = (d: string, n: number) => { let x = d; for (let k = 0; k < n; ) { x = addDays(x, 1); if (businessDay(x)) k++; } return x; };
 const fifteenthAfter = (d: string) => { const y = Number(d.slice(0, 4)), m = Number(d.slice(5, 7)); return nextBusinessDay(iso(Date.UTC(y, m, 15, 12))); };
 /** Twice-a-week deposits: the Wednesday after a Wednesday to Friday payday, the Friday after a Saturday to Tuesday one,
  *  with at least three business days in between. */
@@ -108,15 +113,45 @@ export const afterQuarter = (d: string) => { const { y, q } = quarterEnd(d); con
 export const quarterWords = (d: string) => ['January to March', 'April to June', 'July to September', 'October to December'][quarterEnd(d).q];
 
 export type DueDates = { irs: string; state: string | null; sui: string; futa: string };
+/** How often the business files state withholding: what it picked (its state's letter says), if the state has that,
+ *  else the state's usual. Null for a state with no income tax on wages. */
+export function stateFilingOf(tenant: any): Freq | null {
+  const spec = stateSpec(payrollStateOf(tenant)); if (!spec?.filing || spec.noTax) return null;
+  const f = setupOf(tenant).stateFiling as Freq | undefined; return f && spec.filing.frequencies.includes(f) ? f : spec.filing.frequencies[0];
+}
+/** The day of the month the state's monthly withholding is due: the business's own (its letter), else the state's. */
+export const stateDueDayOf = (tenant: any): number | 'last' => { const d = Number(setupOf(tenant).stateDueDay); return d >= 1 && d <= 31 ? Math.floor(d) : stateSpec(payrollStateOf(tenant))?.filing?.monthlyDue ?? 15; };
+/** Twice a month, by the state's rule: the 25th for the 1st to the 15th and the 10th of the next month for the rest (mid);
+ *  3 banking days after the 15th and after the month's end (plus3); the 20th and the 5th of the next month (id). */
+const semimonthlyDue = (d: string, rule: 'mid' | 'plus3' | 'id') => {
+  const y = Number(d.slice(0, 4)), m = Number(d.slice(5, 7)); const early = Number(d.slice(8, 10)) <= 15;
+  if (rule === 'plus3') return businessDaysAfter(early ? iso(Date.UTC(y, m - 1, 15, 12)) : lastOfMonth(y, m - 1), 3);
+  if (rule === 'id') return early ? nextBusinessDay(iso(Date.UTC(y, m - 1, 20, 12))) : dayOfNextMonth(d, 5);
+  return early ? nextBusinessDay(iso(Date.UTC(y, m - 1, 25, 12))) : dayOfNextMonth(d, 10);
+};
+const dayOfNextMonth = (d: string, day: number | 'last') => { const y = Number(d.slice(0, 4)), m = Number(d.slice(5, 7)); const last = lastOfMonth(y + Math.floor(m / 12), m % 12);
+  return nextBusinessDay(day === 'last' ? last : iso(Math.min(ms(last), Date.UTC(y + Math.floor(m / 12), m % 12, day, 12)))); };
 /** When a payday's taxes are due. The IRS: by the 15th of the next month (monthly deposits), or twice a week
- *  (semiweeklyDue). The state's income tax: North Carolina's NC-5 (G.S. 105-163.6), by the 15th of the next month (and
- *  December's by January 31), the end of the month after the quarter, or twice a week as the IRS; another state's own
- *  dates aren't known here. Unemployment: the end of the month after the quarter. */
+ *  (semiweeklyDue). The state's income tax, by how often the business files it (lib/state-payroll, each state's):
+ *  monthly, by the state's day of the next month (North Carolina's December by January 31, G.S. 105-163.6); quarterly,
+ *  the end of the month after the quarter (or the state's own day then); twice a week, as the IRS; twice a month, the
+ *  25th for the 1st to the 15th and the 10th of the next month for the rest; once a year, January 31. Unemployment:
+ *  the end of the month after the quarter. A weekend or holiday moves to the next business day. */
 export function dueDates(payDate: string, tenant: any): DueDates {
-  const setup = setupOf(tenant); const state = payrollStateOf(tenant);
+  const setup = setupOf(tenant); const state = payrollStateOf(tenant); const spec = stateSpec(state); const freq = stateFilingOf(tenant);
   const irs = setup.federalDeposits === 'semiweekly' ? semiweeklyDue(payDate) : fifteenthAfter(payDate);
-  const ncMonthly = payDate.slice(5, 7) === '12' ? nextBusinessDay(lastOfMonth(Number(payDate.slice(0, 4)) + 1, 0)) : fifteenthAfter(payDate);
-  const st = state === 'NC' ? (setup.stateFiling === 'quarterly' ? afterQuarter(payDate) : setup.stateFiling === 'semiweekly' ? semiweeklyDue(payDate) : ncMonthly) : null;
+  const y = Number(payDate.slice(0, 4)), m = Number(payDate.slice(5, 7));
+  const qDay = spec?.filing?.quarterlyDue; const quarterly = () => { if (!qDay) return afterQuarter(payDate); const { y: qy, q } = quarterEnd(payDate); const mm = q * 3 + 3; return nextBusinessDay(iso(Date.UTC(qy + Math.floor(mm / 12), mm % 12, qDay, 12))); };
+  const st = !freq ? null
+    : freq === 'quarterly' ? quarterly()
+    : freq === 'semiweekly' ? semiweeklyDue(payDate)
+    : freq === 'semimonthly' ? semimonthlyDue(payDate, spec?.filing?.semimonthly || 'mid')
+    : freq === 'weekly' ? nextBusinessDay(addDays(payDate, 10 - dow(payDate)))
+    // (New York: by 5 or 3 business days after the payday that brings what's unpaid to $700, worked out across paydays in
+    // lib/payroll-owed; until then, with the quarter's NYS-45.)
+    : freq === 'ny5' || freq === 'ny3' ? afterQuarter(payDate)
+    : freq === 'annually' ? nextBusinessDay(iso(Date.UTC(y + 1, 0, 31, 12)))
+    : state === 'NC' && m === 12 && !Number(setup.stateDueDay) ? nextBusinessDay(lastOfMonth(y + 1, 0)) : dayOfNextMonth(payDate, stateDueDayOf(tenant));
   return { irs, state: st, sui: afterQuarter(payDate), futa: afterQuarter(payDate) };
 }
 

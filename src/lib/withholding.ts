@@ -1,15 +1,17 @@
 // src/lib/withholding.ts — TAXES ON A PAYCHECK, worked out in ClarityFlow (when the business runs payroll here, not
 // through Gusto or another payroll company: Settings > Payroll). For one employee and one payday: federal income tax
 // from their W-4 (IRS Publication 15-T, the percentage method for automated payroll), Social Security and Medicare,
-// state income tax (North Carolina's NC-30 built in, the states with no wage income tax known, any other state at a
-// percentage the business sets), any other payroll tax the business adds, and the employer's own share: Social
+// state income tax (every state's own 2026 formula, from the person's state form: lib/state-payroll), the state's
+// disability and paid leave programs and any other payroll tax the business adds, and the employer's own share: Social
 // Security, Medicare, federal and state unemployment. Pure: the Payday screen and the server (lib/payday-record) both
 // run it, from the same inputs, so the screen and the books always agree.
 //
 // Tables are by year. A year with no tables yet uses the latest and says so (`stale`): add the new year's figures here
-// each January (Publication 15-T, the Social Security wage base, NC-30).
+// each January (Publication 15-T, the Social Security wage base; each state's in lib/state-payroll).
 //
 // Never needs or keeps a Social Security number: the business adds those when it files.
+
+import { STATES, STATE_LIST, stateSpec, stateTaxFor, programAmounts, type StateFormIn } from './state-payroll';
 
 export type FilingStatus = 'single' | 'married' | 'hoh';
 /** What the employee wrote on their W-4. 2020 and later: steps 1(c) to 4(c). 2019 or earlier: status and allowances. */
@@ -33,8 +35,8 @@ export type FederalForm = {
   /** 2019 or earlier: the allowances claimed. */
   allowances?: number;
 };
-/** The state's own form (North Carolina's NC-4), or, for a state not built in, a percentage of wages. */
-export type StateForm = { status?: FilingStatus; allowances?: number; extra?: number; exempt?: boolean; pct?: number };
+/** What the person wrote on their state's own form (California's DE 4, New York's IT-2104…): lib/state-payroll. */
+export type StateForm = StateFormIn;
 /** Everything about one person's payroll taxes, kept with their pay (tenants/{t}/staffPay/{id}.taxForms). */
 export type TaxForms = {
   federal?: FederalForm | null; state?: StateForm | null;
@@ -56,16 +58,25 @@ export type PayrollTaxSetup = {
   /** How often the IRS deposits are made (the IRS's letter says which). */
   federalDeposits?: 'monthly' | 'semiweekly';
   /** How often state withholding is filed. */
-  stateFiling?: 'monthly' | 'quarterly' | 'semiweekly';
+  stateFiling?: 'monthly' | 'quarterly' | 'semiweekly' | 'semimonthly' | 'annually';
   /** State unemployment: the business's own rate (%) and the wages it's on, each person, a year. */
   suiRate?: number | null; suiWageBase?: number | null;
   /** A state not built in: a percentage of wages for state income tax, unless a person has their own. */
   statePct?: number | null;
   other?: OtherTax[];
+  /** The state's own programs (paid leave, disability insurance: lib/state-payroll), as the business pays them: one
+   *  turned off (not covered, or a size that's exempt), or a rate of its own (the employee's part, the business's). */
+  programs?: Record<string, { off?: boolean; employee?: number | null; employer?: number | null }>;
+  /** The day of the month state withholding is due, when the state's letter says another day than usual. */
+  stateDueDay?: number | null;
+  /** Employees on payroll, when the business says (some states' programs depend on it); else each payday's count. */
+  teamSize?: number | null;
 };
 
 /** What's been taxed for this person so far this year (from the paydays already recorded). */
-export type YearToDate = { ssWages: number; medicareWages: number; futaWages: number; suiWages: number; other?: Record<string, number> };
+export type YearToDate = { ssWages: number; medicareWages: number; futaWages: number; suiWages: number; other?: Record<string, number>;
+  /** What each program has taken from them so far (New York's paid family leave stops at a yearly most). */
+  taken?: Record<string, number> };
 export const EMPTY_YTD: YearToDate = { ssWages: 0, medicareWages: 0, futaWages: 0, suiWages: 0, other: {} };
 
 type Row = [number, number, number];   // at least, tentative amount, rate on the excess
@@ -73,13 +84,10 @@ type Year = {
   line1g: { married: number; other: number }; allowance: number;
   standard: Record<FilingStatus, Row[]>; checkbox: Record<FilingStatus, Row[]>;
   ss: { rate: number; base: number }; medicare: { rate: number; addl: number; over: number }; futa: { rate: number; base: number };
-  nc: { rate: number; deduction: Record<FilingStatus, number>; allowance: number; suiBase: number; suiNew: number };
 };
 
 // 2026: Publication 15-T (2026), Worksheet 1A and the Annual Percentage Method Tables for automated payroll; Social
-// Security wage base $184,500; NC-30 (2026): 3.99% plus 0.1%, standard deductions $12,750 (single and married) and
-// $19,125 (head of household), $2,500 an allowance; North Carolina unemployment on the first $34,200, 1% for a new
-// employer.
+// Security wage base $184,500. (Each state's: lib/state-payroll.)
 const Y2026: Year = {
   line1g: { married: 12900, other: 8600 }, allowance: 4300,
   standard: {
@@ -93,7 +101,6 @@ const Y2026: Year = {
     hoh: [[0, 0, 0], [12075, 0, 0.10], [20925, 885, 0.12], [45800, 3870, 0.22], [64925, 8077.5, 0.24], [112950, 19603.5, 0.32], [140175, 28315.5, 0.35], [332375, 95585.5, 0.37]],
   },
   ss: { rate: 0.062, base: 184500 }, medicare: { rate: 0.0145, addl: 0.009, over: 200000 }, futa: { rate: 0.006, base: 7000 },
-  nc: { rate: 0.0409, deduction: { single: 12750, married: 12750, hoh: 19125 }, allowance: 2500, suiBase: 34200, suiNew: 1 },
 };
 const YEARS: Record<number, Year> = { 2026: Y2026 };
 const LATEST = Math.max(...Object.keys(YEARS).map(Number));
@@ -101,9 +108,9 @@ export const TABLES_YEAR = LATEST;
 export const tablesFor = (year: number) => ({ t: YEARS[year] || YEARS[LATEST], stale: !YEARS[year] });
 
 /** States with no income tax on wages. */
-export const NO_WAGE_TAX = ['AK', 'FL', 'NV', 'NH', 'SD', 'TN', 'TX', 'WA', 'WY'];
-/** States whose own withholding is worked out here (the rest: a percentage the business sets). */
-export const BUILT_IN_STATES = ['NC'];
+export const NO_WAGE_TAX = STATE_LIST.filter((x) => STATES[x.code].noTax).map((x) => x.code as string);
+/** States whose own withholding is worked out here: all 50 and DC. */
+export const BUILT_IN_STATES = STATE_LIST.filter((x) => !!STATES[x.code].calc).map((x) => x.code as string);
 export type StateHow = 'none' | 'built_in' | 'percent' | 'missing';
 export const stateHow = (state: string | null | undefined, setup?: PayrollTaxSetup | null, form?: StateForm | null): StateHow => {
   const s = String(state || '').toUpperCase();
@@ -111,11 +118,13 @@ export const stateHow = (state: string | null | undefined, setup?: PayrollTaxSet
   if (BUILT_IN_STATES.includes(s)) return 'built_in';
   return (num(form?.pct) > 0 || num(setup?.statePct) > 0) ? 'percent' : 'missing';
 };
-/** State unemployment for these wages: the business's own rate, else the state's new-employer rate when it's built in. */
+/** State unemployment for these wages: the business's own rate (its state letter), else the state's rate for a new
+ *  business; the state's yearly wage limit, unless the business set another. A state whose new-business rate depends on
+ *  the industry has none until the business puts its own in. */
 export function suiOf(state: string | null | undefined, setup: PayrollTaxSetup | null | undefined, year: number): { rate: number; base: number | null } {
-  const { t } = tablesFor(year); const s = String(state || '').toUpperCase();
-  const rate = setup?.suiRate != null && Number.isFinite(Number(setup.suiRate)) ? Math.max(0, Math.min(20, Number(setup.suiRate))) : s === 'NC' ? t.nc.suiNew : 0;
-  const base = setup?.suiWageBase != null && Number(setup.suiWageBase) > 0 ? Number(setup.suiWageBase) : s === 'NC' ? t.nc.suiBase : null;
+  void year; const spec = stateSpec(state);
+  const rate = setup?.suiRate != null && Number.isFinite(Number(setup.suiRate)) ? Math.max(0, Math.min(20, Number(setup.suiRate))) : spec?.sui.newRate ?? 0;
+  const base = setup?.suiWageBase != null && Number(setup.suiWageBase) > 0 ? Number(setup.suiWageBase) : spec?.sui.base ?? null;
   return { rate, base };
 }
 
@@ -144,16 +153,16 @@ export function federalIncomeTax(wages: number, periods: number, f: FederalForm 
   return r2(Math.max(0, afterCredits) + pos(f?.extra));
 }
 
-/** State income tax for one paycheck. */
-export function stateIncomeTax(wages: number, periods: number, state: string | null | undefined, s: StateForm | null | undefined, setup: PayrollTaxSetup | null | undefined, year: number): number {
-  if (!(wages > 0) || s?.exempt) return 0;
-  const code = String(state || '').toUpperCase(); const { t } = tablesFor(year);
+/** State income tax for one paycheck: the state's own formula (lib/state-payroll), or, with no state built in, a
+ *  percentage. `ctx`: the federal W-4's status and this paycheck's federal tax (states that use them), and Social
+ *  Security and Medicare on it and so far (Massachusetts). */
+export function stateIncomeTax(wages: number, periods: number, state: string | null | undefined, s: StateForm | null | undefined, setup: PayrollTaxSetup | null | undefined, year: number,
+  ctx: { fedStatus?: FilingStatus; fedPerPeriod?: number; ficaNow?: number; ficaYtd?: number } = {}): number {
+  void year; if (!(wages > 0)) return 0;
+  const code = String(state || '').toUpperCase();
   if (NO_WAGE_TAX.includes(code)) return 0;
-  if (code === 'NC') {
-    // NC-30, the annualized method: rounded to the whole dollar.
-    const net = Math.max(0, wages * periods - t.nc.deduction[status(s?.status)] - Math.max(0, Math.floor(num(s?.allowances))) * t.nc.allowance);
-    return Math.round((net * t.nc.rate) / periods) + Math.round(pos(s?.extra));
-  }
+  if (BUILT_IN_STATES.includes(code)) return stateTaxFor(code, { wages, periods, f: s, ...ctx });
+  if (s?.exempt) return 0;
   const pct = num(s?.pct) > 0 ? num(s?.pct) : num(setup?.statePct);
   return pct > 0 ? r2(wages * Math.min(pct, 20) / 100 + pos(s?.extra)) : 0;
 }
@@ -179,12 +188,14 @@ export type Withholding = {
   check: number; takeHome: number;
   /** How the state's tax was worked out, and what the screen should say. */
   stateHow: StateHow;
-  flags: ('no_w4' | 'no_state_form' | 'exempt' | 'short' | 'stale_tables' | 'state_missing')[];
+  flags: ('no_w4' | 'no_state_form' | 'exempt' | 'short' | 'stale_tables' | 'state_missing' | 'county_missing' | 'sui_rate_missing' | 'team_size_missing')[];
 };
 
 export type WithholdingInput = {
   year: number; periods: number; gross: number; inHand?: number;
   forms?: TaxForms | null; state?: string | null; setup?: PayrollTaxSetup | null; ytd?: YearToDate | null;
+  /** Employees on this payday (for programs that depend on the business's size, unless Settings says). */
+  teamSize?: number | null;
 };
 
 /** Every tax on one paycheck, and the take-home. */
@@ -205,8 +216,15 @@ export function withholdingFor(i: WithholdingInput): Withholding {
     socialSecurity: r2(ssWages * t.ss.rate), medicare: r2(ficaWages * t.medicare.rate),
     additionalMedicare: r2(addlWages * t.medicare.addl),
     federal: federalIncomeTax(federalWages, periods, forms.federal, i.year),
-    state: stateIncomeTax(federalWages, periods, i.state, forms.state, i.setup, i.year),
+    state: 0,
   };
+  // (The person's state form, when it's this state's: one from another state, or saved before this state was built in,
+  // is as none. A North Carolina form from before forms named their state is North Carolina's.)
+  const stCode = String(i.state || '').toUpperCase(); const fs = forms.state;
+  const stateOnFile = !!fs && (fs.state ? fs.state === stCode : stCode === 'NC' && !(Number(fs.pct) > 0));
+  const stateForm = BUILT_IN_STATES.includes(stCode) ? (stateOnFile ? fs : null) : fs;
+  want.state = stateIncomeTax(federalWages, periods, i.state, stateForm, i.setup, i.year, { fedStatus: status(forms.federal?.status), fedPerPeriod: want.federal,
+    ficaNow: r2(want.socialSecurity + want.medicare), ficaYtd: r2(ytd.ssWages * t.ss.rate + ytd.medicareWages * t.medicare.rate) });
   const otherEmp: OtherAmount[] = []; const otherEr: OtherAmount[] = [];
   for (const o of (i.setup?.other || []).slice(0, 8)) {
     const rate = Math.max(0, Math.min(20, num(o.rate))); if (!o.id || !rate) continue;
@@ -214,6 +232,17 @@ export function withholdingFor(i: WithholdingInput): Withholding {
     const amount = r2(w * rate / 100);
     const item = { id: String(o.id).slice(0, 40), name: String(o.name || 'Payroll tax').slice(0, 60), amount, wages: w };
     (o.who === 'employer' ? otherEr : otherEmp).push(item);
+  }
+  // The state's own programs (paid leave, disability insurance, an employee's share of unemployment), as the business
+  // set them: the employee's part (id) and the business's (id_er), each toward its own yearly limit.
+  // (The business's size: what Settings says, else this payday's employees; small, the usual, when neither is known.)
+  const size = num(i.setup?.teamSize) > 0 ? num(i.setup?.teamSize) : num(i.teamSize) > 0 ? num(i.teamSize) : 1;
+  for (const pg of stateSpec(i.state)?.programs || []) {
+    const ov = i.setup?.programs?.[pg.id] || undefined;
+    const a = programAmounts(pg, ficaWages, num(ytd.other?.[pg.id] ?? ytd.other?.[`${pg.id}_er`]), num(ytd.taken?.[pg.id]), periods,
+      ov ? { ...(typeof ov.off === 'boolean' ? { off: ov.off } : {}), ...(ov.employee != null ? { employee: num(ov.employee) } : {}), ...(ov.employer != null ? { employer: num(ov.employer) } : {}) } : undefined, size);
+    if (a.employee > 0) otherEmp.push({ id: pg.id, name: pg.name, amount: a.employee, wages: a.wages });
+    if (a.employer > 0) otherEr.push({ id: `${pg.id}_er`, name: pg.name, amount: a.employer, wages: a.wages });
   }
   // (When the paycheck can't cover them all, the IRS's order: Social Security and Medicare first, then income tax.)
   const take = (n: number) => { const x = r2(Math.min(n, room)); room = r2(room - x); return x; };
@@ -227,7 +256,14 @@ export function withholdingFor(i: WithholdingInput): Withholding {
   const how = stateHow(i.state, i.setup, forms.state);
   const flags: Withholding['flags'] = [];
   if (!forms.federal) flags.push('no_w4');
-  if (how === 'built_in' && !forms.state) flags.push('no_state_form');
+  // (Only a state whose own form changes the tax: not one that reads the federal W-4, or has nothing to fill in.)
+  const sf = stateSpec(i.state)?.form; const needsForm = !!sf && !sf.federal && sf.fields.some((k) => !['extra', 'exempt', 'reduce'].includes(k));
+  if (how === 'built_in' && needsForm && !stateOnFile) flags.push('no_state_form');
+  // (A county the state's tax needs, Indiana's or Maryland's, not picked; unemployment with no rate to use; programs
+  // that depend on the business's size, with no size in Settings: each payday's count is used meanwhile.)
+  if (how === 'built_in' && stateOnFile && (stCode === 'IN' || stCode === 'MD') && !fs?.local) flags.push('county_missing');
+  if (stateSpec(i.state) && !(sui.rate > 0)) flags.push('sui_rate_missing');
+  if ((stateSpec(i.state)?.programs || []).some((p) => p.tiers?.length) && !(num(i.setup?.teamSize) > 0)) flags.push('team_size_missing');
   if (forms.federal?.exempt) flags.push('exempt');
   if (short.socialSecurity + short.medicare + short.federal + short.state > 0) flags.push('short');
   if (stale) flags.push('stale_tables');
@@ -268,8 +304,21 @@ export function cleanTaxForms(v: any): TaxForms {
       : { form, status: status(f.status), multipleJobs: f.multipleJobs === true, dependents: money(f.dependents, 100000), otherIncome: money(f.otherIncome, 10000000), deductions: money(f.deductions, 10000000), extra: money(f.extra, 10000), exempt: f.exempt === true };
   }
   if (v?.state) {
-    const s = v.state; const pct = Number(s.pct);
-    out.state = { status: status(s.status), allowances: Math.max(0, Math.min(99, Math.floor(Number(s.allowances) || 0))), extra: money(s.extra, 10000), exempt: s.exempt === true, ...(Number.isFinite(pct) && pct > 0 ? { pct: Math.min(20, Math.round(pct * 1000) / 1000) } : {}) };
+    // (Each state's own form: its fields, lib/state-payroll. Only what's set is kept.)
+    const s = v.state; const pct = Number(s.pct); const c99 = (x: any) => Math.max(0, Math.min(99, Math.floor(Number(x) || 0)));
+    const word = (x: any, re: RegExp) => (typeof x === 'string' && re.test(x) ? x : undefined);
+    const st: StateForm = { allowances: c99(s.allowances), extra: money(s.extra, 10000), exempt: s.exempt === true };
+    const sw = word(s.status, /^[a-z_]{1,20}$/); if (sw) st.status = sw;
+    if (Number(s.additional) > 0) st.additional = c99(s.additional);
+    if ([0.5, 1, 1.5, 2, 2.5, 3, 3.5].includes(Number(s.rate))) st.rate = Number(s.rate);
+    const cw = word(s.code, /^[A-F]$/); if (cw) st.code = cw;
+    const lw = word(s.local, /^[a-z_]{1,40}$/); if (lw) st.local = lw;
+    if (money(s.amount, 1000000)) st.amount = money(s.amount, 1000000);
+    if (s.flag === true) st.flag = true;
+    if (money(s.reduce, 10000)) st.reduce = money(s.reduce, 10000);
+    if (Number.isFinite(pct) && pct > 0) st.pct = Math.min(20, Math.round(pct * 1000) / 1000);
+    const code = word(s.state, /^[A-Z]{2}$/); if (code) st.state = code;
+    out.state = st;
   }
   const retirement = money(v?.pretax?.retirement, 100000), health = money(v?.pretax?.health, 100000);
   if (retirement || health) out.pretax = { retirement, health };
