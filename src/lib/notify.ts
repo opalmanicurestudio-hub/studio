@@ -96,6 +96,9 @@ export type NotifyInput = {
   threadMessageId?: string | null;
   /** Ties the email and the text of one notice together, when the caller sends both. */
   noticeKey?: string | null;
+  /** A message that's the recipient's own business (a renter's tax reminder, lib/renter-taxes-server): the log the team
+   *  can open keeps only that it was sent, to whom and how it went, never its subject or words. */
+  privateToRecipient?: boolean;
 };
 
 // The only mail headers a caller may add: the pair the mailbox's own Unsubscribe button reads (RFC 8058), each in the
@@ -414,10 +417,11 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
     // notice record says why it didn't arrive), not for every reminder to every client.
     if (channel === 'email' || (!smsLogged && (result.status !== 'skipped_no_provider' || input.recipientType === 'renter'))) {
     const logRef = db.collection(`tenants/${tenantId}/messageLog`).doc();
-    const subject = channel === 'email' && input.subject ? hideCodes(kind, String(input.subject)) : null;
+    const mine = input.privateToRecipient === true;
+    const subject = !mine && channel === 'email' && input.subject ? hideCodes(kind, String(input.subject)) : null;
     // The whole message, word for word, for the conversation and notice records (lib/conversation, lib/notice-record).
     // A one-time code is never kept readable in the log the team can open (lib/code-redact).
-    const words = hideCodes(kind, String(input.text || (input.html ? String(input.html).replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<br\s*\/?>|<\/p>|<\/div>|<\/h\d>/gi, '\n').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&#39;|&rsquo;/g, '’').replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n').trim() : ''))).slice(0, channel === 'email' ? 6000 : 1600);
+    const words = mine ? '' : hideCodes(kind, String(input.text || (input.html ? String(input.html).replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<br\s*\/?>|<\/p>|<\/div>|<\/h\d>/gi, '\n').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&#39;|&rsquo;/g, '’').replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n').trim() : ''))).slice(0, channel === 'email' ? 6000 : 1600);
     let fingerprint: string | null = null;
     try { const { wordsFingerprint } = await import('./notice-fingerprint'); fingerprint = wordsFingerprint(subject, words); } catch { /* the words are kept either way */ }
     await logRef.set({
@@ -429,7 +433,7 @@ export async function sendNotification(db: any, input: NotifyInput): Promise<Not
       // summary below, which is the broader-audience surface.
       to: channel === 'sms' ? await (async () => { try { const { toE164 } = await import('./sms'); return toE164(to) || to; } catch { return to; } })() : to,
       subject,
-      preview: input.text ? hideCodes(kind, String(input.text)).slice(0, 140) : null,
+      preview: !mine && input.text ? hideCodes(kind, String(input.text)).slice(0, 140) : null,
       body: words || null,
       fingerprint,
       ...(result.held ? { held: true } : {}),

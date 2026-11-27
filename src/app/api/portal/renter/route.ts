@@ -89,6 +89,8 @@ import { nextTermEnd } from '@/lib/lease-builder';
 import { credentialsAfterUpload } from '@/lib/compliance';
 import { settleStay, stayClock } from '@/lib/stay-settle';
 import { renterAppointments, renterEarned, renterProvider, renterStaffIds } from '@/lib/renter-earned';
+import { dueSoon, paidToward, remindChannelOf } from '@/lib/renter-taxes';
+import { todayFor } from '@/lib/trip-log-server';
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 const CODE_TTL_MS = 10 * 60 * 1000;
@@ -3636,6 +3638,21 @@ export async function POST(req: NextRequest) {
         if (x.decidedAt && x.decidedAt >= since(7)) items.push({ kind: 'leave', tab: 'studio', title: x.status === 'approved' ? 'Time away approved' : x.status === 'declined' ? 'Time away not approved' : 'Leave updated', body: `${x.startDate} → ${x.endDate}`, at: x.decidedAt, tone: x.status === 'approved' ? 'green' : 'amber' });
         if (x.redeem?.decidedAt && x.redeem.decidedAt >= since(7)) items.push({ kind: 'leave', tab: 'studio', title: x.redeem.status === 'approved' ? 'Banked days credited' : 'Banked days not approved', body: `${x.redeem.days} day${x.redeem.days === 1 ? '' : 's'}`, at: x.redeem.decidedAt, tone: x.redeem.status === 'approved' ? 'green' : 'amber' });
       }
+
+      // Estimated taxes due within a week (lib/renter-taxes), unless they've switched the reminder off or already paid the
+      // IRS toward that date.
+      try {
+        if (/^[A-Za-z0-9_-]{1,160}$/.test(rid)) {
+          const soon = dueSoon(todayFor(((await db.doc(`tenants/${tenantId}`).get()).data() as any) || {}), 7);
+          if (soon) {
+            const [rem, yr] = await Promise.all([db.doc(`tenants/${tenantId}/private/renter_${rid}/taxes/reminders`).get(), db.doc(`tenants/${tenantId}/private/renter_${rid}/taxes/${soon.forYear}`).get()]);
+            if (remindChannelOf((rem.data() as any)?.channel) !== 'off' && !paidToward((yr.data() as any)?.payments, soon.due)) {
+              const when = new Date(`${soon.due}T12:00:00Z`).toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: 'UTC' });
+              items.push({ kind: 'taxes', tab: 'rent', title: soon.inDays === 0 ? 'Estimated taxes are due today' : `Estimated taxes are due ${when}`, body: 'See what to send the IRS and your state', at: since(0), tone: soon.inDays <= 2 ? 'amber' : 'slate' });
+            }
+          }
+        }
+      } catch { /* a reminder is best-effort */ }
 
       // Money and members: what the webhook wrote for them (14 days).
       try {

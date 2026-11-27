@@ -14,7 +14,7 @@ import fs from 'fs';
 import Module from 'module';
 import { createHash } from 'crypto';
 import { makeDb, check, failures } from './fake-db';
-import { seTaxOf, incomeTaxOf, taxOn, dueDay, quartersOf, planYearOf, taxPlan, tableFor, cleanTaxSettings, cleanTaxPayment } from '../../src/lib/renter-taxes';
+import { seTaxOf, incomeTaxOf, taxOn, dueDay, quartersOf, planYearOf, taxPlan, tableFor, cleanTaxSettings, cleanTaxPayment, dueSoon, paidToward, remindChannelOf } from '../../src/lib/renter-taxes';
 import { writeOffsByMonth, deskTipsByMonth, shopSalesByMonth } from '../../src/lib/renter-write-offs';
 import { monthlyDays } from '../../src/lib/renter-earned';
 
@@ -27,9 +27,13 @@ M._load = function (request: string, ...rest: any[]) {
   if (request === '@/lib/geocode-server') return { geocode: async () => null, reverseGeocode: async () => null, preciseEnough: () => false };
   if (request === '@/lib/route-server') return { roadLegs: async () => null };
   if (request === 'next/server') return { NextResponse: { json: (body: any, init?: any) => ({ status: init?.status || 200, body }) } };
+  if (request === '@/lib/notify') return { sendNotification: async (_d: any, x: any) => { if (failMail) { failMail = false; return { ok: false, status: 'failed', error: 'mail down' }; } if (throwMail) { throwMail = false; throw new Error('mail down'); } sentMail.push(x); return { ok: true }; } };
+  if (request === '@/lib/email-template') return { brandedEmailHtml: (x: any) => `<h1>${x.title}</h1>${x.bodyLines.join('<br>')}` };
+  if (request === '@/lib/renter-comms') return { renterPortalUrl: async () => 'https://app.example/rent/t1' };
   return load.call(this, request, ...rest);
 };
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
+const sentMail: any[] = []; let failMail = false; let throwMail = false;
 
 (async () => {
   console.log('The year’s tax');
@@ -122,6 +126,38 @@ const sha = (s: string) => createHash('sha256').update(s).digest('hex');
   check('until April 15, last year’s payments are listed and can be taken off', /lastYearPayments: today <= dueDay\(year, 4\)/.test(tr) && /const uRef = Number\(b\.forYear\) === year - 1 && today <= dueDay\(year, 4\)/.test(tr)
     && /action: 'unpay', id: p\.id, forYear: g\.y/.test(src('src/components/rent/RenterTaxes.tsx')));
   check('payments saved and taken off in a transaction; until April 15 one can be for last year', (tr.match(/db\.runTransaction/g) || []).length === 2 && /Number\(b\.forYear\) === year - 1 && today <= dueDay\(year, 4\)/.test(tr));
+
+  console.log('Reminders');
+  check('the next date when it’s a week away or less, with the year it’s toward', dueSoon('2026-06-08')?.due === '2026-06-15' && dueSoon('2026-06-08')?.inDays === 7 && dueSoon('2026-06-07') === null
+    && dueSoon('2027-01-10')?.forYear === 2026 && dueSoon('2026-12-31') === null && dueSoon('2026-04-15')?.inDays === 0);
+  check('paid toward a date: a payment to the IRS in the 45 days up to it', paidToward([{ id: 'a', date: '2026-06-01', cents: 100, to: 'irs' }], '2026-06-15') && !paidToward([{ id: 'a', date: '2026-04-10', cents: 100, to: 'irs' }], '2026-06-15')
+    && !paidToward([{ id: 'a', date: '2026-06-01', cents: 100, to: 'state' }], '2026-06-15'));
+  check('reminders in the portal unless they choose otherwise', remindChannelOf(undefined) === 'inbox' && remindChannelOf('email') === 'email' && remindChannelOf('sms') === 'inbox');
+  r = await POST(req({ action: 'remind', channel: 'sms' }));
+  const r2: any = await POST(req({ action: 'remind', channel: 'email' }));
+  check('their choice kept with their log; only off, the portal or email', r.status === 400 && r2.status === 200 && (await db.doc('tenants/t1/private/renter_r1/taxes/reminders').get()).data().channel === 'email');
+  await db.doc('tenants/t1/renters/r1').set({ email: 'ana@example.com', status: 'active' }, { merge: true });
+  await db.doc('tenants/t1/renters/r2').set({ email: 'bo@example.com', status: 'active' });
+  await db.doc('tenants/t1/renters/r3').set({ email: 'cy@example.com', status: 'past' });
+  await db.doc('tenants/t1/private/renter_r3/taxes/reminders').set({ channel: 'email' });
+  const { remindRenterTaxes } = await import('../../src/lib/renter-taxes-server');
+  let n = await remindRenterTaxes(db, 't1', {}, '2026-06-09');
+  check('a week before: an email to renters who asked, not to one who’s left or who didn’t ask', n === 1 && sentMail.length === 1 && sentMail[0].to === 'ana@example.com' && /Estimated taxes are due June 15/.test(sentMail[0].subject) && /To stop these emails/.test(sentMail[0].html), sentMail);
+  n = await remindRenterTaxes(db, 't1', {}, '2026-06-10');
+  check('once per date; the business’s message log keeps only that it went out', n === 0 && sentMail.length === 1 && sentMail[0].privateToRecipient === true
+    && /const mine = input\.privateToRecipient === true;/.test(src('src/lib/notify.ts')) && /const words = mine \? '' :/.test(src('src/lib/notify.ts')));
+  await db.doc('tenants/t1/private/renter_r1/taxes/2026').set({ payments: [{ id: 'q', date: '2026-08-30', cents: 50000, to: 'irs' }] }, { merge: true });
+  n = await remindRenterTaxes(db, 't1', {}, '2026-09-09');
+  check('not when they’ve already paid the IRS toward it; not on the day itself', n === 0 && (await remindRenterTaxes(db, 't1', {}, '2026-06-15')) === 0);
+  failMail = true; n = await remindRenterTaxes(db, 't1', {}, '2027-01-10');
+  const n2 = await remindRenterTaxes(db, 't1', {}, '2027-01-11');
+  check('an email that didn’t go is tried again the next night', n === 0 && n2 === 1 && sentMail.length === 2 && /toward 2026/.test(sentMail[1].html));
+  await db.doc('tenants/t1/private/renter_r1/taxes/reminders').set({ sent: { '2027-01-15': null } }, { merge: true });
+  throwMail = true; n = await remindRenterTaxes(db, 't1', {}, '2027-01-12');
+  check('and one that broke on the way, too', n === 0 && !(await db.doc('tenants/t1/private/renter_r1/taxes/reminders').get()).data().sent['2027-01-15'] && (await remindRenterTaxes(db, 't1', {}, '2027-01-13')) === 1);
+  const rr = src('src/app/api/portal/renter/route.ts');
+  check('Today shows it the week before, unless switched off or paid, and opens Taxes to set aside', /items\.push\(\{ kind: 'taxes', tab: 'rent'/.test(rr) && /remindChannelOf\(\(rem\.data\(\) as any\)\?\.channel\) !== 'off' && !paidToward/.test(rr)
+    && (await import('../../src/components/rent/portal-map')).NEEDS_TARGET.taxes?.join() === 'money,taxes' && /remindRenterTaxes\(db, tDoc\.id/.test(src('src/app/api/cron/nightly/route.ts')));
 
   console.log('Where it is');
   const PM = await import('../../src/components/rent/portal-map');

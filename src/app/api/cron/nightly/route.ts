@@ -39,6 +39,7 @@ import { ticketAcknowledged, respondByFor } from '@/lib/maintenance';
 import { staffMirrorFields, mirrorDiffers } from '@/lib/renter-identity';
 import { sweepNoShows } from '@/lib/no-show';
 import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
+import { remindRenterTaxes } from '@/lib/renter-taxes-server';
 import { sweepExpiredRequests, sweepPendingRequestNudge, sweepUnpaidAccepted } from '@/lib/retail-sweeps';
 import { onTeam } from '@/lib/team-member';
 import { renterBusinessCard } from '@/lib/space-stripe';
@@ -466,6 +467,16 @@ export async function GET(req: NextRequest) {
     catch (e) { console.error('[cron/nightly] open-bill credits', tDoc.id, e); }
   }
   results.rentCreditsAppliedCents = rentCreditsAppliedCents; results.leasePerksGiven = perksGiven;
+
+  // ── Renters' estimated tax reminders ─────────────────────────────────────
+  // The week before each of the year's four dates, an email to renters who asked for one on their Taxes to set aside
+  // page, once per date (lib/renter-taxes-server). Its own loop, so one business's trouble never stops another's.
+  let renterTaxEmails = 0;
+  for (const tDoc of (await db.collection('tenants').get()).docs) {
+    try { renterTaxEmails += await remindRenterTaxes(db, tDoc.id, tDoc.data() || {}); }
+    catch (e) { console.error('[cron/nightly] renter tax reminders', tDoc.id, e); }
+  }
+  results.renterTaxEmails = renterTaxEmails;
 
   // ── Leave lifecycle — bring people home on the day they said ────────────
   // Runs AFTER invoicing so a leave's last day is still honoured by the run

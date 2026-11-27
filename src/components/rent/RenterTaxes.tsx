@@ -20,7 +20,7 @@ const md = (day: string) => new Date(`${day}T12:00:00Z`).toLocaleDateString('en-
 const mdy = (day: string) => new Date(`${day}T12:00:00Z`).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 const dollars = (c: number | null | undefined) => (c == null ? '' : String(Math.round(c / 100)));
 
-type Data = { year: number; today: string; lastYearOpen?: boolean; lastYearPayments?: Payment[]; table: { year: number; stale: boolean }; earnedByMonth: Record<string, number>; writeOffsByMonth: Record<string, number>;
+type Data = { year: number; today: string; lastYearOpen?: boolean; lastYearPayments?: Payment[]; remind?: 'off' | 'inbox' | 'email'; hasEmail?: boolean; table: { year: number; stale: boolean }; earnedByMonth: Record<string, number>; writeOffsByMonth: Record<string, number>;
   settings: { filing: Filing; state: string; statePct: number; stateName: string; stateType: string | null; otherCents: number; outsideCents: number; lastYearTaxCents: number | null; lastYearHigh?: boolean }; payments: Payment[] };
 
 function PayForm({ today, stateName, noState, year, lastYearOpen, busy, onSave, onCancel }: { today: string; stateName: string; noState: boolean; year: number; lastYearOpen: boolean; busy: boolean; onSave: (x: any) => void; onCancel: () => void }) {
@@ -140,6 +140,15 @@ export function RenterTaxes({ tenantId, token }: { tenantId: string; token: stri
         <button type="button" disabled={!!busy} onClick={() => act(`u_${p.id}`, { action: 'unpay', id: p.id, forYear: g.y }, 'Taken off.')} className={btn} style={{ background: SOFT, color: INK }}>Take off</button>
       </div>)}
     </section>)}
+
+    <section aria-label="Reminders" className={`${card} flex flex-col gap-2 py-4`}>
+      <h2 className="text-[16px] font-semibold">Reminders</h2>
+      <p className="-mt-1 text-[13px]" style={{ color: MUTED }}>The week before each date.</p>
+      <div className="flex gap-2">{([['off', 'Off'], ['inbox', 'In my portal'], ['email', 'Email too']] as const).map(([v, label]) => <button key={v} type="button" aria-pressed={(d.remind || 'inbox') === v} disabled={!!busy || (v === 'email' && !d.hasEmail)}
+        onClick={() => act('remind', { action: 'remind', channel: v }, v === 'off' ? 'Reminders off.' : v === 'inbox' ? 'You’ll see a reminder on Today.' : 'You’ll get an email too.')} className={`${btn} flex-auto whitespace-nowrap px-3`}
+        style={(d.remind || 'inbox') === v ? { background: INK, color: '#fff' } : { background: '#fff', color: INK, border: `1px solid ${LINE}` }}>{label}</button>)}</div>
+      {!d.hasEmail && <p className="text-[12px]" style={{ color: MUTED }}>Your email isn’t on file with the business you rent from, so reminders show in your portal.</p>}
+    </section>
 
     <About key={JSON.stringify(s)} d={d} busy={busy === 'settings'} onSave={(x) => act('settings', { action: 'settings', ...x }, 'Saved.')} />
 

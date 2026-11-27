@@ -41,7 +41,7 @@ import { Chip, SectionTitle, fmtDate, fmtMoney, fmtTime, localISO } from '@/comp
 // "Needs you": rent due, things to sign or read, booking requests, repairs, answers. Each row opens the exact thing
 // (the page maps a row's kind to where it lives). Then today's appointments. Setup steps follow on the page.
 const NEEDS_ACTION: Record<string, string> = {
-  rent: 'Pay', document: 'Open', rules: 'Sign', notice: 'Read', message: 'Read', request: 'Review', prep: 'Open', ticket: 'See', concern: 'See', leave: 'See',
+  rent: 'Pay', document: 'Open', rules: 'Sign', notice: 'Read', message: 'Read', request: 'Review', prep: 'Open', ticket: 'See', concern: 'See', leave: 'See', taxes: 'See',
 };
 // refreshKey changes when they come back from a screen, so what they just did (read a notice, signed a document) leaves
 // the list. onBadges gets the server's dots by place, plus `k:<kind>` counts so a row can say what's waiting in it.

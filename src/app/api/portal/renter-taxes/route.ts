@@ -10,6 +10,7 @@
 //   settings { filing?, state?, other?, outside?, lastYearTax? } (dollars) → what they've said, kept
 //   pay      { date, amount, to: 'irs'|'state', forYear? } → a payment they made (until April 15, last year's too)
 //   unpay    { id, forYear? }                     → a payment taken off (until April 15, last year's too)
+//   remind   { channel: 'off'|'inbox'|'email' }   → reminders the week before each date (lib/renter-taxes-server)
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { renterSession } from '@/lib/renter-session';
@@ -18,7 +19,7 @@ import { renterEarned } from '@/lib/renter-earned';
 import { tripsOf, todayFor } from '@/lib/trip-log-server';
 import { limitByKey } from '@/lib/rate-limit';
 import { writeOffsByMonth, deskTipsByMonth, shopSalesByMonth } from '@/lib/renter-write-offs';
-import { planYearOf, cleanTaxSettings, cleanTaxPayment, tableFor, dueDay } from '@/lib/renter-taxes';
+import { planYearOf, cleanTaxSettings, cleanTaxPayment, tableFor, dueDay, remindChannelOf, REMIND_CHANNELS } from '@/lib/renter-taxes';
 import { payrollStateOf } from '@/lib/payroll-taxes';
 import { getStateProfile } from '@/lib/state-tax-profiles';
 
@@ -53,7 +54,8 @@ export async function POST(req: NextRequest) {
       for (const x of [...earned.visits, ...earned.packages]) { const m = String(x.date || '').slice(0, 7); if (m.slice(0, 4) === String(year)) earnedByMonth[m] = (earnedByMonth[m] || 0) + (Number(x.cents) || 0); }
       for (const [m, c] of [...Object.entries(deskTipsByMonth(ledger, year)), ...Object.entries(shopSalesByMonth(ledger, year))]) earnedByMonth[m] = (earnedByMonth[m] || 0) + c;
       const state = /^[A-Z]{2}$/.test(String(kept.state || '')) ? String(kept.state) : payrollStateOf(tenant) || '';
-      return reply({ ok: true, year, today, lastYearOpen: today <= dueDay(year, 4), table: { year: tableFor(year).year, stale: tableFor(year).stale },
+      const rem: any = (await db.doc(`${T}/private/renter_${rid}/taxes/reminders`).get()).data() || {};
+      return reply({ ok: true, year, today, lastYearOpen: today <= dueDay(year, 4), remind: remindChannelOf(rem.channel), hasEmail: String(r.email || '').includes('@'), table: { year: tableFor(year).year, stale: tableFor(year).stale },
         earnedByMonth, writeOffsByMonth: writeOffsByMonth(exp, pays, ledger, trips, year),
         settings: { filing: kept.filing || 'single', state, statePct: state ? getStateProfile(state).effectiveStateRate : 0, stateName: state ? getStateProfile(state).name : '', stateType: state ? getStateProfile(state).taxType : null,
           otherCents: Number(kept.otherCents) || 0, outsideCents: Number(kept.outsideCents) || 0, lastYearTaxCents: kept.lastYearTaxCents ?? null, lastYearHigh: kept.lastYearHigh === true },
@@ -67,6 +69,11 @@ export async function POST(req: NextRequest) {
     if (action === 'settings') {
       const c = cleanTaxSettings(b); if (!c.ok) return reply({ ok: false, error: c.error }, 400);
       await ref.set({ ...c.s, updatedAt: new Date().toISOString() }, { merge: true });
+      return reply({ ok: true });
+    }
+    if (action === 'remind') {
+      if (!(REMIND_CHANNELS as readonly string[]).includes(String(b.channel))) return reply({ ok: false, error: 'Something went wrong.' }, 400);
+      await db.doc(`${T}/private/renter_${rid}/taxes/reminders`).set({ channel: b.channel, updatedAt: new Date().toISOString() }, { merge: true });
       return reply({ ok: true });
     }
     if (action === 'pay') {

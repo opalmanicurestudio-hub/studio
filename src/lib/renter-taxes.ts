@@ -191,3 +191,20 @@ export function cleanTaxPayment(b: any, today: string): { ok: true; p: Omit<Paym
   if (b?.to !== 'irs' && b?.to !== 'state') return { ok: false, error: 'Say who you paid.' };
   return { ok: true, p: { date, cents, to: b.to } };
 }
+
+/** Reminders before each date: off, a line in the portal's Today (the default), or an email too. */
+export const REMIND_CHANNELS = ['off', 'inbox', 'email'] as const;
+export type RemindChannel = (typeof REMIND_CHANNELS)[number];
+export const remindChannelOf = (v: unknown): RemindChannel => ((REMIND_CHANNELS as readonly string[]).includes(String(v)) ? v as RemindChannel : 'inbox');
+
+const daysTo = (from: string, to: string) => Math.round((Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86400e3);
+/** The next payment date when it's `days` days away or fewer (today included), with the year it's toward; else null. */
+export function dueSoon(today: string, days = 7): { due: string; forYear: number; inDays: number } | null {
+  const y = Number(today.slice(0, 4));
+  for (const c of [{ due: dueDay(y, 1), forYear: y - 1 }, { due: dueDay(y, 4), forYear: y }, { due: dueDay(y, 6), forYear: y }, { due: dueDay(y, 9), forYear: y }, { due: dueDay(y + 1, 1), forYear: y }]) {
+    const n = daysTo(today, c.due); if (n >= 0 && n <= days) return { ...c, inDays: n };
+  }
+  return null;
+}
+/** They've paid the IRS toward a date already: a payment in the 45 days up to it. */
+export const paidToward = (payments: Payment[] | undefined, due: string) => (payments || []).some((p) => p?.to === 'irs' && p.date <= due && daysTo(p.date, due) <= 45);

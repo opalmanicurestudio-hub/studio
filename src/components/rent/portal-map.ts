@@ -105,6 +105,7 @@ export function setupRows(w: Who): RowGroupSpec[] {
 export const NEEDS_TARGET: Record<string, [PortalTab, string | null]> = {
   rent: ['money', null], notice: ['space', 'notices'], message: ['space', 'notices'], document: ['space', 'lease'], rules: ['space', 'rules'],
   ticket: ['space', 'repairs'], concern: ['space', 'concerns'], leave: ['space', 'away'], space_tools: ['space', 'tools'], request: ['calendar', null], prep: ['calendar', null], appointment: ['calendar', null],
+  taxes: ['money', 'taxes'],
 };
 /** Where a Today row goes for this renter: its own screen when they can open it, else its place, else Today. */
 export function needsTarget(kind: string | undefined, tab: string | undefined, w: Who): { tab: PortalTab; view: string | null } {
