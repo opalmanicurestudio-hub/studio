@@ -4,12 +4,13 @@
 // proof: business miles (api/mileage, lib/trip-log), then what the year's lines show (api/writeoffs, lib/write-offs):
 // meals counted by kind, classes, for the owner purchases on a personal account from places the business books costs
 // from (for the business, or personal), equipment for the accountant; what's left to finish (who and why for a meal, a
-// receipt for $75 or more, how many people a gift was for); and what's often missed and isn't in the books, asked once
-// a year. All of it prints for the accountant.
+// receipt for $75 or more, how many people a gift was for); the tip credit (Form 8846, from the paydays: lib/tip-credit)
+// and stock written off; usual costs with nothing booked; and what's often missed and isn't in the books, asked once a
+// year. All of it prints for the accountant.
 import * as React from 'react';
 import { getAuth } from 'firebase/auth';
 import { milesText } from '@/lib/trip-log';
-import { CHECKLIST, MEAL_ASKS, MEAL_KINDS, writeOffsBodyHtml, type Found, type Line, type MealKind } from '@/lib/write-offs';
+import { CHECKLIST, MEAL_ASKS, MEAL_KINDS, USUAL_COSTS, writeOffsBodyHtml, type Extras, type Found, type Line, type MealKind } from '@/lib/write-offs';
 import { printPage } from '@/lib/print-style';
 import { ImageUpload } from '@/components/shared/ImageUpload';
 
@@ -47,7 +48,7 @@ export function MilesWriteOff({ data, canLog, err }: { data: Miles | null; canLo
   );
 }
 
-type W = { year: number; years: number[]; found: Found; checklist: Record<string, string>; owner: boolean; partial?: boolean };
+type W = { year: number; years: number[]; found: Found; checklist: Record<string, string>; owner: boolean; partial?: boolean } & Extras;
 const md = (day: string) => new Date(`${day}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 const field = `h-11 w-full rounded-xl border bg-[#fff] px-3 text-[15px] ${RING}`;
 
@@ -109,7 +110,7 @@ export function WriteOffsScreen({ tenantId, canLog, business = '', actor }: { te
   const print = () => {
     if (!w) return; const win = window.open('', '_blank'); if (!win) { setErr('Your browser blocked the new window. Allow pop-ups for ClarityFlow and try again.'); return; }
     const m = miles && miles.year === w.year ? { tenths: miles.summary.businessTenths, cents: miles.summary.amountCents, rate: miles.summary.rate.label, trips: miles.summary.trips } : null;
-    win.document.write(printPage({ title: `${w.year} write-offs`, heading: `${w.year} <b>write-offs</b>`, shopName: business, subtitle: 'Found in ClarityFlow, for your accountant.', body: writeOffsBodyHtml(w.found, m, w.checklist), footNote: 'Meals, gifts and equipment are from the books; miles from the mileage log. Your accountant decides what goes on the return.' }));
+    win.document.write(printPage({ title: `${w.year} write-offs`, heading: `${w.year} <b>write-offs</b>`, shopName: business, subtitle: 'Found in ClarityFlow, for your accountant.', body: writeOffsBodyHtml(w.found, m, w.checklist, { tipCredit: w.tipCredit, stockLoss: w.stockLoss, missing: w.missing }), footNote: 'Meals, gifts and equipment are from the books; miles from the mileage log; the tip credit from the paydays recorded; stock from Inventory. Your accountant decides what goes on the return.' }));
     win.document.close();
   };
 
@@ -148,7 +149,11 @@ export function WriteOffsScreen({ tenantId, canLog, business = '', actor }: { te
           {f.equipment.map((e) => <Row key={e.id} title={`Equipment over $2,500: ${e.title}`} sub={`${md(e.day)}. Your accountant chooses whether it’s written off this year or over several.`} value={usd(e.cents)}>
             <button type="button" aria-pressed={!!e.forAccountant} disabled={!!busy} onClick={() => act(`e_${e.id}`, '/api/writeoffs', { action: 'note', id: e.id, on: !e.forAccountant }, e.forAccountant ? 'Unmarked.' : 'Marked for your accountant.')} className={btn} style={e.forAccountant ? { background: INK, color: '#fff' } : { background: '#fff', color: INK, border: `1px solid ${LINE}` }}>{e.forAccountant ? 'Marked for accountant' : 'Mark for accountant'}</button>
           </Row>)}
-          {!f.meals.lines.length && !f.education.count && !f.gifts.lines.length && !f.personal.length && !f.equipment.length && <p className="py-3 text-[14px]" style={{ color: MUTED, borderTop: `1px solid ${LINE}` }}>Nothing yet for {w!.year}. Meals, gifts, classes and equipment show here as they’re booked.</p>}
+          {w!.tipCredit && w!.tipCredit.creditCents > 0 && <Row title="Tip credit (Form 8846), an estimate" value={usd(w!.tipCredit.creditCents)}
+            sub={`The employer’s 7.65% for Social Security and Medicare (1.45% past the Social Security wage base) on the tips your employees reported (${usd(w!.tipCredit.tipsCents)}), above what tops their pay up to $${w!.tipCredit.minWage.toFixed(2)} an hour, comes back as a credit off the tax itself.${w!.tipCredit.medspa ? ' Tips on medical treatments don’t count, only on esthetics and spa services.' : ''}${w!.tipCredit.noHours ? ` ${w!.tipCredit.noHours} payday${w!.tipCredit.noHours === 1 ? ' was' : 's were'} recorded before hours were kept, so every tip there counts: this is the most it could be.` : ''}${w!.tipCredit.priorLeftOut ? ' Tips paid before ClarityFlow this year aren’t in it.' : ''} Your accountant claims it, and takes the same amount off the payroll tax deduction.`} />}
+          {w!.stockLoss && (w!.stockLoss.bookedCents > 0 || w!.stockLoss.unbooked > 0) && <Row title="Stock written off" value={w!.stockLoss.bookedCents > 0 ? usd(w!.stockLoss.bookedCents) : undefined}
+            sub={`${w!.stockLoss.bookedCents > 0 ? 'Written off in Inventory and booked then as Spoilage, with cost of goods sold, so it counts already.' : ''}${w!.stockLoss.unbooked > 0 ? `${w!.stockLoss.bookedCents > 0 ? ' ' : ''}${w!.stockLoss.unbooked} more ${w!.stockLoss.unbooked === 1 ? 'was' : 'were'} thrown out or used up early and taken off stock without a line of ${w!.stockLoss.unbooked === 1 ? 'its' : 'their'} own: a year-end inventory count picks ${w!.stockLoss.unbooked === 1 ? 'it' : 'them'} up.` : ''}`} />}
+          {!f.meals.lines.length && !f.education.count && !f.gifts.lines.length && !f.personal.length && !f.equipment.length && !(w!.tipCredit?.creditCents) && !w!.stockLoss && <p className="py-3 text-[14px]" style={{ color: MUTED, borderTop: `1px solid ${LINE}` }}>Nothing yet for {w!.year}. Meals, gifts, classes and equipment show here as they’re booked.</p>}
         </section>
 
         <section aria-label="Finish these" className="min-w-0 flex-[1_1_340px] rounded-3xl bg-[#fff] px-5 pb-2 pt-4">
@@ -177,6 +182,13 @@ export function WriteOffsScreen({ tenantId, canLog, business = '', actor }: { te
       {canLog && w && <section aria-label="Often missed" className="flex flex-col gap-3 rounded-3xl bg-[#fff] p-5">
         <div className="max-w-[680px]"><h2 className="text-[18px] font-bold">Often missed: worth asking your accountant</h2>
           <p className="mt-1 text-[14px]" style={{ color: MUTED }}>These aren’t in your books, so ClarityFlow can’t find them for you. {w.owner ? 'Mark each one, and the ones to ask about print with the rest.' : 'The owner marks these.'}</p></div>
+        {(w.missing || []).length > 0 && <div className="flex flex-col rounded-2xl px-4 pb-1 pt-3" style={{ background: SOFT }}>
+          <span className="text-[15px] font-semibold">Nothing in your books yet for {w.year}</span>
+          {USUAL_COSTS.filter((u) => (w.missing || []).includes(u.id)).map((u) => <div key={u.id} className="py-2.5" style={{ borderTop: `1px solid ${LINE}` }}>
+            <span className="block text-[14px] font-semibold">{u.title}</span><span className="block text-[13px]" style={{ color: MUTED }}>{u.text}</span>
+          </div>)}
+          <a href="/money?tab=ledger" className={`${btn} mb-3 mt-1 self-start`} style={{ background: '#fff', color: INK, border: `1px solid ${LINE}` }}>Add one in Books</a>
+        </div>}
         <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
           {CHECKLIST.map((c) => { const v = w.checklist[c.id] || null; return <div key={c.id} className="flex flex-col gap-2.5 rounded-2xl p-4" style={{ border: `1px solid ${LINE}` }}>
             <span className="text-[15px] font-semibold">{c.title}</span><span className="text-[14px]" style={{ color: MUTED }}>{c.text}</span>

@@ -21,7 +21,7 @@ const db = makeDb(); let actor: any = { id: 'u1', name: 'Jess', isTenantOwner: t
 const M: any = Module as any; const load = M._load;
 M._load = function (request: string, ...rest: any[]) {
   if (request === '@/lib/firebase-admin') return { getAdminDb: () => db };
-  if (request === '@/lib/route-guard') return { requireCan: async () => ({ actor, tenant: { timezone: 'America/New_York' } }) };
+  if (request === '@/lib/route-guard') return { requireCan: async () => ({ actor, tenant: { timezone: 'America/New_York', niche: 'nails' } }) };
   if (request === '@/lib/inspo-photos') return { ourBuckets: async () => ['cf-app.firebasestorage.app'] };
   if (request === '@/lib/audit') return { logAuditAdmin: async (_d: any, _t: any, e: any) => { audits.push(e); } };
   if (request === 'next/server') return { NextResponse: { json: (body: any, init?: any) => ({ status: init?.status || 200, body }) } };
@@ -78,6 +78,9 @@ const ex2 = (id: string, category: string, amount: number, extra: any = {}) => e
   check('personal purchases: a store or restaurant anyone might use is never asked about', everydayPurchase({ plaidCategory: 'FOOD_AND_DRINK' }) && everydayPurchase({ plaidCategory: 'GENERAL_MERCHANDISE', plaidDetailed: 'GENERAL_MERCHANDISE_SUPERSTORES' }) && everydayPurchase({ plaidDetailed: 'TRANSPORTATION_GAS' })
     && !everydayPurchase({ plaidCategory: 'GENERAL_MERCHANDISE', plaidDetailed: 'GENERAL_MERCHANDISE_OTHER_GENERAL_MERCHANDISE' }) && !everydayPurchase({}));
   const html = writeOffsBodyHtml(f, { tenths: 12840, cents: 93090, rate: '72.5¢', trips: 64 }, { homeOffice: 'ask', phone: 'no' });
+  const html2 = writeOffsBodyHtml(f, null, {}, { tipCredit: { creditCents: 3060, tipsCents: 40000, minWage: 7.25, paydays: 1, noHours: 0 }, stockLoss: { bookedCents: 4550, unbooked: 2 }, missing: ['licenses'] });
+  check('printed too: the tip credit as a credit, stock written off, and usual costs with nothing booked', /Tip credit \(Form 8846\), an estimate/.test(html2) && /\$30\.60/.test(html2) && /A credit, not a deduction/.test(html2)
+    && /Stock written off, booked as Spoilage/.test(html2) && /\$45\.50/.test(html2) && /counted already, not again/.test(html2) && /thrown out or used up early: 2 times/.test(html2) && /Nothing in the books this year for/.test(html2) && /Licenses and permits/.test(html2) && !/Insurance/.test(html2));
   check('printed for the accountant: miles, meals, gifts, classes, equipment, the ones to ask about, and what’s left', /\$930\.90/.test(html) && /Business meals/.test(html) && /Equipment: /.test(html) && /A home office/.test(html) && !/Your phone and internet/.test(html) && /Still to finish/.test(html));
 
   console.log('The tax summary');
@@ -123,18 +126,34 @@ const ex2 = (id: string, category: string, amount: number, extra: any = {}) => e
   await bank('pd', { merchant: 'Owner Bank' }); await bank('py', { merchant: 'Pay Co' });
   await bank('ps', { merchant: 'Lash Wholesale', status: 'created' }); await bank('pn', { merchant: 'Lash Wholesale', pending: true });
   await bank('bb', { context: 'Business', merchant: 'Beauty Supply #12' });
+  // (A payday with tips; stock written off this year and last; insurance booked, no licenses or accountant.)
+  await db.doc('tenants/t1/payrollRuns/payday_x').set({ kind: 'payday', payDate: `${year}-03-13`, people: [{ staffId: 'a', tips: 400, paid: 1600, hours: 80 }] });
+  await db.doc('tenants/t1/inventory/p1').set({ costPerUnit: 12.5 }); await db.doc('tenants/t1/inventory/p2').set({ costPerUnit: 4 });
+  await db.doc('tenants/t1/stockCorrections/s1').set({ type: 'spoiled', productId: 'p1', change: -3, reason: 'Write-off: Damaged', date: `${year}-04-01T12:00:00.000Z` });
+  await db.doc('tenants/t1/stockCorrections/s2').set({ type: 'spoiled', productId: 'p2', change: -2, reason: 'Thrown out: 2 of a batch, past its holding time', date: `${year}-04-02T12:00:00.000Z` });
+  await db.doc('tenants/t1/transactions/sp1').set(ex2('sp1', 'Spoilage', 37.5)); await db.doc('tenants/t1/transactions/sp0').set(ex('sp0', 'Spoilage', 99, { date: `${year - 1}-04-02T12:00:00.000Z` }));
+  await db.doc('tenants/t1/stockCorrections/s3').set({ type: 'spoiled', productId: 'p1', change: -10, date: `${year - 1}-04-02T12:00:00.000Z` });
+  await db.doc('tenants/t1/stockCorrections/s4').set({ type: 'counted', productId: 'p1', change: -5, date: `${year}-04-02T12:00:00.000Z` });
+  await db.doc('tenants/t1/transactions/ins').set(ex2('ins', 'Insurance', 640));
   const POST: (r: any) => Promise<any> = (await import('../../src/app/api/writeoffs/route')).POST as any;
   let r = await POST(req({ action: 'list' }));
+  check('“Add one in Books” opens Books', /href="\/money\?tab=ledger"/.test(src('src/components/money/WriteOffsScreen.tsx')));
   check('the year’s list: the meals to finish (one dated as a stored time; not one voided, even by a later void), the gift (not one taken back), the equipment; nothing from years ago',
     r.status === 200 && r.body.found.meals.needDetail.map((m: any) => m.id).sort().join() === 'm1,mt' && r.body.found.gifts.needPeople.map((g: any) => g.id).join() === 'g1' && r.body.found.equipment[0]?.id === 'e1' && !r.body.partial, r.body.found?.meals);
   check('a meal whose reversal was taken back is counted again, as said (personal)', r.body.found.meals.lines.some((m: any) => m.id === 'mb') && !r.body.found.meals.lines.some((m: any) => m.id === 'mv'));
   const route = src('src/app/api/writeoffs/route.ts');
   check('the read is the kinds looked at by category, then take-backs by what they take back: never every line in a stretch of dates', /col\.where\('category', 'in', KINDS\)/.test(route) && /\['reversalOf', 'voidOf'\]\.map\(\(f\) => col\.where\(f, 'in', ids\)/.test(route) && !/transactions`\)\.where\('date'/.test(route));
+  check('the tip credit, an estimate from the year’s paydays (nails count from 2025)', r.body.tipCredit?.creditCents === Math.round(400 * 0.0765 * 100) && r.body.tipCredit?.minWage === 7.25 && r.body.tipCredit?.paydays === 1, r.body.tipCredit);
+  check('stock written off this year: what Inventory booked as Spoilage (counted already), and how many times stock was thrown out or used up early with no line (not last year’s, not a count)', r.body.stockLoss?.bookedCents === 3750 && r.body.stockLoss?.unbooked === 1, r.body.stockLoss);
+  check('usual costs with nothing booked this year: licenses and the accountant, not insurance', (r.body.missing || []).join() === 'licenses,accountant', r.body.missing);
   check('personal purchases, unsorted, from places the business books costs from (not a superstore, a grocery, a draw, payroll, or a rule for personal costs)', r.body.found.personal.map((p: any) => p.id).join() === 'pl,pp', r.body.found?.personal);
   actor = { id: 'u2', name: 'Bookkeeper', role: 'manager', caps: ['money.manage'] };
   r = await POST(req({ action: 'list' }));
   const r2 = await POST(req({ action: 'personal', id: 'pp' }));
   check('someone else who keeps the books sees no personal-account purchases, and can’t answer them', r.status === 200 && r.body.found.personal.length === 0 && r.body.owner === false && r2.status === 403);
+  check('and no tip credit unless they run payroll', r.body.tipCredit === null && r.body.stockLoss?.bookedCents > 0);
+  actor = { id: 'u3', name: 'Payroll lead', role: 'manager', caps: ['money.manage', 'money.payroll'] };
+  check('someone who runs payroll sees the tip credit', (await POST(req({ action: 'list' }))).body.tipCredit?.creditCents > 0);
   actor = { id: 'u1', name: 'Jess', isTenantOwner: true };
   r = await POST(req({ action: 'personal', id: 'pp' }));
   const r3 = await POST(req({ action: 'personal', id: 'bb' }));

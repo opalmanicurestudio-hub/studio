@@ -1003,7 +1003,9 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
     const people = staffObligations.filter(o => o.amount > 0 || cashLineOf(o) > 0)
         .map(o => { const m = methodsNow[o.id]; return { staffId: o.id, name: o.name, amount: Math.round(o.amount * 100) / 100, cash: cashLineOf(o), contractor: !!o.contractor,
             ...(selfRunOn && m ? { method: m.method, ...(m.method === 'check' && m.checkNo ? { checkNo: m.checkNo } : {}) } : {}),
-            tips: Math.round(((Number(o.tips) || 0) + (Number(o.cashTips) || 0)) * 100) / 100 }; });
+            tips: Math.round(((Number(o.tips) || 0) + (Number(o.cashTips) || 0)) * 100) / 100,
+            // (Hours, when the time clock has them: the tip credit's minimum wage test, lib/tip-credit.)
+            ...(!o.noHours && Number(o.hours) > 0 ? { hours: Math.round(Number(o.hours) * 100) / 100 } : {}) }; });
     const setAsides = suggestions.filter(b => b.amount > 0 && b.key !== 'opex').map(b => ({ key: b.key, label: b.label, amount: Number(b.amount.toFixed(2)) }));
     if (!people.length && !setAsides.length) return;
     setIsSubmitting(true);

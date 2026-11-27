@@ -164,20 +164,56 @@ export function receiptUrlOk(url: unknown, tenantId: string, buckets: string[]):
   } catch { return false; }
 }
 
+/** Costs most businesses pay each year that are easy to pay personally and never book: none in the books for the year
+ *  is worth a look (asked on the Write-offs tab, printed for the accountant). */
+export const USUAL_COSTS = [
+  { id: 'insurance', category: 'Insurance', title: 'Insurance', text: 'Liability, property or workers’ comp. Paid it from a personal account? Add it in Books so it counts.' },
+  { id: 'licenses', category: 'Licenses & Permits', title: 'Licenses and permits', text: 'The business license, and your own professional license renewals too.' },
+  { id: 'accountant', category: 'Professional Services', title: 'Your accountant', text: 'Last year’s tax preparation, bookkeeping or legal help, paid this year, counts this year.' },
+] as const;
+export type UsualCost = (typeof USUAL_COSTS)[number]['id'];
+
+/** Which usual costs have no business line in `year` (`lines`: the business's lines in those categories, any year). */
+export function missingUsual(lines: any[], year: number): UsualCost[] {
+  const had = new Set(lines.filter((t) => isExpense(t) && dayOf(t.date).slice(0, 4) === String(year)).map((t) => cat(t)));
+  return USUAL_COSTS.filter((u) => !had.has(u.category)).map((u) => u.id);
+}
+
+/** Stock written off in the year. What Inventory writes off is booked then as a Spoilage cost (cost of goods sold), so
+ *  it counts already: `bookedCents` is those lines (`lines`: the business's Spoilage lines, any year). What the kitchen or
+ *  bar throws out, or a product used up early, is taken off stock with no line of its own (tenants/{t}/stockCorrections, type 'spoiled', not an
+ *  Inventory write-off): `unbooked` is how many, for a year-end inventory count to pick up. */
+export function stockLossOf(lines: any[], entries: any[], year: number): { bookedCents: number; unbooked: number } {
+  const bookedCents = lines.filter((t) => isExpense(t) && cat(t) === 'Spoilage' && dayOf(t.date).slice(0, 4) === String(year)).reduce((a, t) => a + centsOf(t), 0);
+  const unbooked = entries.filter((e) => String(e?.type || '') === 'spoiled' && String(e?.field || 'totalStock') === 'totalStock' && Number(e?.change) < 0
+    && dayOf(e?.date).slice(0, 4) === String(year) && !/^Write-off/.test(String(e?.reason || ''))).length;
+  return { bookedCents, unbooked };
+}
+
+/** What else the year shows, printed with the rest: the tip credit (lib/tip-credit), stock written off, and usual costs
+ *  with nothing booked. */
+export type Extras = { tipCredit?: { creditCents: number; tipsCents: number; minWage: number; paydays: number; noHours: number; medspa?: boolean; priorLeftOut?: boolean } | null;
+  stockLoss?: { bookedCents: number; unbooked: number } | null; missing?: UsualCost[] };
+
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' } as any)[c]);
 const usd = (c: number) => `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 /** The year's write-offs for the accountant (lib/print-style printPage wraps it). */
-export function writeOffsBodyHtml(f: Found, miles: { tenths: number; cents: number; rate: string; trips: number } | null, checklist: Record<string, string>): string {
+export function writeOffsBodyHtml(f: Found, miles: { tenths: number; cents: number; rate: string; trips: number } | null, checklist: Record<string, string>, x: Extras = {}): string {
   const row = (k: string, v: string, sub = '') => `<tr><td>${esc(k)}${sub ? `<div class="sub">${esc(sub)}</div>` : ''}</td><td class="num">${esc(v)}</td></tr>`;
-  const asks = CHECKLIST.filter((c) => checklist[c.id] === 'ask');
+  const asks = CHECKLIST.filter((c) => checklist[c.id] === 'ask'); const tc = x.tipCredit; const sl = x.stockLoss;
+  const missing = USUAL_COSTS.filter((u) => (x.missing || []).includes(u.id));
   return `<table class="t"><tbody>
 ${miles ? row('Business miles', usd(miles.cents), `${(miles.tenths / 10).toLocaleString('en-US')} miles in ${miles.trips} trips at ${miles.rate} a mile, from the mileage log`) : ''}
 ${row('Business meals', usd(f.meals.counts), `${usd(f.meals.spent)} spent; half of business meals and meals on work trips counts, all of parties for employees, none of entertainment`)}
 ${f.gifts.lines.length ? row('Business gifts', usd(f.gifts.counts), `${usd(f.gifts.spent)} spent; up to $25 a person a year counts, worked out here gift by gift, so if someone got more than one this year, cap them at $25 in all`) : ''}
 ${f.education.count ? row('Classes and education', usd(f.education.cents), `${f.education.count} line${f.education.count === 1 ? '' : 's'}`) : ''}
 ${f.equipment.map((e) => row(`Equipment: ${e.title}`, usd(e.cents), `${e.day}. Written off this year or over several: your choice`)).join('\n')}
+${tc && tc.creditCents > 0 ? row('Tip credit (Form 8846), an estimate', usd(tc.creditCents), `7.65% (1.45% past the Social Security wage base) of the employees’ reported tips above what tops their pay up to $${tc.minWage.toFixed(2)} an hour, from ${tc.paydays} payday${tc.paydays === 1 ? '' : 's'} (${usd(tc.tipsCents)} in tips)${tc.noHours ? `; ${tc.noHours} without hours, so every tip counted` : ''}${tc.medspa ? '; tips on medical treatments don’t count, only on esthetics and spa services' : ''}${tc.priorLeftOut ? '; tips paid before ClarityFlow this year aren’t in it' : ''}. A credit, not a deduction: the same amount comes off the payroll tax deduction`) : ''}
+${sl && sl.bookedCents > 0 ? row('Stock written off, booked as Spoilage', usd(sl.bookedCents), 'Written off in Inventory and booked then, with cost of goods sold: counted already, not again') : ''}
+${sl && sl.unbooked > 0 ? row(`Stock thrown out or used up early: ${sl.unbooked} time${sl.unbooked === 1 ? '' : 's'}`, '', 'Taken off stock with no line of its own: a year-end inventory count picks it up') : ''}
 </tbody></table>
+${missing.length ? `<h2>Nothing in the books this year for</h2><ul>${missing.map((u) => `<li><b>${esc(u.title)}</b>: ${esc(u.text)}</li>`).join('')}</ul>` : ''}
 ${asks.length ? `<h2>To ask about</h2><ul>${asks.map((c) => `<li><b>${esc(c.title)}</b>: ${esc(c.text)}</li>`).join('')}</ul>` : ''}
 ${f.toFinish ? `<p class="sub">Still to finish in ClarityFlow: ${f.meals.needDetail.length} meal${f.meals.needDetail.length === 1 ? '' : 's'} without the details the IRS asks for, ${f.receipts.length} cost${f.receipts.length === 1 ? '' : 's'} of $75 or more without a receipt, ${f.gifts.needPeople.length} gift${f.gifts.needPeople.length === 1 ? '' : 's'} without how many people.</p>` : ''}`;
 }

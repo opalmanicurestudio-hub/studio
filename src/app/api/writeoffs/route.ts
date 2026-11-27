@@ -2,8 +2,9 @@
 // For anyone who keeps the books (money.manage). POST { tenantId, action }:
 //   list     { year? }                     → what the year's lines show (meals, receipts, gifts, equipment, classes;
 //                                            for the owner, personal-account purchases from places the business books
-//                                            costs from) and the often-missed answers; `partial` when there were more
-//                                            lines than are read at once
+//                                            costs from), the tip credit (owner or payroll: lib/tip-credit), stock
+//                                            written off, usual costs with nothing booked, and the often-missed answers;
+//                                            `partial` when there were more lines than are read at once
 //   meal     { id, kind, who?, why? }      → a meal's kind, and what that kind asks for (lib/write-offs MEAL_ASKS)
 //   gift     { id, people }                → how many people a gift was for
 //   receipt  { id, url }                   → a receipt photo kept with a line (the business's own storage only)
@@ -22,7 +23,9 @@ import { tenantTimeZone, todayIn } from '@/lib/tenant-time';
 import { vendorKey } from '@/lib/plaid-sync';
 import { inClosedMonth, monthName } from '@/lib/books-close';
 import { ourBuckets } from '@/lib/inspo-photos';
-import { CHECKLIST, EQUIPMENT_AT_CENTS, cleanMeal, dayOf, everydayPurchase, findWriteOffs, isGift, isMeal, receiptUrlOk, type PersonalLine } from '@/lib/write-offs';
+import { tipCreditEstimate, tipCreditKind } from '@/lib/tip-credit';
+import { nicheOf } from '@/lib/niche';
+import { CHECKLIST, EQUIPMENT_AT_CENTS, USUAL_COSTS, cleanMeal, dayOf, everydayPurchase, findWriteOffs, missingUsual, stockLossOf, isGift, isMeal, receiptUrlOk, type PersonalLine } from '@/lib/write-offs';
 import { canonicalCategory, scheduleCFor } from '@/lib/categories';
 export const dynamic = 'force-dynamic';
 
@@ -85,7 +88,30 @@ export async function POST(req: NextRequest) {
             .sort((p: PersonalLine, q: PersonalLine) => q.day.localeCompare(p.day)).slice(0, 50);
         }
       }
+      // (What else the year shows. The tip credit is from the paydays, so only for the owner and anyone who runs payroll;
+      // stock written off, from Inventory, at cost; usual costs with nothing booked.)
+      const seesPay = !!a.isTenantOwner || (Array.isArray(a.caps) && a.caps.includes('money.payroll'));
+      const kind = tipCreditKind(tenant);
+      const none = { docs: [] as any[] }; const runsCol = db.collection(`tenants/${tenantId}/payrollRuns`); const mask = ['type', 'context', 'category', 'date', 'amount', 'amountCents', 'reversalOf', 'reversedBy', 'removed'];
+      const [byPayDate, byTo, prior, spoiled, usual, spoilage] = await Promise.all([
+        // (Paydays by the day they're paid; older ones, kept before that, by their last day. Pay from before ClarityFlow
+        // this year counts toward each person's Social Security wages.)
+        seesPay && kind ? runsCol.where('payDate', '>=', `${year}-01-01`).where('payDate', '<', `${year + 1}-01-01`).get().catch(() => none) : none,
+        seesPay && kind ? runsCol.where('to', '>=', `${year}-01-01`).where('to', '<', `${year + 1}-01-01`).get().catch(() => none) : none,
+        seesPay && kind ? runsCol.where('kind', '==', 'prior').get().catch(() => none) : none,
+        db.collection(`tenants/${tenantId}/stockCorrections`).where('type', '==', 'spoiled').limit(KINDS_READ).get().catch(() => none),
+        col.where('category', 'in', USUAL_COSTS.map((u) => u.category)).select(...mask).limit(KINDS_READ).get().catch(() => none),
+        col.where('category', '==', 'Spoilage').select(...mask).limit(KINDS_READ).get().catch(() => none),
+      ]);
+      const runs = new Map<string, any>(); for (const d of [...byPayDate.docs, ...byTo.docs, ...prior.docs]) runs.set(d.id, d.data() || {});
+      const tc = seesPay ? tipCreditEstimate([...runs.values()], year, kind) : null;
+      const loss = stockLossOf(spoilage.docs.map((d: any) => ({ ...(d.data() || {}), id: d.id })), spoiled.docs.map((d: any) => d.data() || {}), year);
       return reply({ ok: true, year, years: [thisYear, thisYear - 1], found: findWriteOffs(lines, year, personal), checklist: kept.checklist?.[String(year)] || {}, owner: !!a.isTenantOwner,
+        tipCredit: tc && tc.tipsCents > 0 ? { creditCents: tc.creditCents, tipsCents: tc.tipsCents, minWage: tc.minWage, paydays: tc.paydays, noHours: tc.noHours, kind: tc.kind,
+          ...(nicheOf(tenant) === 'medspa' ? { medspa: true } : {}), ...(tc.priorTips ? { priorLeftOut: true } : {}) } : null,
+        stockLoss: loss.bookedCents > 0 || loss.unbooked > 0 ? loss : null,
+        // (Not said when there were more lines than are read at once: one of this year's may be among those left.)
+        missing: usual.docs.length >= KINDS_READ ? [] : missingUsual(usual.docs.map((d: any) => ({ ...(d.data() || {}), id: d.id })), year),
         ...(kinds.docs.length >= KINDS_READ ? { partial: true } : {}) });
     }
 
