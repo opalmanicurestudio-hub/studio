@@ -10,6 +10,8 @@ import { CancellationReview } from '@/components/settings/CancellationReview';
 import { moduleEnabled, MODULES, SETTINGS_TAB_MODULE } from '@/lib/modules';
 import { Section, Row, Toggle, Choice, More, cfInput, cfInputStyle, toPicker, fromPicker } from '@/components/settings/settings-ui';
 import { runByOf, payrollStateOf } from '@/lib/payroll-taxes';
+import { todayIn } from '@/lib/pay-periods';
+import { PriorPayRow } from '@/components/settings/PriorPayRow';
 import { NO_WAGE_TAX, BUILT_IN_STATES, suiOf, TABLES_YEAR } from '@/lib/withholding';
 import { stateSpec } from '@/lib/state-payroll';
 import { getStateProfile, STATE_OPTIONS } from '@/lib/state-tax-profiles';
@@ -1008,6 +1010,7 @@ function SettingsPageImpl() {
                   <Row label="Who works out the taxes" help={HOW[runBy]}>
                     <Choice label="Who works out the taxes" value={runBy} options={[{ value: 'clarityflow', label: 'ClarityFlow' }, { value: 'gusto', label: 'Gusto' }, { value: 'company', label: 'Another payroll company' }]} onChange={(v) => set({ runBy: v })} />
                   </Row>
+                  {runBy === 'clarityflow' && tenantId && <PriorPayRow tenantId={tenantId} state={st} today={todayIn(tenantData)} />}
                 </Section>
                 {runBy === 'clarityflow' && (<>
                 <Section title="Payroll taxes">

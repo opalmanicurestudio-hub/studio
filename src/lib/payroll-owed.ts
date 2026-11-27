@@ -12,8 +12,10 @@
 // settles it (`covers`), a cent or a dollar either way; a payday recorded later that adds to it leaves the rest to pay.
 // And the numbers for the quarter's forms, line by line: Form 941, NC-5 and
 // NCUI 101 (each person's wages, never a Social Security number: those go on the form itself).
-import { payDateOf, afterQuarter, quarterWords, setupOf, payrollStateOf, stateFilingOf, businessDaysAfter } from './payroll-taxes';
+import { payDateOf, afterQuarter, quarterWords, setupOf, payrollStateOf, stateFilingOf, businessDaysAfter, dueDates } from './payroll-taxes';
 import { stateSpec } from './state-payroll';
+import { tablesFor, suiOf } from './withholding';
+import { priorOf, priorQuarterPart, priorQuarter } from './payroll-prior';
 
 export type Agency = 'irs' | 'state' | 'sui' | 'futa' | 'other';
 export type TaxPayment = { key: string; amount: number; paidOn: string; bankTransactionId?: string | null; recordedAt?: string;
@@ -40,6 +42,15 @@ const qOf = (d: string) => Math.floor((Number(d.slice(5, 7)) - 1) / 3);
 const qKey = (d: string) => `${d.slice(0, 4)}q${qOf(d) + 1}`;
 const quarterEnd = (d: string) => { const y = Number(d.slice(0, 4)), q = qOf(d); return new Date(Date.UTC(y, q * 3 + 3, 0, 12)).toISOString().slice(0, 10); };
 const monthEnd = (d: string) => new Date(Date.UTC(Number(d.slice(0, 4)), Number(d.slice(5, 7)), 0, 12)).toISOString().slice(0, 10);
+
+/** State unemployment on the old payroll's part of the quarter it stopped in (lib/payroll-prior): each person's wages
+ *  up to the year's limit, less what was paid before that quarter began, at the business's rate. */
+function priorSui(pr: any, tenant: any) {
+  if (!pr) return null; const at = priorQuarter(pr); const pp = priorQuarterPart(pr, at.year, at.q, tablesFor(at.year).t.ss.base); if (!pp) return null;
+  const sui = suiOf(payrollStateOf(tenant), setupOf(tenant), at.year);
+  const rows = pp.rows.filter((x) => x.wages > 0).map((x) => ({ ...x, taxable: sui.base == null ? x.wages : r2(Math.min(x.wages, Math.max(0, sui.base - x.before))) }));
+  return { year: at.year, q: at.q, through: String(pr.lastPayDate), rows, due: r2(rows.reduce((n, x) => n + x.taxable * sui.rate / 100, 0)), paid: pr.suiPaid === true };
+}
 
 /** The paydays recorded with their taxes worked out here. */
 export const taxedRuns = (runs: any[]) => (runs || []).filter((r) => r?.kind === 'payday' && r.taxes?.owed && r.runBy === 'clarityflow');
@@ -108,6 +119,21 @@ export function owedItems(runs: any[], tenant: any, today: string, stateName = '
   }
   for (const [qk, a] of acc) { const last = nyQueue.filter((x) => qKey(x.d) === qk).pop()!;
     for (const pt of a.parts) put(`state_${qk}`, 'state', `${last.tax}, ${quarterWords(last.d)}, with the NYS-45`, afterQuarter(last.d), pt.amount, pt.k, today <= quarterEnd(last.d)); }
+  // The old payroll's part of the quarter it stopped in (lib/payroll-prior):
+  //   - its state unemployment is paid with that quarter's wage report, so it's in that quarter's, unless it paid it;
+  //   - what it owed the IRS and the state for its part but didn't deposit is still owed, due when it was;
+  //   - its federal unemployment not paid yet counts toward the year's $500.
+  for (const pr of (runs || []).filter((r) => r?.kind === 'prior' && Array.isArray(r.people))) {
+    const at = priorQuarter(pr); const qEndDay = new Date(Date.UTC(at.year, at.q * 3, 0, 12)).toISOString().slice(0, 10); const pk = `prior_${at.year}`;
+    const ps = priorSui(pr, tenant);
+    if (ps && !ps.paid && ps.due > 0) { const key = `sui_${ps.year}q${ps.q}`; put(key, 'sui', groups.get(key)?.name || `${stateName} unemployment, ${quarterWords(qEndDay)}`, afterQuarter(qEndDay), ps.due, pk, today <= qEndDay); }
+    const pp = priorQuarterPart(pr, at.year, at.q, tablesFor(at.year).t.ss.base); const dd = dueDates(String(pr.lastPayDate), tenant);
+    if (pp && pp.owed - pp.deposited >= 0.01) put(`irs_${pk}`, 'irs', `IRS, what your old payroll didn’t deposit`, dd.irs || null, r2(pp.owed - pp.deposited), pk, false);
+    if (pp && pp.state - pp.stateDeposited >= 0.01) put(`state_${pk}`, 'state', `${stateName} income tax your old payroll didn’t pay`, dd.state || afterQuarter(qEndDay), r2(pp.state - pp.stateDeposited), pk, false);
+    const futaOwed = r2((pr.people as any[]).reduce((n, x) => n + Math.min(7000, Number(x?.wages) || 0) * 0.006, 0));
+    const unpaid = r2(Math.max(0, futaOwed - (Number(pr.futaPaid) || 0)));
+    if (unpaid > 0) { const fk = `${at.year}q${at.q}`; const f = futa.get(fk) || { amount: 0, paydays: [] }; f.amount = r2(f.amount + unpaid); f.paydays.push(pk); futa.set(fk, f); }
+  }
   // Federal unemployment: paid for a quarter once the year's unpaid total passes $500; otherwise it carries over to the
   // next, and the fourth quarter's is paid with Form 940. A quarter still going shows what's built up so far.
   for (const year of [...new Set([...futa.keys()].map((k) => k.slice(0, 4)))].sort()) {
@@ -136,27 +162,38 @@ const peopleOf = (runs: any[], tenant: any, year: number, q: number) => taxedRun
   .flatMap((r) => (r.people || []).filter((p: any) => p.taxes && !p.contractor).map((p: any) => ({ run: r, p, d: payDateOf(r, tenant) })));
 
 /** Form 941 for a quarter, line by line, from the paydays paid in it. */
-export function form941(runs: any[], tenant: any, year: number, q: number, withPrior = true): { lines: FormLine[]; months: number[]; paydays: number; total: number } {
+export function form941(runs: any[], tenant: any, year: number, q: number, withPrior = true): { lines: FormLine[]; months: number[]; paydays: number; total: number; prior: { through: string; deposited: number } | null;
+  /** The old payroll company files this quarter's returns (it's given these numbers for the paydays recorded here). */
+  oldFiles: boolean } {
   const rows = peopleOf(runs, tenant, year, q); const sum = (f: (x: any) => number) => r2(rows.reduce((n, x) => n + (f(x) || 0), 0));
+  // (The part of the quarter the old payroll paid, when it switched in this quarter: lib/payroll-prior. Deposited by it.)
+  const pr = priorOf(runs, year); const pp = priorQuarterPart(pr, year, q, tablesFor(year).t.ss.base);
   // Line 1: everyone paid for the pay period that includes the 12th of the quarter's last month, whenever it was paid.
   const m3 = String(q * 3).padStart(2, '0'); const twelfth = `${year}-${m3}-12`;
-  const onTheTwelfth = new Set(taxedRuns(runs).filter((r) => String(r.from || '') <= twelfth && twelfth <= String(r.to || ''))
-    .flatMap((r) => (r.people || []).filter((p: any) => p.taxes && !p.contractor && Number(p.taxes.gross) > 0).map((p: any) => p.staffId))).size;
+  const onTheTwelfth = new Set([...taxedRuns(runs).filter((r) => String(r.from || '') <= twelfth && twelfth <= String(r.to || ''))
+    .flatMap((r) => (r.people || []).filter((p: any) => p.taxes && !p.contractor && Number(p.taxes.gross) > 0).map((p: any) => p.staffId)),
+    ...(pp && pr && pr.lastPayDate >= twelfth ? pp.rows.filter((x) => x.wages > 0).map((x) => x.staffId) : [])]).size;
   const T = (x: any) => x.p.taxes; const n = (v: any) => Number(v) || 0;
-  const wages = sum((x) => n(T(x).wages?.federal)); const fed = sum((x) => n(T(x).employee?.federal));
-  const ssTips = sum((x) => Math.min(n(x.p.tips), n(T(x).wages?.socialSecurity)));
-  const ss = r2(sum((x) => n(T(x).wages?.socialSecurity)) - ssTips); const med = sum((x) => n(T(x).wages?.medicare));
+  const wages = r2(sum((x) => n(T(x).wages?.federal)) + (pp?.fedWages || 0)); const fed = r2(sum((x) => n(T(x).employee?.federal)) + (pp?.federal || 0));
+  const ssTips = r2(sum((x) => Math.min(n(x.p.tips), n(T(x).wages?.socialSecurity))) + (pp?.ssTips || 0));
+  const ss = r2(sum((x) => n(T(x).wages?.socialSecurity)) + (pp?.ssWages || 0) - ssTips); const med = r2(sum((x) => n(T(x).wages?.medicare)) + (pp?.medWages || 0));
   // (A payday kept before the wages were kept with it: worked back from the tax.)
-  const addlWages = sum((x) => (T(x).wages?.additionalMedicare != null ? n(T(x).wages.additionalMedicare) : n(T(x).employee?.additionalMedicare) / 0.009));
+  const addlWages = r2(sum((x) => (T(x).wages?.additionalMedicare != null ? n(T(x).wages.additionalMedicare) : n(T(x).employee?.additionalMedicare) / 0.009)) + (pp?.addlWages || 0));
   const l5a = r2(ss * 0.124), l5b = r2(ssTips * 0.124), l5c = r2(med * 0.029), l5d = r2(addlWages * 0.009); const l5e = r2(l5a + l5b + l5c + l5d);
   const l6 = r2(fed + l5e);
-  const actual = sum((x) => n(T(x).employee?.socialSecurity) + n(T(x).short?.socialSecurity) + n(T(x).employer?.socialSecurity) + n(T(x).employee?.medicare) + n(T(x).employee?.additionalMedicare) + n(T(x).short?.medicare) + n(T(x).employer?.medicare));
+  const actual = r2(sum((x) => n(T(x).employee?.socialSecurity) + n(T(x).short?.socialSecurity) + n(T(x).employer?.socialSecurity) + n(T(x).employee?.medicare) + n(T(x).employee?.additionalMedicare) + n(T(x).short?.medicare) + n(T(x).employer?.medicare))
+    + (pp ? pp.ss + pp.medicare + pp.employer : 0));
   const l7 = r2(actual - l5e); const l9 = r2(-sum((x) => n(T(x).short?.socialSecurity) + n(T(x).short?.medicare)));
   const l10 = r2(l6 + l7 + l9);
   const paid = paymentsOf(runs); const items = owedItems(runs, tenant, '9999-12-31');
-  const l13 = r2(items.filter((i) => i.agency === 'irs' && i.paydays.some((k) => taxedRuns(runs).some((r) => String(r.periodKey) === k && inQuarter(payDateOf(r, tenant), year, q)))).reduce((s, i) => s + (paid[i.key]?.amount || 0), 0));
+  const l13 = r2(items.filter((i) => i.agency === 'irs' && i.paydays.some((k) => (pp && k === `prior_${year}`) || taxedRuns(runs).some((r) => String(r.periodKey) === k && inQuarter(payDateOf(r, tenant), year, q)))).reduce((s, i) => s + (paid[i.key]?.amount || 0), 0)
+    + (pp?.deposited || 0));
   const months = [0, 1, 2].map((i) => { const mm = String((q - 1) * 3 + i + 1).padStart(2, '0');
     return r2(taxedRuns(runs).filter((r) => payDateOf(r, tenant).slice(0, 7) === `${year}-${mm}`).reduce((s, r) => s + n(r.taxes.owed?.irs), 0)); });
+  // (The old payroll's part: all in the quarter's first month when it stopped then, else split by month from its reports.)
+  const lastM = pp && pr ? (Number(pr.lastPayDate.slice(5, 7)) - 1) % 3 : -1; const priorOwed = pp ? pp.owed : 0;
+  if (pp && lastM === 0) months[0] = r2(months[0] + priorOwed);
+  const priorWords = pp && pr && lastM > 0 ? `, plus $${priorOwed.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} your old payroll owed from ${MONTH[(q - 1) * 3]} to ${MONTH[(q - 1) * 3 + lastM]}: split it by month from its reports` : '';
   const money = (v: number) => `$${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   // Line 16: under $2,500 this quarter, or last quarter (when its paydays are here), no month by month; paying twice a
   // week, Schedule B, payday by payday; otherwise what was owed each month.
@@ -167,11 +204,12 @@ export function form941(runs: any[], tenant: any, year: number, q: number, withP
   const small = l10 < 2500 || (!!before && before.total < 2500);
   const setup = setupOf(tenant); const qRuns = taxedRuns(runs).filter((r) => inQuarter(payDateOf(r, tenant), year, q));
   const semi = qRuns.some((r) => (r.taxes.schedule?.irs || (setup.federalDeposits === 'semiweekly' ? 'semiweekly' : 'monthly')) === 'semiweekly');
-  const byDay = [...qRuns].sort((a, b) => payDateOf(a, tenant).localeCompare(payDateOf(b, tenant))).map((r) => `${dayWords(payDateOf(r, tenant))} ${money(n(r.taxes.owed?.irs))}`);
+  const byDay = [...(pp && pr ? [`your old payroll’s paydays through ${dayWords(pr.lastPayDate)} ${money(priorOwed)} (each payday’s is on its reports)`] : []),
+    ...[...qRuns].sort((a, b) => payDateOf(a, tenant).localeCompare(payDateOf(b, tenant))).map((r) => `${dayWords(payDateOf(r, tenant))} ${money(n(r.taxes.owed?.irs))}`)];
   const l16: FormLine = small
     ? { line: '16', label: 'Check the first box: no month-by-month amounts', detail: l10 < 2500 ? 'Under $2,500 this quarter.' : 'Under $2,500 last quarter.', amount: l10 }
     : semi ? { line: '16', label: 'Paid twice a week: check the third box and fill in Schedule B', detail: `What each payday owed: ${byDay.join(', ')}`, amount: l10 }
-    : { line: '16', label: 'Owed each month', detail: `${months.map((v, i) => `${MONTH[(q - 1) * 3 + i]} ${money(v)}`).join(', ')}${before ? '' : '. If last quarter’s Form 941 was under $2,500, check the first box instead'}`, amount: r2(months[0] + months[1] + months[2]) };
+    : { line: '16', label: 'Owed each month', detail: `${months.map((v, i) => `${MONTH[(q - 1) * 3 + i]} ${money(v)}`).join(', ')}${priorWords}${before ? '' : '. If last quarter’s Form 941 was under $2,500, check the first box instead'}`, amount: r2(months[0] + months[1] + months[2] + (lastM > 0 ? priorOwed : 0)) };
   const lines: FormLine[] = [
     { line: '1', label: `People paid for the pay period that includes ${MONTH[q * 3 - 1]} 12`, amount: onTheTwelfth, count: true },
     { line: '2', label: 'Wages, tips and other pay', amount: wages },
@@ -182,15 +220,16 @@ export function form941(runs: any[], tenant: any, year: number, q: number, withP
     ...(l5d ? [{ line: '5d', label: 'Wages for the extra Medicare tax', detail: `${money(r2(addlWages))} × 0.9%`, amount: l5d }] : []),
     { line: '5e', label: 'Social Security and Medicare in all', amount: l5e },
     { line: '6', label: 'Taxes before adjustments', amount: l6 },
-    { line: '7', label: 'Rounding (fractions of cents)', amount: l7 },
+    { line: '7', label: 'Rounding (fractions of cents)', ...(pp && Math.abs(l7) > 5 ? { detail: 'More than rounding: check your old payroll’s Social Security and Medicare against its report' } : {}), amount: l7 },
     ...(l9 ? [{ line: '9', label: 'Social Security and Medicare on tips that couldn’t be withheld', amount: l9 }] : []),
     { line: '10', label: 'Total taxes', amount: l10 },
     { line: '12', label: 'Total taxes after credits', amount: l10 },
-    { line: '13', label: 'Paid this quarter', amount: l13 },
+    { line: '13', label: 'Paid this quarter', ...(pp && pr ? { detail: `${money(pp.deposited)} of it deposited by your old payroll, through ${dayWords(pr.lastPayDate)}` } : {}), amount: l13 },
     { line: l10 >= l13 ? '14' : '15', label: l10 >= l13 ? 'Still to pay' : 'Paid more than owed', amount: r2(Math.abs(l10 - l13)) },
     l16,
   ];
-  return { lines, months, paydays: new Set(rows.map((x) => x.run.periodKey)).size, total: l10 };
+  const oldFiles = !!pr?.oldFiles && priorQuarter(pr).year === year && priorQuarter(pr).q === q;
+  return { lines, months, paydays: new Set(rows.map((x) => x.run.periodKey)).size, total: l10, prior: pp && pr ? { through: pr.lastPayDate, deposited: pp.deposited } : null, oldFiles };
 }
 
 /** North Carolina's NC-5 for the quarter: what was withheld each month, and paid. */
@@ -202,10 +241,14 @@ export function formStateWithholding(runs: any[], tenant: any, year: number, q: 
   const month = (i: number) => { const mm = String((q - 1) * 3 + i + 1).padStart(2, '0'); return taxedRuns(runs).filter((r) => payDateOf(r, tenant).slice(0, 7) === `${year}-${mm}`); };
   const lines: FormLine[] = [0, 1, 2].map((i) => ({ line: MONTH[(q - 1) * 3 + i], label: `${name} income tax withheld`, amount: r2(month(i).reduce((s, r) => s + (Number(r.taxes.owed?.state) || 0), 0)) }));
   const progLines: FormLine[] = wh.map((pg) => ({ line: pg.short || pg.name, label: `${pg.name} withheld`, amount: r2([0, 1, 2].flatMap(month).reduce((s, r) => s + (r.taxes.owed?.other || []).filter((x: any) => String(x.id).replace(/_er$/, '') === pg.id).reduce((n: number, x: any) => n + (Number(x.amount) || 0), 0), 0)) }));
+  // (The old payroll's part of the quarter, when it switched in it: withheld and paid by it. lib/payroll-prior.)
+  const pr = priorOf(runs, year); const pp = priorQuarterPart(pr, year, q, tablesFor(year).t.ss.base);
+  if (pp && pr && pp.state > 0) lines.unshift({ line: 'Earlier', label: `${name} income tax your old payroll withheld, through ${dayWords(pr.lastPayDate)}`, amount: pp.state });
   const total = r2(lines.reduce((s, l) => s + l.amount, 0));
-  const keys = new Set(taxedRuns(runs).filter((r) => inQuarter(payDateOf(r, tenant), year, q)).map((r) => String(r.periodKey)));
-  const paidQ = r2(items.filter((i) => i.paydays.some((k) => keys.has(k))).reduce((s, i) => s + (paid[i.key]?.amount || 0), 0));
-  return { lines: [...lines, { line: 'Quarter', label: 'Withheld in all', amount: total }, ...progLines, { line: 'Paid', label: `Paid with ${form}`, amount: paidQ }], total, form, name };
+  const keys = new Set([...taxedRuns(runs).filter((r) => inQuarter(payDateOf(r, tenant), year, q)).map((r) => String(r.periodKey)), ...(pp ? [`prior_${year}`] : [])]);
+  const paidQ = r2(items.filter((i) => i.paydays.some((k) => keys.has(k))).reduce((s, i) => s + (paid[i.key]?.amount || 0), 0) + (pp?.stateDeposited || 0));
+  return { lines: [...lines, { line: 'Quarter', label: 'Withheld in all', amount: total }, ...progLines,
+    { line: 'Paid', label: `Paid with ${form}`, ...(pp && pp.stateDeposited > 0 ? { detail: `$${pp.stateDeposited.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} of it paid by your old payroll` } : {}), amount: paidQ }], total, form, name };
 }
 /** North Carolina's NC-5 for the quarter (formStateWithholding, kept by its name). */
 export const formNC5 = formStateWithholding;
@@ -216,10 +259,17 @@ export function formStateWageReport(runs: any[], tenant: any, year: number, q: n
   const rows = peopleOf(runs, tenant, year, q); const by = new Map<string, { name: string; gross: number; taxable: number }>();
   for (const x of rows) { const cur = by.get(x.p.staffId) || { name: String(x.p.name || 'Team member'), gross: 0, taxable: 0 };
     cur.gross = r2(cur.gross + (Number(x.p.taxes.wages?.medicare) || 0)); cur.taxable = r2(cur.taxable + (Number(x.p.taxes.wages?.sui) || 0)); by.set(x.p.staffId, cur); }
+  // (The old payroll's part of the quarter, when it switched in it: on the report too, at the business's rate, and over
+  // the year's limit from what it paid before the quarter began. lib/payroll-prior.)
+  const ps0 = priorSui(priorOf(runs, year), tenant); const ps = ps0 && ps0.year === year && ps0.q === q ? ps0 : null; const priorDue = ps?.due || 0;
+  for (const x of ps?.rows || []) {
+    const cur = by.get(x.staffId) || { name: x.name, gross: 0, taxable: 0 };
+    cur.gross = r2(cur.gross + x.wages); cur.taxable = r2(cur.taxable + x.taxable); by.set(x.staffId, cur); }
   const people = [...by.values()].sort((a, b) => a.name.localeCompare(b.name)).map((p) => ({ ...p, excess: r2(p.gross - p.taxable) }));
-  const due = r2(rows.reduce((s, x) => s + (Number(x.p.taxes.employer?.sui) || 0), 0));
+  const due = r2(rows.reduce((s, x) => s + (Number(x.p.taxes.employer?.sui) || 0), 0) + priorDue);
   const t = (k: 'gross' | 'taxable' | 'excess') => r2(people.reduce((s, p) => s + p[k], 0));
-  return { people, totals: { gross: t('gross'), taxable: t('taxable'), excess: t('excess') }, due, form: stateSpec(payrollStateOf(tenant))?.sui.report || 'wage report' };
+  return { people, totals: { gross: t('gross'), taxable: t('taxable'), excess: t('excess') }, due, form: stateSpec(payrollStateOf(tenant))?.sui.report || 'wage report',
+    prior: ps ? { through: ps.through, due: priorDue, paid: ps.paid } : null };
 }
 export const formNCUI101 = formStateWageReport;
 

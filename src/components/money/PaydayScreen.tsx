@@ -227,6 +227,8 @@ export type PaydayScreenProps = {
   statementFor: string | null; onStatement: (id: string | null) => void; statement: (p: PayPerson) => React.ReactNode;
   /** All bills (the Bills tab); left out for someone who only runs payroll. */
   onSeeBills?: () => void;
+  /** Pay a bonus, or anything else between paydays (payroll run in ClarityFlow). */
+  onBonus?: () => void;
   now?: Date;
 };
 
@@ -374,6 +376,11 @@ export function PaydayScreen(p: PaydayScreenProps) {
       {self?.teamSizeMissing && <Note>Some of {self.stateName}’s paid leave programs depend on how many employees you have. Until you say, the people paid each payday are counted. <a href={self.payrollHref} className={`font-semibold underline underline-offset-2 ${RING}`}>Set it in Settings</a></Note>}
       {self?.suiMissing && <Note warn>{self.stateName} unemployment isn’t worked out yet: its rate for a new business depends on your industry. <a href={self.payrollHref} className={`font-semibold underline underline-offset-2 ${RING}`}>Put in the rate from your state’s letter</a></Note>}
       {contractors > 0 && <Note>Contractors aren’t on payroll: nothing is withheld for them, and no employer taxes are owed. Pay them directly, then record payday.{runBy !== 'clarityflow' ? ' If your payroll company pays them, book its withdrawal for them as Contract Labor.' : ''}</Note>}
+      {self && p.onBonus && <div className="mt-3 flex min-h-[56px] flex-wrap items-center justify-between gap-3 py-2" style={{ borderTop: `1px solid ${LINE}` }}>
+        <span className="min-w-0 flex-1"><span className="block">Pay between paydays</span>
+          <span className="block text-[13px]" style={{ color: MUTED }}>A holiday bonus, a last paycheck, or pay that was missed, taxed the way bonuses are.</span></span>
+        <button type="button" onClick={p.onBonus} className={`${btn} shrink-0`} style={plain}>Pay a bonus</button>
+      </div>}
       <div className="mt-3 flex min-h-[56px] items-center justify-between gap-3 py-2" style={{ borderTop: `1px solid ${LINE}` }}>
         <span className="min-w-0"><span className="block">A payroll draft each payday</span>
           <span className="block text-[13px]" style={{ color: MUTED }}>Put together when each pay period ends ({p.cadenceWords}), with a note to you. Nothing is paid until you approve it.</span></span>

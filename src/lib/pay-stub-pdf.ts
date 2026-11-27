@@ -71,6 +71,7 @@ export async function stubPdf(stub: Stub, business: { name: string; accent: stri
     if (tx.pretax > 0) row('Taken out before taxes', -tx.pretax, null);
     row(`Take-home pay${tx.method === 'check' && tx.checkNo ? `, check ${tx.checkNo}` : tx.method === 'cash' ? ', in cash' : tx.method === 'transfer' ? ', by bank transfer' : ''}`, tx.takeHome, tx.ytd.takeHome, true);
     if (tx.short > 0) { text(`${money(tx.short)} of the taxes couldn't be withheld: the pay was too small for them.`, M, y, { size: 8.5, color: MUTED }); y -= 14; }
+    if (tx.prior) { text(`This year includes your pay through ${new Date(`${tx.prior}T12:00:00Z`).toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: 'UTC' })}, before ClarityFlow: its take-home is on those pay stubs.`, M, y, { size: 8.5, color: MUTED }); y -= 14; }
     y -= 14;
   }
 

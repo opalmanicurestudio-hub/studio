@@ -19,6 +19,7 @@ const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring
 const btn = `inline-flex min-h-[44px] items-center justify-center rounded-full px-4 text-[14px] font-semibold disabled:opacity-50 ${RING}`;
 const solid = { background: INK, color: '#fff' }; const plain = { background: '#fff', color: INK, border: `1px solid ${LINE}` };
 const QW = ['January to March', 'April to June', 'July to September', 'October to December'];
+const dayOf = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: 'UTC' });
 const usd = (n: number) => `${n < 0 ? '−' : ''}$${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 type Which = '941' | 'st' | 'ui';
@@ -64,7 +65,7 @@ export function PayrollFormsDialog(p: { open: boolean; onOpenChange: (o: boolean
         <div className="flex max-h-[92dvh] flex-col" style={{ color: INK }}>
           <div className="shrink-0 px-5 pb-3 pt-5 sm:px-6">
             <DialogTitle className="pr-8 text-[20px] font-semibold leading-tight" style={{ color: INK }}>Payroll forms, {span}</DialogTitle>
-            <DialogDescription className="mt-1 text-[14px]" style={{ color: MUTED }}>{f941.paydays ? `From ${f941.paydays} payday${f941.paydays === 1 ? '' : 's'} recorded. ` : 'No paydays recorded in these months. '}{over ? `Due ${due}.` : 'So far: the quarter isn’t over yet.'}</DialogDescription>
+            <DialogDescription className="mt-1 text-[14px]" style={{ color: MUTED }}>{f941.paydays ? `From ${f941.paydays} payday${f941.paydays === 1 ? '' : 's'} recorded${f941.prior ? `, and your old payroll’s through ${dayOf(f941.prior.through)}` : ''}. ` : f941.prior ? `From your old payroll’s paydays through ${dayOf(f941.prior.through)}. ` : 'No paydays recorded in these months. '}{over ? `Due ${due}.` : 'So far: the quarter isn’t over yet.'}</DialogDescription>
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <button type="button" onClick={() => step(-1)} disabled={first} aria-label="The quarter before" className={`flex h-11 w-11 items-center justify-center rounded-full disabled:opacity-40 ${RING}`} style={plain}><ChevronLeft className="h-5 w-5" /></button>
               <button type="button" onClick={() => step(1)} aria-label="The quarter after" className={`flex h-11 w-11 items-center justify-center rounded-full ${RING}`} style={plain}><ChevronRight className="h-5 w-5" /></button>
@@ -75,9 +76,10 @@ export function PayrollFormsDialog(p: { open: boolean; onOpenChange: (o: boolean
             </div>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-4 sm:px-6">
+            {f941.oldFiles && <p className="mb-3 rounded-2xl px-4 py-3 text-[14px]" style={{ background: '#fff7ed', color: '#b45309' }}>Your old payroll company files this quarter’s returns. Give it these numbers for the paydays recorded here, so it puts them on its returns, and don’t file a second set.</p>}
             <section className="rounded-3xl bg-[#fff] px-5 py-2" style={{ border: `1px solid ${LINE}` }}>
               {which !== 'ui' && lines.map((l) => (
-                <div key={l.line} className="grid grid-cols-[64px_1fr_auto] items-baseline gap-3 py-2.5 text-[15px]" style={{ borderTop: l.line === lines[0].line ? undefined : `1px solid ${['10', 'Quarter'].includes(l.line) ? INK : LINE}`, fontWeight: ['10', 'Quarter'].includes(l.line) ? 600 : undefined }}>
+                <div key={l.line} className={`grid ${which === 'st' ? 'grid-cols-[84px_1fr_auto]' : 'grid-cols-[64px_1fr_auto]'} items-baseline gap-3 py-2.5 text-[15px]`} style={{ borderTop: l.line === lines[0].line ? undefined : `1px solid ${['10', 'Quarter'].includes(l.line) ? INK : LINE}`, fontWeight: ['10', 'Quarter'].includes(l.line) ? 600 : undefined }}>
                   <span style={{ color: MUTED }}>{l.line}</span>
                   <span className="min-w-0"><span className="block">{l.label}</span>{l.detail && <span className="block text-[13px]" style={{ color: MUTED }}>{l.detail}</span>}</span>
                   <span className="tabular-nums">{amt(l)}</span>
@@ -91,6 +93,7 @@ export function PayrollFormsDialog(p: { open: boolean; onOpenChange: (o: boolean
                   </div>))}
                 <div className="flex items-baseline justify-between gap-3 py-2.5 text-[15px] font-semibold" style={{ borderTop: `1px solid ${INK}` }}><span>Wages unemployment is on</span><span className="tabular-nums">{usd(ui.totals.taxable)}</span></div>
                 <div className="flex items-baseline justify-between gap-3 py-2.5 text-[15px]" style={{ borderTop: `1px solid ${LINE}` }}><span>Contributions due</span><span className="tabular-nums">{usd(ui.due)}</span></div>
+                {ui.prior && ui.prior.due > 0 && <p className="pb-2.5 text-[13px]" style={{ color: MUTED }}>{usd(ui.prior.due)} of it is on your old payroll’s wages through {dayOf(ui.prior.through)}{ui.prior.paid ? ': it paid that already.' : ', and it’s in what you owe for the quarter.'}</p>}
               </>}
             </section>
             <p className="mt-3 text-[13px]" style={{ color: MUTED }}>Copy these onto the form, or download them for your accountant. Your EIN and account number{which === 'ui' ? ', and each person’s Social Security number,' : ''} go on the form itself: ClarityFlow never keeps them.</p>

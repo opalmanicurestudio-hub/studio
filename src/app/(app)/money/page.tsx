@@ -92,6 +92,7 @@ import { PayrollFormsDialog } from '@/components/money/PayrollFormsDialog';
 import { owedItems } from '@/lib/payroll-owed';
 import { stateSpec } from '@/lib/state-payroll';
 import { TaxFormsDialog } from '@/components/staff/TaxFormsDialog';
+import { BonusDialog, type BonusBody } from '@/components/money/BonusDialog';
 import { runByOf, runByChosen, paydayTaxes, ytdFrom, payDateFor, dueDates, owedRunsFrom, quarterWords, stateFilingOf } from '@/lib/payroll-taxes';
 import type { TaxForms } from '@/lib/withholding';
 import { saveStaffPay } from '@/lib/staff-pay-client';
@@ -889,6 +890,23 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
       try { await saveStaffPay(firestore as any, tenantId, formsFor, { taxForms: forms }); return null; }
       catch { return 'Not saved: only a manager can change someone’s tax forms.'; }
   };
+  // Pay between paydays (a bonus): recorded the same way as payday, on its own day and key (api/payroll/record).
+  const [bonusOpen, setBonusOpen] = useState(false);
+  // (Someone who's left too: a last paycheck.)
+  const bonusPeople = useMemo(() => (staff || []).filter((m: any) => m.isRenter !== true)
+      .map((m: any) => ({ id: String(m.id), name: String(m.name || 'Team member'), contractor: m.employmentType === 'contractor', forms: m.taxForms || null, left: m.archived === true }))
+      .sort((a: any, b: any) => Number(a.left) - Number(b.left) || a.name.localeCompare(b.name)), [staff]);
+  const recordBonus = async (body: BonusBody): Promise<string | null> => {
+      if (!tenantId) return 'Not recorded. Try again.';
+      const res = await fetch('/api/payroll/record', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, ...body }) }).catch(() => null);
+      const r: any = res ? await res.json().catch(() => ({})) : {};
+      if (!res || !res.ok || !r?.ok) return r?.error || 'Not recorded. Nothing was added to your books. Try again.';
+      const who = body.people[0]; const day = new Date(`${body.offCycle.date}T12:00:00`).toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
+      toast({ title: body.offCycle.supplemental || who.contractor ? 'Bonus recorded' : 'Pay recorded', description: r.taxes
+          ? `${who.name}’s ${fmtCurrency(who.amount)}, paid ${day}, is in your books with ${fmtCurrency(r.taxes.employer)} in employer payroll taxes. ${fmtCurrency(r.taxes.owed)} in payroll taxes is kept to pay later.`
+          : `${who.name}’s ${fmtCurrency(who.amount)}, paid ${day}, is in your books.` });
+      return null;
+  };
   const [recorded, setRecorded] = useState<{ on: string; from: string; to: string } | null>(null);
   const recordedFor = useCallback(async () => {
       if (!firestore || !tenantId) return null;
@@ -1057,9 +1075,12 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
         statementFor={statementFor} onStatement={setStatementFor}
         statement={(o) => tenantId ? <PayStatement tenantId={tenantId} staffId={o.id} from={dateRange.from.toISOString()} to={dateRange.to.toISOString()} title={`${o.name}, pay statement`} /> : null}
         onSeeBills={onNavigate ? () => { onNavigate('bills'); if (typeof window !== 'undefined') window.scrollTo({ top: 0 }); } : undefined}
+        onBonus={selfRunOn && !adjustmentsError ? () => setBonusOpen(true) : undefined}
       />
       {formsPerson && <TaxFormsDialog open={!!formsFor} onOpenChange={(o) => { if (!o) setFormsFor(null); }} name={String(formsPerson.name || 'Team member')} forms={formsPerson.taxForms || null}
         state={taxState} stateName={stateName} onSave={saveForms} notReady={!!tenantId && !payOverlayReady(tenantId)} />}
+      {selfRunOn && selectedTenant && <BonusDialog open={bonusOpen} onOpenChange={setBonusOpen} people={bonusPeople} tenant={selectedTenant} runs={yearRuns || []}
+        state={taxState || null} stateName={stateName} today={todayBiz} onRecord={recordBonus} />}
       {selfRunOn && selectedTenant && <PayrollFormsDialog open={taxFormsOpen} onOpenChange={setTaxFormsOpen} runs={yearRuns || []} tenant={selectedTenant} state={taxState || null} today={todayBiz} businessName={String((selectedTenant as any)?.name || '')} />}
     </div>
   );

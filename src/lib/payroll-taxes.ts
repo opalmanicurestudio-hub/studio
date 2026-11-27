@@ -45,37 +45,64 @@ export function payDateFor(tenant: any, from: string, to: string, today: string)
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
 /** What each person has been taxed on so far in `year`, from the paydays recorded (payrollRuns, kind 'payday'), not
  *  counting the one for `skipPeriod`. A payday recorded before taxes were worked out here counts what was paid. */
-export function ytdFrom(runs: any[], tenant: any, year: number, skipPeriod?: string): Record<string, YearToDate> {
+/** `through`: pay between paydays dated back, so only what was paid by then counts (in order, toward each limit). */
+export function ytdFrom(runs: any[], tenant: any, year: number, skipPeriod?: string, through?: string): Record<string, YearToDate> {
   const by: Record<string, YearToDate> = {};
+  // (Pay from before ClarityFlow this year, lib/payroll-prior: counts toward every wage limit, the state's programs and
+  // the taxes the business added, and its federal tax withheld lets a bonus be taxed at the flat rate.)
+  const ids = [...(stateSpec(payrollStateOf(tenant))?.programs || []).flatMap((pg) => [pg.id, `${pg.id}_er`]), ...(setupOf(tenant).other || []).map((o) => String(o?.id || '')).filter(Boolean)];
+  const lastOn: Record<string, string> = {};
   for (const run of runs || []) {
+    if (run?.kind === 'prior' && Number(run.year) === year && Array.isArray(run.people)) {
+      for (const p of run.people) { const wages = Number(p?.wages) || 0; if (!p?.staffId || !(wages > 0)) continue;
+        const y = by[p.staffId] || (by[p.staffId] = { ...EMPTY_YTD, other: {}, taken: {} });
+        y.ssWages = r2(y.ssWages + wages); y.medicareWages = r2(y.medicareWages + wages); y.futaWages = r2(y.futaWages + wages); y.suiWages = r2(y.suiWages + wages);
+        y.fedWithheld = r2((y.fedWithheld || 0) + (Number(p.federal) || 0));
+        for (const id of ids) y.other![id] = r2((y.other![id] || 0) + wages); }
+      continue;
+    }
     if (run?.kind !== 'payday' || (skipPeriod && run.periodKey === skipPeriod)) continue;
-    if (payDateOf(run, tenant).slice(0, 4) !== String(year)) continue;
+    const d = payDateOf(run, tenant); if (d.slice(0, 4) !== String(year) || (through && d > through)) continue;
     for (const p of run.people || []) {
       if (!p?.staffId || p.contractor) continue;
       const y = by[p.staffId] || (by[p.staffId] = { ...EMPTY_YTD, other: {}, taken: {} });
       const w = p.taxes?.wages; const gross = r2((Number(p.paid) || 0) + (Number(p.cashTips) || 0));
+      // (Regular pay: the federal tax withheld from it, and the last regular paycheck, for a bonus.)
+      if (!run.offCycle && p.taxes?.employee) {
+        y.fedWithheld = r2((y.fedWithheld || 0) + (Number(p.taxes.employee.federal) || 0));
+        if (w && Number(w.federal) > 0 && d >= (lastOn[p.staffId] || '')) { lastOn[p.staffId] = d; y.last = { wages: Number(w.federal) || 0, federal: Number(p.taxes.employee.federal) || 0, state: Number(p.taxes.employee.state) || 0 }; }
+      }
       y.ssWages = r2(y.ssWages + (w ? Number(w.socialSecurity) || 0 : gross));
       y.medicareWages = r2(y.medicareWages + (w ? Number(w.medicare) || 0 : gross));
       y.futaWages = r2(y.futaWages + (w ? Number(w.futa) || 0 : gross));
       y.suiWages = r2(y.suiWages + (w ? Number(w.sui) || 0 : gross));
       for (const o of [...(p.taxes?.employee?.other || []), ...(p.taxes?.employer?.other || [])]) if (o?.id) y.other![o.id] = r2((y.other![o.id] || 0) + (Number(o.wages) || gross));
       for (const o of p.taxes?.employee?.other || []) if (o?.id) y.taken![o.id] = r2((y.taken![o.id] || 0) + (Number(o.amount) || 0));
+      if (run.supplemental) y.supplemental = r2((y.supplemental || 0) + (w ? Number(w.federal) || 0 : gross));
     }
   }
   return by;
 }
 
 export type PaydayPersonIn = { staffId: string; gross: number; inHand: number; contractor?: boolean };
-/** Every employee's taxes for one payday, and what the payday owes. */
-export function paydayTaxes(input: { tenant: any; payDate: string; people: PaydayPersonIn[]; forms: Record<string, TaxForms | null | undefined>; ytd: Record<string, YearToDate> }):
+/** Employees on the latest regular payday this year (a bonus's programs that depend on the business's size). */
+export const teamOnLastPayday = (runs: any[], tenant: any, year: number, through?: string): number | null => {
+  const last = (runs || []).filter((r) => r?.kind === 'payday' && !r.offCycle && payDateOf(r, tenant).slice(0, 4) === String(year) && (!through || payDateOf(r, tenant) <= through)).sort((a, b) => payDateOf(b, tenant).localeCompare(payDateOf(a, tenant)))[0];
+  return last ? (last.people || []).filter((p: any) => !p.contractor && (Number(p.paid) || 0) + (Number(p.cashTips) || 0) > 0).length || null : null;
+};
+/** Every employee's taxes for one payday, and what the payday owes. `offCycle`: pay between paydays, with no
+ *  retirement or health taken out of it (those come out of each regular paycheck); `supplemental`: taxed at the bonus
+ *  rates; `teamSize`: the business's employees, when it isn't this payday's count (a bonus to one person). */
+export function paydayTaxes(input: { tenant: any; payDate: string; people: PaydayPersonIn[]; forms: Record<string, TaxForms | null | undefined>; ytd: Record<string, YearToDate>; offCycle?: boolean; supplemental?: boolean; teamSize?: number | null }):
   { by: Record<string, Withholding>; owed: Owed; employeeTotal: number; employerTotal: number; takeHome: number; pretax: number } {
   const year = Number(input.payDate.slice(0, 4)) || new Date().getFullYear();
   const periods = periodsPerYear(input.tenant); const state = payrollStateOf(input.tenant); const setup = setupOf(input.tenant);
   const by: Record<string, Withholding> = {};
   for (const p of input.people) {
     if (p.contractor || !(p.gross > 0)) continue;
-    by[p.staffId] = withholdingFor({ year, periods, gross: p.gross, inHand: p.inHand, forms: input.forms[p.staffId] || null, state, setup, ytd: input.ytd[p.staffId] || null,
-      teamSize: input.people.filter((x) => !x.contractor && x.gross > 0).length });
+    const f = input.forms[p.staffId] || null;
+    by[p.staffId] = withholdingFor({ year, periods, gross: p.gross, inHand: p.inHand, forms: f && input.offCycle ? { ...f, pretax: null } : f, state, setup, ytd: input.ytd[p.staffId] || null,
+      teamSize: input.teamSize || input.people.filter((x) => !x.contractor && x.gross > 0).length, supplemental: !!input.supplemental });
   }
   const list = Object.values(by); const sum = (f: (w: Withholding) => number) => r2(list.reduce((n, w) => n + f(w), 0));
   return { by, owed: owedOf(list), employeeTotal: sum((w) => w.employeeTotal), employerTotal: sum((w) => w.employerTotal), takeHome: sum((w) => w.takeHome), pretax: sum((w) => w.pretax.retirement + w.pretax.health) };
@@ -164,6 +191,9 @@ export type StubTaxes = {
   withheld: number; takeHome: number; short: number;
   ytd: { earned: number; withheld: number; takeHome: number };
   method?: string; checkNo?: string;
+  /** The year so far includes pay from before ClarityFlow through this day (lib/payroll-prior): its earnings and taxes,
+   *  not its take-home, which is on the old pay stubs. */
+  prior?: string;
 };
 const linesOf = (w: any, stateName: string) => {
   const e = w?.employee || {}; const out: { key: string; label: string; amount: number }[] = [
@@ -195,6 +225,14 @@ export function stubTaxes(input: { tenant: any; staffId: string; periodKey: stri
     earned += Number(x.taxes.gross) || 0; withheld += Number(x.taxes.employeeTotal) || 0; takeHome += Number(x.taxes.takeHome) || 0;
     for (const l of linesOf(x.taxes, input.stateName)) if (l.key in ytdLines) ytdLines[l.key] += l.amount;
   }
+  // (Pay from before ClarityFlow this year: its earnings and each tax withheld.)
+  const pr = (input.runs || []).find((r: any) => r?.kind === 'prior' && String(r.year) === year && Array.isArray(r.people) && String(r.lastPayDate || '') <= payDate);
+  const px = pr ? pr.people.find((x: any) => x?.staffId === staffId) : null;
+  if (px) {
+    earned += Number(px.wages) || 0;
+    const add: Record<string, number> = { federal: Number(px.federal) || 0, ss: Number(px.ss) || 0, medicare: Number(px.medicare) || 0, state: Number(px.state) || 0 };
+    for (const k of Object.keys(add)) { if (k in ytdLines) ytdLines[k] += add[k]; withheld += add[k]; }
+  }
   const s = w?.short || {};
   return {
     recorded: !!kept, payDate, earned: Number(w?.gross) || 0, inHand: Number(w?.inHand) || 0, pretax: r2((Number(w?.pretax?.retirement) || 0) + (Number(w?.pretax?.health) || 0)),
@@ -202,5 +240,6 @@ export function stubTaxes(input: { tenant: any; staffId: string; periodKey: stri
     short: r2((Number(s.socialSecurity) || 0) + (Number(s.medicare) || 0) + (Number(s.federal) || 0) + (Number(s.state) || 0)),
     ytd: { earned: r2(earned), withheld: r2(withheld), takeHome: r2(takeHome) },
     ...(kept?.method ? { method: String(kept.method) } : {}), ...(kept?.checkNo ? { checkNo: String(kept.checkNo) } : {}),
+    ...(px ? { prior: String(pr.lastPayDate) } : {}),
   };
 }

@@ -107,7 +107,7 @@ export function PayStubView({ tenantId, from, accent = INK, previousTotal, previ
         return (
         <section aria-label="Taxes and take-home" className="rounded-[20px] border px-4 pb-2 pt-3" style={{ borderColor: LINE }}>
           <p className="text-[15px] font-extrabold">Taxes and take-home</p>
-          <p className="text-[13px]" style={{ color: MUTED }}>{t.recorded ? 'Withheld on payday, from your W-4.' : 'Worked out from your W-4 until payday is recorded.'}</p>
+          <p className="text-[13px]" style={{ color: MUTED }}>{t.recorded ? 'Withheld on payday, from your W-4.' : 'Worked out from your W-4 until payday is recorded.'}{t.prior ? ` This year includes your pay through ${new Date(`${t.prior}T12:00:00Z`).toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: 'UTC' })}, before ClarityFlow: its take-home is on those pay stubs.` : ''}</p>
           <div className={row} style={{ color: MUTED }}><span className="text-[12px] font-bold">Tax</span><span className="w-20 text-right text-[12px] font-bold">This payday</span><span className="w-20 text-right text-[12px] font-bold">This year</span></div>
           {t.lines.map((l: any) => <div key={l.key} className={row} style={{ borderTop: `1px solid ${LINE}` }}><span>{l.label}</span><span className="w-20 text-right tabular-nums">{money(l.amount)}</span><span className="w-20 text-right tabular-nums" style={{ color: MUTED }}>{money(l.ytd)}</span></div>)}
           <div className={`${row} font-bold`} style={{ borderTop: `1px solid ${INK}` }}><span>Taxes in all</span><span className="w-20 text-right tabular-nums">{money(t.withheld)}</span><span className="w-20 text-right tabular-nums">{money(t.ytd.withheld)}</span></div>

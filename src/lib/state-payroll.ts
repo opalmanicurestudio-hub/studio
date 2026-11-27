@@ -278,7 +278,7 @@ const S: StateSpec[] = [
     sui: { base: 7000, newRate: 2.0, agency: 'Arkansas Division of Workforce Services', report: 'DWS-ARK-209B' },
     filing: { agency: 'Arkansas Department of Finance and Administration', deposit: 'AR941M', quarterly: 'AR941M', annual: 'AR-3MAR', annualDue: '02-28', monthlyDue: 15, frequencies: ['monthly'] },
     bank: { revenue: 'ARKANSAS (DFA|DEPT? OF FIN)|AR DFA|ATAP', ui: 'ARKANSAS (DWS|WORKFORCE)|AR DWS' } },
-  { code: 'CA', name: 'California', supplemental: 6.6,
+  { code: 'CA', name: 'California', supplemental: 10.23,   // (Bonuses: 10.23%; other pay apart from wages, 6.6%. DE 44.)
     form: { name: 'DE 4', fields: ['status', 'allowances', 'additional', 'extra', 'exempt'], none: 'Single, no allowances', statuses: ST3,
       labels: { allowances: 'Regular allowances', additional: 'Additional allowances for estimated deductions' } },
     calc: (x) => {
@@ -327,7 +327,7 @@ const S: StateSpec[] = [
     filing: { agency: 'DC Office of Tax and Revenue', deposit: 'FR-900M', quarterly: 'FR-900Q', annual: 'FR-900A', annualDue: '01-31', monthlyDue: 20, frequencies: ['monthly', 'quarterly', 'annually'], quarterlyDue: 20 },
     bank: { revenue: 'DC (OTR|TREAS)|D\\.?C\\.? OFFICE OF TAX|MYTAX ?DC', ui: 'DC DOES|DEPT? OF EMPLOYMENT SERV' } },
   { code: 'FL', name: 'Florida', noTax: true, supplemental: 0, sui: { base: 7000, newRate: 2.7, agency: 'Florida Department of Revenue', report: 'RT-6' }, bank: { revenue: '^$', ui: 'FL(ORIDA)? (DEPT? OF )?REV|FLDOR' } },
-  { code: 'GA', name: 'Georgia', supplemental: 'regular',
+  { code: 'GA', name: 'Georgia', supplemental: 4.99,   // (At the income tax rate when it's paid: the employer's guide.)
     form: { name: 'G-4', fields: ['status', 'allowances', 'extra', 'exempt'], none: 'Single, no allowances', labels: { allowances: 'Dependents and additional allowances' },
       statuses: [{ v: 'single', label: 'Single, or head of household' }, { v: 'mfs', label: 'Married filing separately, or jointly with both working' }, { v: 'married', label: 'Married filing jointly, one working' }] },
     calc: (x) => Math.max(0, x.annual - (x.f.status === 'married' ? 30000 : 15000) - 5000 * cnt(x.f.allowances)) * 0.0499,
@@ -666,6 +666,26 @@ export function programAmounts(p: ProgramSpec, wages: number, soFar: number, tak
   return { employee: ee, employer: er, wages: r2(w) };
 }
 
+/** A bonus's state income tax (supplemental wages): the state's flat rate, with the county or city part collected with
+ *  it (Maryland's county, Indiana's county, New York City's 4.25% and Yonkers's); for a state without one, the aggregate
+ *  method: added to the person's last regular paycheck (`regular`: its wages and the state tax taken from it), the tax
+ *  on the two together as one paycheck, less what that paycheck had taken; with no regular paycheck yet, as a paycheck of
+ *  its own. (Vermont's is 30% of the federal 22%: 6.6%.) Claimed exempt: none, where the state allows it. */
+export function supplementalStateTax(code: string | null | undefined, wages: number, periods: number, f: StateFormIn | null | undefined, fedStatus: 'single' | 'married' | 'hoh' = 'single',
+  regular?: { wages: number; tax: number; fedPerPeriod?: number } | null): number {
+  const spec = stateSpec(code); const ff = f || {}; if (!spec || spec.noTax || !(wages > 0)) return 0;
+  if (ff.exempt && spec.form?.fields.includes('exempt')) return 0;
+  if (typeof spec.supplemental !== 'number') {
+    if (regular && regular.wages > 0) return r2(Math.max(0, stateTaxFor(code, { wages: regular.wages + wages, periods, f: ff, fedStatus, fedPerPeriod: regular.fedPerPeriod }) - regular.tax));
+    return stateTaxFor(code, { wages, periods, f: { ...ff, extra: 0, reduce: 0 }, fedStatus });
+  }
+  let pct = spec.supplemental;
+  // (Maryland's graduated counties, Anne Arundel and Frederick, at their top rate, 3.2%.)
+  if (spec.code === 'MD') pct += MD_RATE[ff.local || ''] ?? 3.2;
+  if (spec.code === 'IN') pct += IN_RATE[ff.local || ''] || 0;
+  if (spec.code === 'NY') pct += ff.local === 'nyc' ? 4.25 : ff.local === 'yonkers' ? 1.95975 : ff.local === 'yonkers_nonresident' ? 0.5 : 0;
+  return r2(wages * pct / 100);
+}
 /** The bonus rate, when a state has one (a percent), else null (a bonus is taxed like a regular paycheck). */
 export const supplementalRate = (code: string | null | undefined): number | null => { const s = stateSpec(code); return s && typeof s.supplemental === 'number' && !s.noTax ? s.supplemental : null; };
 export const fieldLabel = (spec: StateSpec, k: StateField): string => spec.form?.labels?.[k] || ({ status: 'Filing status', allowances: 'Allowances', additional: 'Additional allowances', rate: 'Percentage', code: 'Code', local: 'County', amount: 'Amount', flag: 'Yes', reduce: 'Less each paycheck', extra: 'Extra withheld each paycheck', exempt: 'Claimed exempt' } as Record<StateField, string>)[k];

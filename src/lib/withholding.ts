@@ -11,7 +11,7 @@
 //
 // Never needs or keeps a Social Security number: the business adds those when it files.
 
-import { STATES, STATE_LIST, stateSpec, stateTaxFor, programAmounts, type StateFormIn } from './state-payroll';
+import { STATES, STATE_LIST, stateSpec, stateTaxFor, programAmounts, supplementalStateTax, type StateFormIn } from './state-payroll';
 
 export type FilingStatus = 'single' | 'married' | 'hoh';
 /** What the employee wrote on their W-4. 2020 and later: steps 1(c) to 4(c). 2019 or earlier: status and allowances. */
@@ -75,8 +75,15 @@ export type PayrollTaxSetup = {
 
 /** What's been taxed for this person so far this year (from the paydays already recorded). */
 export type YearToDate = { ssWages: number; medicareWages: number; futaWages: number; suiWages: number; other?: Record<string, number>;
+  /** Bonuses paid so far this year (the federal 37% past $1,000,000). */
+  supplemental?: number;
   /** What each program has taken from them so far (New York's paid family leave stops at a yearly most). */
-  taken?: Record<string, number> };
+  taken?: Record<string, number>;
+  /** Federal income tax withheld from regular pay this year (a bonus can be taxed at the flat 22% only once some has). */
+  fedWithheld?: number;
+  /** Their last regular paycheck this year: its wages and the federal and state income tax taken from it (a bonus by
+   *  the aggregate method). */
+  last?: { wages: number; federal: number; state: number } };
 export const EMPTY_YTD: YearToDate = { ssWages: 0, medicareWages: 0, futaWages: 0, suiWages: 0, other: {} };
 
 type Row = [number, number, number];   // at least, tentative amount, rate on the excess
@@ -153,6 +160,14 @@ export function federalIncomeTax(wages: number, periods: number, f: FederalForm 
   return r2(Math.max(0, afterCredits) + pos(f?.extra));
 }
 
+/** Federal income tax on a bonus (Publication 15, supplemental wages): 22%, and 37% on any part of the year's bonuses
+ *  over $1,000,000, which applies even on an exempt W-4. Extra withholding from step 4(c) isn't added. */
+export function supplementalFederal(wages: number, f: FederalForm | null | undefined, soFar: number): number {
+  if (!(wages > 0)) return 0;
+  const over = Math.max(0, Math.min(wages, soFar + wages - 1000000));
+  return r2((f?.exempt ? 0 : (wages - over) * 0.22) + over * 0.37);
+}
+
 /** State income tax for one paycheck: the state's own formula (lib/state-payroll), or, with no state built in, a
  *  percentage. `ctx`: the federal W-4's status and this paycheck's federal tax (states that use them), and Social
  *  Security and Medicare on it and so far (Massachusetts). */
@@ -196,6 +211,10 @@ export type WithholdingInput = {
   forms?: TaxForms | null; state?: string | null; setup?: PayrollTaxSetup | null; ytd?: YearToDate | null;
   /** Employees on this payday (for programs that depend on the business's size, unless Settings says). */
   teamSize?: number | null;
+  /** A bonus, or other pay apart from a regular paycheck, taxed at the bonus rates: federal income tax at 22% (37% on
+   *  what's over $1,000,000 of bonuses in the year), the state's own bonus rate. Social Security, Medicare and the
+   *  rest as always. */
+  supplemental?: boolean;
 };
 
 /** Every tax on one paycheck, and the take-home. */
@@ -215,7 +234,12 @@ export function withholdingFor(i: WithholdingInput): Withholding {
   const want = {
     socialSecurity: r2(ssWages * t.ss.rate), medicare: r2(ficaWages * t.medicare.rate),
     additionalMedicare: r2(addlWages * t.medicare.addl),
-    federal: federalIncomeTax(federalWages, periods, forms.federal, i.year),
+    federal: !i.supplemental ? federalIncomeTax(federalWages, periods, forms.federal, i.year)
+      // (A bonus: the flat 22% once income tax has been withheld from their regular pay this year; until then the
+      // aggregate method, on it and their last regular paycheck together, less what that paycheck had taken.)
+      : num(ytd.fedWithheld) > 0 || num(ytd.supplemental) + federalWages > 1000000 ? supplementalFederal(federalWages, forms.federal, num(ytd.supplemental))
+      : ytd.last && ytd.last.wages > 0 ? r2(Math.max(0, federalIncomeTax(ytd.last.wages + federalWages, periods, forms.federal, i.year) - num(ytd.last.federal)))
+      : federalIncomeTax(federalWages, periods, forms.federal, i.year),
     state: 0,
   };
   // (The person's state form, when it's this state's: one from another state, or saved before this state was built in,
@@ -223,8 +247,10 @@ export function withholdingFor(i: WithholdingInput): Withholding {
   const stCode = String(i.state || '').toUpperCase(); const fs = forms.state;
   const stateOnFile = !!fs && (fs.state ? fs.state === stCode : stCode === 'NC' && !(Number(fs.pct) > 0));
   const stateForm = BUILT_IN_STATES.includes(stCode) ? (stateOnFile ? fs : null) : fs;
-  want.state = stateIncomeTax(federalWages, periods, i.state, stateForm, i.setup, i.year, { fedStatus: status(forms.federal?.status), fedPerPeriod: want.federal,
-    ficaNow: r2(want.socialSecurity + want.medicare), ficaYtd: r2(ytd.ssWages * t.ss.rate + ytd.medicareWages * t.medicare.rate) });
+  want.state = i.supplemental && BUILT_IN_STATES.includes(stCode) ? supplementalStateTax(stCode, federalWages, periods, stateForm, status(forms.federal?.status),
+      ytd.last ? { wages: num(ytd.last.wages), tax: num(ytd.last.state), fedPerPeriod: r2(num(ytd.last.federal) + want.federal) } : null)
+    : stateIncomeTax(federalWages, periods, i.state, stateForm, i.setup, i.year, { fedStatus: status(forms.federal?.status), fedPerPeriod: want.federal,
+      ficaNow: r2(want.socialSecurity + want.medicare), ficaYtd: r2(ytd.ssWages * t.ss.rate + ytd.medicareWages * t.medicare.rate) });
   const otherEmp: OtherAmount[] = []; const otherEr: OtherAmount[] = [];
   for (const o of (i.setup?.other || []).slice(0, 8)) {
     const rate = Math.max(0, Math.min(20, num(o.rate))); if (!o.id || !rate) continue;
