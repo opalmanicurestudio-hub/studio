@@ -93,6 +93,8 @@ import { owedItems } from '@/lib/payroll-owed';
 import { stateSpec } from '@/lib/state-payroll';
 import { TaxFormsDialog } from '@/components/staff/TaxFormsDialog';
 import { BonusDialog, type BonusBody } from '@/components/money/BonusDialog';
+import { YearEndDialog, type YearEndTab } from '@/components/money/YearEndDialog';
+import { w2sFor, form940, stateAnnual, form1099s, yearEndDue } from '@/lib/payroll-yearend';
 import { runByOf, runByChosen, paydayTaxes, ytdFrom, payDateFor, dueDates, owedRunsFrom, quarterWords, stateFilingOf } from '@/lib/payroll-taxes';
 import type { TaxForms } from '@/lib/withholding';
 import { saveStaffPay } from '@/lib/staff-pay-client';
@@ -864,6 +866,26 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
   const todayBiz = selectedTenant ? todayIn(selectedTenant) : payToYmd;
   const owedList = useMemo(() => (selfRunOn && selectedTenant ? owedItems(yearRuns || [], selectedTenant, todayBiz, stateName) : []), [selfRunOn, selectedTenant, yearRuns, todayBiz, stateName]);
   const [taxFormsOpen, setTaxFormsOpen] = useState(false);
+  // The year's forms, from November to April: the year ending, then the year just over.
+  const [yearEndAt, setYearEndAt] = useState<{ tab: YearEndTab; person?: string | null } | null>(null);
+  const yeYear = (() => { const m = Number(todayBiz.slice(5, 7)); const y = Number(todayBiz.slice(0, 4)); return m >= 11 ? y : m <= 4 ? y - 1 : null; })();
+  const yearEnd = useMemo(() => {
+      if (!selfRunOn || !selectedTenant || !yeYear) return null;
+      const runs = yearRuns || []; const w2s = w2sFor(runs, selectedTenant, yeYear); const necs = form1099s(runs, selectedTenant, yeYear).filter((x) => x.due);
+      if (!w2s.length && !necs.length) return null;
+      const due = new Date(`${yearEndDue(yeYear)}T12:00:00Z`).toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: 'UTC' });
+      const st = stateAnnual(runs, selectedTenant, yeYear, w2s); const f940 = form940(runs, selectedTenant, yeYear);
+      const so = todayBiz <= `${yeYear}-12-31`; const names = w2s.map((w) => w.name); const who = names.length <= 3 ? (names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0]) : `${names.length} people`;
+      const open = (tab: YearEndTab, person?: string | null) => () => setYearEndAt({ tab, person });
+      return { title: `${yeYear}’s year-end forms${so ? ', so far' : ''}`, sub: so ? 'From the year’s paydays so far: final once December’s are recorded.' : 'From the year’s paydays, ready now. Copy them onto the forms, or download them all for your accountant.',
+        rows: [
+          ...(w2s.length ? [{ key: 'w2', name: `W-2s for ${who}`, sub: `Hand each person theirs by ${due}: print them on plain paper`, action: 'See the W-2s', onOpen: open('w2') },
+            { key: 'w3', name: 'W-2s and W-3 to Social Security', sub: `Type them into Social Security’s Business Services Online. It’s free. Due ${due}`, action: 'See the numbers', onOpen: open('w3') }] : []),
+          ...(st ? [{ key: 'st', name: `${st.form}, with the W-2s`, sub: `${stateName}’s withholding for the year. Due ${new Date(`${st.due}T12:00:00Z`).toLocaleDateString('en-US', { month: 'long', day: 'numeric', timeZone: 'UTC' })}`, action: 'See the numbers', onOpen: open('st') }] : []),
+          ...(w2s.length ? [{ key: '940', name: 'Form 940', sub: `Federal unemployment for the year: ${fmtCurrency(f940.total)}. Due ${due}`, action: 'See the numbers', onOpen: open('940') }] : []),
+          ...necs.map((x) => ({ key: `nec_${x.staffId}`, name: `1099-NEC for ${x.name}`, sub: `${fmtCurrency(x.amount)} paid as a contractor in ${yeYear}: $${(yeYear >= 2026 ? 2000 : 600).toLocaleString('en-US')} or more, so one is due ${due}. Their tax ID goes on the form`, action: 'See the numbers', onOpen: open('nec') })),
+        ] };
+  }, [selfRunOn, selectedTenant, yeYear, yearRuns, todayBiz, stateName]); // eslint-disable-line react-hooks/exhaustive-deps
   const owed: OwedProps | null = useMemo(() => {
       if (!selfRunOn) return null;
       const on = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
@@ -882,9 +904,10 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
           onPaid: (key, amount, paidOn) => call('POST', { key, amount, paidOn }),
           onUnpaid: async (key) => { const e = await call('DELETE', { key }); if (e) toast({ variant: 'destructive', title: 'Not changed', description: e }); },
           formsNames: (() => { const sp = stateSpec(taxState); const n = [...new Set(['Form 941', ...(sp && !sp.noTax && sp.filing ? [sp.filing.quarterly] : []), ...(sp ? [sp.sui.report] : [])])]; return n.length > 1 ? `${n.slice(0, -1).join(', ')} and ${n[n.length - 1]}` : n[0]; })(),
+          yearEnd,
           onForms: () => setTaxFormsOpen(true), formsWords: `Forms for ${quarterWords((Number(todayBiz.slice(5, 7)) - 1) % 3 === 0 ? new Date(Date.parse(`${todayBiz.slice(0, 8)}01T12:00:00Z`) - 86400000).toISOString().slice(0, 10) : todayBiz)}`, today: todayBiz,
       };
-  }, [selfRunOn, owedList, todayBiz, tenantId, taxState]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selfRunOn, owedList, todayBiz, tenantId, taxState, yearEnd]); // eslint-disable-line react-hooks/exhaustive-deps
   const saveForms = async (forms: TaxForms) => {
       if (!firestore || !tenantId || !formsFor) return 'Not saved. Try again.';
       try { await saveStaffPay(firestore as any, tenantId, formsFor, { taxForms: forms }); return null; }
@@ -1081,6 +1104,8 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
         state={taxState} stateName={stateName} onSave={saveForms} notReady={!!tenantId && !payOverlayReady(tenantId)} />}
       {selfRunOn && selectedTenant && <BonusDialog open={bonusOpen} onOpenChange={setBonusOpen} people={bonusPeople} tenant={selectedTenant} runs={yearRuns || []}
         state={taxState || null} stateName={stateName} today={todayBiz} onRecord={recordBonus} />}
+      {selfRunOn && selectedTenant && yeYear && <YearEndDialog open={!!yearEndAt} onOpenChange={(o) => { if (!o) setYearEndAt(null); }} runs={yearRuns || []} tenant={selectedTenant}
+        year={yeYear} today={todayBiz} businessName={String((selectedTenant as any)?.name || '')} tab={yearEndAt?.tab} person={yearEndAt?.person} />}
       {selfRunOn && selectedTenant && <PayrollFormsDialog open={taxFormsOpen} onOpenChange={setTaxFormsOpen} runs={yearRuns || []} tenant={selectedTenant} state={taxState || null} today={todayBiz} businessName={String((selectedTenant as any)?.name || '')} />}
     </div>
   );

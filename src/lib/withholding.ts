@@ -193,7 +193,10 @@ export type Withholding = {
   /** Wages each tax is on. */
   /** additionalMedicare: the wages this paycheck that are over the year's $200,000, the extra 0.9% Medicare is on. */
   wages: { federal: number; socialSecurity: number; medicare: number; additionalMedicare: number; state: number; futa: number; sui: number };
-  employee: { federal: number; socialSecurity: number; medicare: number; additionalMedicare: number; state: number; other: OtherAmount[] };
+  employee: { federal: number; socialSecurity: number; medicare: number; additionalMedicare: number; state: number; other: OtherAmount[];
+    /** Of `state`, the city's or county's part, collected with it (New York City and Yonkers, Indiana's county): on the
+     *  W-2 it goes in boxes 18 to 20, named `localName`. */
+    stateLocal?: number; localName?: string };
   employeeTotal: number;
   employer: { socialSecurity: number; medicare: number; futa: number; sui: number; other: OtherAmount[] };
   employerTotal: number;
@@ -274,7 +277,17 @@ export function withholdingFor(i: WithholdingInput): Withholding {
   const take = (n: number) => { const x = r2(Math.min(n, room)); room = r2(room - x); return x; };
   const ss = take(want.socialSecurity), med = take(want.medicare), addl = take(want.additionalMedicare), fed = take(want.federal), st = take(want.state);
   const other = otherEmp.map((o) => ({ ...o, amount: take(o.amount) }));
-  const employee = { federal: fed, socialSecurity: ss, medicare: med, additionalMedicare: addl, state: st, other };
+  // (The city's or county's part of the state's tax, worked out as the state's alone and taken off: W-2 boxes 18 to 20.)
+  let stateLocal = 0, localName = '';
+  if ((stCode === 'NY' || stCode === 'IN') && stateForm?.local && st > 0) {
+    const without = { ...stateForm, local: '' };
+    const alone = i.supplemental ? supplementalStateTax(stCode, federalWages, periods, without, status(forms.federal?.status), ytd.last ? { wages: num(ytd.last.wages), tax: num(ytd.last.state), fedPerPeriod: r2(num(ytd.last.federal) + want.federal) } : null)
+      : stateIncomeTax(federalWages, periods, i.state, without, i.setup, i.year, { fedStatus: status(forms.federal?.status), fedPerPeriod: want.federal, ficaNow: r2(want.socialSecurity + want.medicare), ficaYtd: r2(ytd.ssWages * t.ss.rate + ytd.medicareWages * t.medicare.rate) });
+    stateLocal = r2(Math.max(0, Math.min(st, want.state - alone)));
+    localName = (stateSpec(stCode)?.form?.locals || []).find((x) => x.v === stateForm.local)?.label || String(stateForm.local);
+    if (stCode === 'NY') localName = stateForm.local === 'nyc' ? 'NYC' : 'Yonkers';
+  }
+  const employee = { federal: fed, socialSecurity: ss, medicare: med, additionalMedicare: addl, state: st, other, ...(stateLocal > 0 ? { stateLocal, localName } : {}) };
   const employeeTotal = r2(fed + ss + med + addl + st + other.reduce((n, o) => n + o.amount, 0));
   const employer = { socialSecurity: want.socialSecurity, medicare: want.medicare, futa: r2(futaWages * t.futa.rate), sui: r2(suiWages * sui.rate / 100), other: otherEr };
   const employerTotal = r2(employer.socialSecurity + employer.medicare + employer.futa + employer.sui + otherEr.reduce((n, o) => n + o.amount, 0));

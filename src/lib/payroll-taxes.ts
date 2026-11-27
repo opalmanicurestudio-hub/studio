@@ -17,6 +17,9 @@ export function runByOf(tenant: any): RunBy {
 export const runByChosen = (tenant: any) => ['clarityflow', 'gusto', 'company'].includes(String(tenant?.payrollTax?.runBy || ''));
 export const setupOf = (tenant: any): PayrollTaxSetup => (tenant?.payrollTax && typeof tenant.payrollTax === 'object' ? tenant.payrollTax : {});
 /** The state payroll is taxed in: the one picked for taxes, or the one in the pay rules. */
+/** FUTA credit reduction by year and state, percent (a state that hasn't repaid its federal loans): paid with Form 940,
+ *  on Schedule A. The Department of Labor names them each November. */
+export const CREDIT_REDUCTION: Record<number, Record<string, number>> = { 2025: { CA: 1.2 }, 2026: { CA: 1.5 } };
 export const payrollStateOf = (tenant: any): string | null => { const s = String(tenant?.taxState || tenant?.payRules?.state || '').toUpperCase(); return /^[A-Z]{2}$/.test(s) ? s : null; };
 /** Paydays a year: 52 weekly, 26 every two weeks, 12 monthly. */
 export const periodsPerYear = (tenant: any): number => ({ weekly: 52, monthly: 12 } as Record<string, number>)[periodSettings(tenant).cadence] || 26;

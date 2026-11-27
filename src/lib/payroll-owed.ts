@@ -12,7 +12,7 @@
 // settles it (`covers`), a cent or a dollar either way; a payday recorded later that adds to it leaves the rest to pay.
 // And the numbers for the quarter's forms, line by line: Form 941, NC-5 and
 // NCUI 101 (each person's wages, never a Social Security number: those go on the form itself).
-import { payDateOf, afterQuarter, quarterWords, setupOf, payrollStateOf, stateFilingOf, businessDaysAfter, dueDates } from './payroll-taxes';
+import { payDateOf, afterQuarter, quarterWords, setupOf, payrollStateOf, stateFilingOf, businessDaysAfter, dueDates, nextBusinessDay, CREDIT_REDUCTION } from './payroll-taxes';
 import { stateSpec } from './state-payroll';
 import { tablesFor, suiOf } from './withholding';
 import { priorOf, priorQuarterPart, priorQuarter } from './payroll-prior';
@@ -149,6 +149,14 @@ export function owedItems(runs: any[], tenant: any, today: string, stateName = '
       if (open) break;
       carry = 0; carried = [];
     }
+  }
+  // A credit reduction state's (California's 1.5% for 2026): on each person's first $7,000, paid with Form 940.
+  const crCode = payrollStateOf(tenant) || '';
+  for (const year of [...new Set(taxedRuns(runs).map((r) => payDateOf(r, tenant).slice(0, 4)))]) {
+    const cr = CREDIT_REDUCTION[Number(year)]?.[crCode]; if (!cr) continue;
+    const wages = taxedRuns(runs).filter((r) => payDateOf(r, tenant).slice(0, 4) === year).reduce((t, r) => t + (r.people || []).reduce((s: number, p: any) => s + (Number(p?.taxes?.wages?.futa) || 0), 0), 0)
+      + ((priorOf(runs, Number(year))?.people || []) as any[]).reduce((s, x) => s + Math.min(7000, Number(x?.wages) || 0), 0);
+    put(`futa_cr_${year}`, 'futa', `Federal unemployment credit reduction, ${year}, with Form 940`, nextBusinessDay(`${Number(year) + 1}-01-31`), r2(wages * cr / 100), `cr_${year}`, today <= `${year}-12-31`);
   }
   const out = [...groups.values()];
   for (const g of out) { g.paid = paid[g.key] || null; g.left = r2(Math.max(0, g.amount - Math.max(g.paid?.amount || 0, g.paid?.covers || 0))); }

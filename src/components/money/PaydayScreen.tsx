@@ -74,6 +74,8 @@ export type OwedProps = {
   onForms: () => void; formsWords: string; today: string;
   /** The quarter's forms by name: "Form 941, NC-5 and NCUI 101". */
   formsNames?: string;
+  /** The year's forms (W-2s, W-3, Form 940, the state's, 1099-NECs), from November to April. */
+  yearEnd?: { title: string; sub: string; rows: { key: string; name: string; sub: string; action: string; onOpen: () => void }[] } | null;
 };
 const METHODS: { v: PayMethod; label: string }[] = [{ v: 'transfer', label: 'Bank transfer' }, { v: 'check', label: 'Check' }, { v: 'cash', label: 'Cash' }];
 /** One part of the split: taxes, the owner's own pay, profit, and what stays to run the business. */
@@ -449,7 +451,7 @@ export function PaydayScreen(p: PaydayScreenProps) {
 
   const fromThis = self && self.owed.length > 0 && !p.recordedOn;
   const o = self ? p.owed || null : null;
-  const keep = fromThis || (o && (o.toPay.length || o.paid.length)) ? (
+  const keep = fromThis || (o && (o.toPay.length || o.paid.length || o.yearEnd?.rows.length)) ? (
     <section aria-label="Payroll taxes" className={card} style={{ border: `1px solid ${LINE}` }}>
       <h3 className="text-[17px] font-semibold">Payroll taxes</h3>
       <p className="text-[14px]" style={{ color: MUTED }}>What your paydays owe the IRS{self?.stateName ? ` and ${self.stateName}` : ''}, when each is due, and what’s paid. A payment your bank shows for what’s owed is marked paid on its own.</p>
@@ -469,6 +471,15 @@ export function PaydayScreen(p: PaydayScreenProps) {
       {o && <div className="mt-3 flex min-h-[56px] flex-wrap items-center justify-between gap-3 py-2" style={{ borderTop: `1px solid ${LINE}` }}>
         <span className="min-w-0"><span className="block">{o.formsWords}</span><span className="block text-[13px]" style={{ color: MUTED }}>{o.formsNames || 'Form 941'}: the numbers, line by line</span></span>
         <button type="button" onClick={o.onForms} className={btn} style={plain}>See the numbers</button>
+      </div>}
+      {o?.yearEnd && <div className="mt-3">
+        <p className="text-[13px] font-semibold" style={{ color: MUTED }}>{o.yearEnd.title}</p>
+        <p className="text-[13px]" style={{ color: MUTED }}>{o.yearEnd.sub}</p>
+        {o.yearEnd.rows.map((r) => (
+          <div key={r.key} className="flex min-h-[56px] flex-wrap items-center justify-between gap-3 py-2" style={{ borderTop: `1px solid ${LINE}` }}>
+            <span className="min-w-0 flex-1"><span className="block">{r.name}</span><span className="block text-[13px]" style={{ color: MUTED }}>{r.sub}</span></span>
+            <button type="button" onClick={r.onOpen} className={`${btn} shrink-0`} style={plain}>{r.action}</button>
+          </div>))}
       </div>}
       <p className="mt-2 pb-1 text-[13px]" style={{ color: MUTED }}>When you pay one, its bank line is sorted as Payroll Tax Deposit: it’s in your books from payday already, so it isn’t counted twice.</p>
     </section>
