@@ -31,6 +31,7 @@ import {
   FileSignature,
 } from 'lucide-react';
 import { SectionTitle, AddOnNote, fmtDate } from '@/components/rent/shared';
+import { RENTER_COST_KINDS, costKindOf } from '@/lib/renter-write-offs';
 import { api, hrs, storageDiagnostic, uploadRenterPhoto } from '@/components/rent/studio';
 
 // ─── My Hours: the renter's own weekly availability ──────────────────────────
@@ -1261,7 +1262,7 @@ export function MyBooks({ tenantId, token }: { tenantId: string; token: string }
                 <input type="number" min={0} step="0.01" value={exp.amount} onChange={(e) => setExp({ ...exp, amount: e.target.value })} placeholder="Amount $" aria-label="Amount" className="h-11 rounded-xl border border-[#ececee] px-2 text-sm font-semibold" />
               </div>
               <select value={exp.category} onChange={(e) => setExp({ ...exp, category: e.target.value })} aria-label="Category" className="h-11 w-full rounded-xl border border-[#ececee] bg-white px-3 text-sm font-medium">
-                {['Supplies', 'Products', 'Equipment', 'Education', 'Marketing', 'Insurance', 'Licence & fees', 'Software', 'Travel', 'Other'].map((c) => <option key={c}>{c}</option>)}
+                {RENTER_COST_KINDS.map((c) => <option key={c}>{c}</option>)}
               </select>
               <input value={exp.note} onChange={(e) => setExp({ ...exp, note: e.target.value.slice(0, 200) })} placeholder="What it was" aria-label="Note" className="h-11 w-full rounded-xl border border-[#ececee] px-3 text-sm font-medium" />
               {err && <p className="text-[13px] font-medium text-[#b45309]">{err}</p>}
@@ -1274,7 +1275,7 @@ export function MyBooks({ tenantId, token }: { tenantId: string; token: string }
           {led.expenses.length === 0 && !exp && <p className="text-[14px] font-medium text-[#6d7075]">No expenses logged this month.</p>}
           {led.expenses.map((e: any) => (
             <div key={e.id} className="flex items-center justify-between gap-2 text-[14px] font-medium text-[#6d7075]">
-              <span className="min-w-0 truncate"><span className="font-semibold text-[#16171a]">{fmtDate(e.date)}</span> · {e.category}{e.note ? ` · ${e.note}` : ''}</span>
+              <span className="min-w-0 truncate"><span className="font-semibold text-[#16171a]">{fmtDate(e.date)}</span>, {costKindOf(e.category)}{e.note ? `, ${e.note}` : ''}</span>
               <span className="flex shrink-0 items-center gap-2 tabular-nums">{$(e.cents)}<button type="button" onClick={async () => { await api({ action: 'expense-delete', tenantId, token, expenseId: e.id }); void load(); }} aria-label="Delete" className="text-[#6d7075]">×</button></span>
             </div>
           ))}

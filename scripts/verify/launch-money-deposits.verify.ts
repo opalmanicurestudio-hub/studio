@@ -151,7 +151,7 @@ const dep = (body: any) => import('../../src/app/api/rent/deposit/route').then((
   const html = String((await ST.GET(getReq({ tenantId: 't1', renterId: 'rt1' }))).body || '');
   const bal = (h: string) => (h.match(/<span>Balance(?: owing)?<\/span><span>([^<]+)<\/span>/) || [])[1];
   check('the rent statement leaves the deposit to its own account, but shows what was applied', !html.includes('Deposit collected') && html.includes('Security deposit applied to balance') && bal(html) === '$600.00', bal(html));
-  check('the yearly statement doesn’t count a deposit as rent paid', src('src/app/api/booths/statement/route.ts').includes("if (t.category === 'Booth Deposit' || t.taxBucket === 'transfer') continue;"));
+  check('the yearly statement doesn’t count a deposit as rent paid', src('src/app/api/booths/statement/route.ts').includes("const cents = rentLineCents(t, byId); if (!cents) continue;") && src('src/lib/renter-rent-history.ts').includes("if (isDeposit(t)) return 0;"));
 
   console.log('Changes made by hand on the Rent page');
   await fresh();

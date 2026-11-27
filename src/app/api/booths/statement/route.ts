@@ -13,10 +13,12 @@
  * Same zero-dependency approach as the receipt route: returns HTML,
  * auto-triggers print dialog, renter saves as PDF.
  *
- * For the 1099-NEC threshold note: if total rent paid in a calendar year
- * exceeds $600, the studio is required to issue a 1099-NEC to the renter
- * (and file with the IRS). This statement is not a 1099-NEC — it is the
- * renter's own payment record. The route flags the $600 threshold.
+ * The 1099 note: rent goes the other way. A business that pays rent of
+ * $2,000 or more in a year ($600 for 2025 and earlier) to a landlord that
+ * isn't a corporation usually sends the landlord a Form 1099-MISC, so the
+ * renter may owe the studio one; the studio doesn't send the renter one for
+ * rent. This statement is the renter's own payment record, not a 1099. The
+ * route flags the threshold for the year.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -36,6 +38,9 @@ interface PaymentRow {
   amount:      number;
   method:      string;
   ref:         string;
+  /** Rent itself (not a fee or an add-on), paid some way other than by card or a payment app: what the 1099-MISC test
+   *  counts (card and payment-app payments are reported by the processor instead). */
+  rentByHand?: boolean;
 }
 
 function buildStatementHtml(data: {
@@ -48,6 +53,7 @@ function buildStatementHtml(data: {
   renterBusiness: string;
   rows:           PaymentRow[];
   totalDollars:   number;
+  byHandDollars?: number;
   generatedAt:    string;
 }): string {
   const rowsHtml = data.rows.map((r) => `
@@ -59,11 +65,12 @@ function buildStatementHtml(data: {
       <td class="r nowrap">${fmt(r.amount)}</td>
     </tr>`).join('');
 
-  const threshold = data.totalDollars >= 600;
+  const limit = data.year >= 2026 ? 2000 : 600;
+  const threshold = (data.byHandDollars || 0) >= limit;
   const contact = [data.studioAddress, data.studioPhone, data.studioEmail].filter(Boolean).map((s) => esc(s));
 
   // The app's print look (lib/print-style): a light heading, sentence-case labels in grey, thin lines, soft panels,
-  // and amber only for the $600 note that needs a second look.
+  // and amber only for the 1099 note that needs a second look.
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -118,7 +125,7 @@ function buildStatementHtml(data: {
 
   <div class="panel sum">
     <div>
-      <p class="lbl">Total rent paid · January 1 – December 31, ${data.year}</p>
+      <p class="lbl">Total rent paid, January 1 to December 31, ${data.year}</p>
       <p class="big">${fmt(data.totalDollars)}</p>
     </div>
     <p class="muted">${data.rows.length} payment${data.rows.length===1?'':'s'}</p>
@@ -153,20 +160,21 @@ function buildStatementHtml(data: {
 
   ${threshold ? `
   <div class="panel note callout warn">
-    <b>Note — $600 threshold:</b> Total rent paid to ${esc(data.studioName)} in ${data.year} exceeds $600.
-    Under IRS rules, if you paid a landlord more than $600 in rent for business property during the year,
-    you may be required to report this on your tax return. The studio may issue a 1099-NEC or equivalent.
-    This statement is <em>not</em> a 1099-NEC — keep it alongside any 1099 you receive.
+    <b>A Form 1099-MISC for rent:</b> rent paid to ${esc(data.studioName)} in ${data.year} by check, cash, bank transfer or taken off rent is
+    ${fmt(data.byHandDollars || 0)}, which is $${limit.toLocaleString('en-US')} or more. A business that pays a landlord that much rent in a year
+    usually sends the landlord a Form 1099-MISC, unless the landlord is a corporation. Rent paid by card or a payment app
+    is left out: the processor reports it. Ask your accountant whether you need to send one to ${esc(data.studioName)}.
+    This statement is your own record of what you paid, not a 1099.
   </div>` : ''}
 
   <div class="sig">
     <div>
       <div class="sig-line"></div>
-      <p class="lbl">Prepared by · ${esc(data.studioName)}</p>
+      <p class="lbl">Prepared by ${esc(data.studioName)}</p>
     </div>
     <div>
       <div class="sig-line"></div>
-      <p class="lbl">Received by · ${esc(data.renterName)}</p>
+      <p class="lbl">Received by ${esc(data.renterName)}</p>
     </div>
   </div>
 
@@ -177,8 +185,8 @@ function buildStatementHtml(data: {
   </p>
 
   <div class="foot">
-    <span>${esc(data.studioName)} · Annual rent statement · ${data.year}</span>
-    <span>Tenant: ${esc(data.renterName)} · ${esc(data.generatedAt.slice(0,10))}</span>
+    <span>${esc(data.studioName)}, annual rent statement, ${data.year}</span>
+    <span>Renter: ${esc(data.renterName)}, ${esc(data.generatedAt.slice(0,10))}</span>
   </div>
 </div>
 
@@ -266,36 +274,51 @@ export async function GET(req: NextRequest) {
     // 2. Lease payments from transactions
     // By renter id and their own records, never by name: someone else with the same name is someone else
     // (lib/renter-rent-history).
-    const { renterRentPayments } = await import('@/lib/renter-rent-history');
-    const txnSeen = new Set<string>();
-    for (const t of await renterRentPayments(db, tenantId, { renterId })) {
-      if (txnSeen.has(t.id)) continue;
-      // A security deposit is their money held, not rent paid (one applied to what they owe is, and is booked as rent).
-      if (t.category === 'Booth Deposit' || t.taxBucket === 'transfer') continue;
-      // A booking's own payment is already counted above (as the booking). Its other lines (overage, incidentals,
-      // refunds) are separate money and stay.
+    const { renterRentPayments, rentTakeBacks, rentLineCents, rentLineTarget, rentCreditsUsed } = await import('@/lib/renter-rent-history');
+    // (Then any undo, void or correction of one of those payments, which carries none of the renter's ids.)
+    const pays = await renterRentPayments(db, tenantId, { renterId });
+    const byId = new Map<string, any>();
+    for (const t of [...pays, ...await rentTakeBacks(db, tenantId, pays.map((p: any) => String(p.id)))]) byId.set(String(t.id), t);
+    // A booking's own payment is already counted above (as the booking). Its other lines (overage, incidentals,
+    // refunds) are separate money and stay; anything taking that payment back goes with it.
+    const asBooking = new Set<string>();
+    for (const t of byId.values()) {
       const bk = t.sourceId && counted.has(String(t.sourceId)) ? resById.get(String(t.sourceId)) : null;
-      if (bk && (String(t.id) === `boothrent_${String(t.sourceId).replace(/[^A-Za-z0-9_-]/g, '')}` || (!!t.stripePaymentIntentId && t.stripePaymentIntentId === bk.stripePaymentIntentId && t.category === 'Booth Rent' && !/^(Overage|Incidental)/i.test(String(t.description || ''))))) continue;
-      txnSeen.add(t.id);
+      if (bk && (String(t.id) === `boothrent_${String(t.sourceId).replace(/[^A-Za-z0-9_-]/g, '')}` || (!!t.stripePaymentIntentId && t.stripePaymentIntentId === bk.stripePaymentIntentId && t.category === 'Booth Rent' && !/^(Overage|Incidental)/i.test(String(t.description || ''))))) asBooking.add(String(t.id));
+    }
+    // (Card and payment-app payments are reported by the processor on a 1099-K, so the 1099-MISC test leaves them out.)
+    const BY_PROCESSOR = /card|stripe|apple pay|google pay|paypal|venmo|cash ?app|square/i;
+    for (const t of byId.values()) {
+      if (asBooking.has(String(t.id)) || asBooking.has(rentLineTarget(t))) continue;
       const d = (t.date || t.createdAt || '').slice(0, 10);
       if (d < yearStart || d > yearEnd) continue;
-      const amount0 = typeof t.amount === 'number' ? t.amount : (t.amountCents || 0) / 100;
-      // A refund to their card (lib/renter-refund) comes off what they paid.
-      const amount = t.type === 'reversal' || t.rentRefundOf ? -Math.abs(amount0) : amount0;
+      // A security deposit is their money held, not rent paid (one applied to what they owe is, and is booked as rent).
+      // A refund to their card, an undo or a void comes off what they paid (lib/renter-rent-history rentLineCents).
+      const cents = rentLineCents(t, byId); if (!cents) continue;
+      const orig = byId.get(rentLineTarget(t)) || t;
       rows.push({
         date:        d,
         description: t.description || 'Booth rent',
-        space:       t.boothName || t.description?.split('—')?.[1]?.trim() || 'Space',
+        space:       t.boothName || orig.boothName || t.description?.split('—')?.[1]?.trim() || 'Space',
         period:      t.periodStart && t.periodEnd ? `${t.periodStart} – ${t.periodEnd}` : d,
-        amount,
+        amount:      cents / 100,
         method:      t.paymentMethod || 'On file',
         ref:         t.stripePaymentIntentId || t.stripeChargeId || '',
+        rentByHand:  orig.category === 'Booth Rent' && !BY_PROCESSOR.test(String(orig.paymentMethod || t.paymentMethod || '')),
       });
+    }
+
+    // 3. Money the studio owed them that went toward rent instead of being paid out (front-desk collections, studio gift
+    // cards, online shop sales), as it was used on a rent bill: paid all the same, and no card processor reports it.
+    const ledger = (await db.collection(`tenants/${tenantId}/rentLedger`).where('renterId', '==', renterId).get()).docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
+    for (const c of rentCreditsUsed(ledger, year)) {
+      rows.push({ date: c.date, description: `Paid from ${c.what}`, space: 'Rent', period: c.date, amount: c.cents / 100, method: 'Taken off rent', ref: '', rentByHand: true });
     }
 
     // Sort by date
     rows.sort((a, b) => a.date.localeCompare(b.date));
     const totalDollars = rows.reduce((s, r) => s + r.amount, 0);
+    const byHandDollars = rows.filter((r) => r.rentByHand).reduce((s, r) => s + r.amount, 0);
 
     const html = buildStatementHtml({
       year,
@@ -303,6 +326,7 @@ export async function GET(req: NextRequest) {
       renterName, renterBusiness,
       rows,
       totalDollars,
+      byHandDollars,
       generatedAt: new Date().toISOString(),
     });
 
