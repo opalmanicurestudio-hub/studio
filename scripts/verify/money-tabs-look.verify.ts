@@ -112,10 +112,10 @@ const src = (f: string) => fs.readFileSync(f, 'utf8');
     /if \(urlTab && VALID_TABS\.includes\(urlTab\) && urlTab !== activeTab\) handleTabChange\(urlTab\); \}, \[urlTab\]\)/.test(page)
     && /<PaydayTab onNavigate=\{handleTabChange\} \/>/.test(page) && /<ActivityTab onNavigate=\{handleTabChange\} \/>/.test(page) && /onNavigate\?\.\('bills'\)/.test(page));
   {
-    const rd = page.slice(page.indexOf('const RefundProtocolDialog'), page.indexOf('// ─── LedgerTab'));
+    const rd = src('src/components/money/RefundDialog.tsx');
     const early = rd.indexOf('if (!transaction) return null;');
     check('the refund dialog opens: every hook comes before its early return (it’s mounted with no line, then given one)',
-      early > 0 && !/\buse(State|Effect|Memo|Ref|Callback)\(/.test(rd.slice(early)) && /const \[verifying, setVerifying\] = useState\(false\);\n  if \(!transaction\) return null;/.test(rd));
+      early > 0 && !/\buse(State|Effect|Memo|Ref|Callback)\(/.test(rd.slice(early)) && /<RefundDialog\b/.test(page) && !/const RefundProtocolDialog/.test(page));
   }
   check('the old Payday, Bills and Activity are gone', !/Run Payday|Allocation Engine|Bills & Obligations|const BillRow|const ActivityRow|AllocationItem/.test(page));
   check('house style: no shouting labels, no dots between words, no comments in the markup, 44px targets, the palette',

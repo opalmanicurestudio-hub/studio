@@ -1,58 +1,37 @@
 'use client';
-
+// src/components/ledger/AddTransactionDialog.tsx — ADD A LINE (the Books tab's Add a line): money in or out that didn't
+// come through a checkout or the bank feed, with its date, what it was for, its category, who it was paid to or from,
+// business or personal, how it was paid, and a photo of the receipt. A sheet from the bottom on a phone, a dialog on a
+// computer. What's saved is the line as before, its report group stamped from the category (lib/categories bucketFor).
 import React, { useEffect, useState } from 'react';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '@/components/ui/dialog';
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription,
-  SheetFooter,
-} from '@/components/ui/sheet';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { Calendar as CalendarIcon, DollarSign, User, Sparkles, Clock, FileText, ArrowRight, Check, CreditCard, Landmark, Tag } from 'lucide-react';
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { Sheet, SheetContent, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { useForm, Controller, FormProvider, useFormContext } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { type Staff } from '@/lib/data';
 import { type Transaction } from '@/lib/financial-data';
-import { Textarea } from '../ui/textarea';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ImageUpload } from '../shared/ImageUpload';
-import { Popover, PopoverTrigger, PopoverContent } from '../ui/popover';
-import { Calendar } from '../ui/calendar';
-import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
-import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
-import { Separator } from '../ui/separator';
 import { categoriesFor, bucketFor, CUSTOM_CATEGORY } from '@/lib/categories';
 
+const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', AMBER = '#b45309';
+const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
+const btn = `inline-flex min-h-[44px] items-center justify-center rounded-full px-5 text-[14px] font-semibold disabled:opacity-50 ${RING}`;
+const field = `h-11 w-full rounded-xl bg-[#fff] px-3 text-[15px] ${RING}`;
+const fieldStyle = { border: `1px solid ${LINE}`, color: INK };
+const chip = (on: boolean) => (on ? { background: INK, color: '#fff', fontWeight: 600 } : { background: '#fff', color: INK, border: `1px solid ${LINE}` });
+
 const transactionSchema = z.object({
-  amount: z.coerce.number().positive('Amount must be positive.'),
-  description: z.string().min(1, 'A description is required.'),
-  category: z.string().min(1, 'Category is required.'),
-  paymentMethod: z.string().min(1, 'Payment method is required.'),
+  amount: z.coerce.number({ invalid_type_error: 'Put in an amount above zero.' }).positive('Put in an amount above zero.'),
+  description: z.string().trim().min(1, 'Say what it was for.'),
+  category: z.string().trim().min(1, 'Pick a category.'),
+  paymentMethod: z.string().min(1, 'Pick how it was paid.'),
   paymentMethodIdentifier: z.string().optional(),
   clientOrVendor: z.string().optional(),
   receiptUrl: z.string().optional(),
-  date: z.date({ required_error: "A date is required." }),
+  date: z.date({ required_error: 'Pick the day.' }),
   context: z.enum(['Business', 'Personal']),
   type: z.enum(['income', 'expense']),
   staffId: z.string().optional(),
@@ -67,352 +46,174 @@ interface AddTransactionDialogProps {
   onConfirm: (transaction: Omit<Transaction, 'id'>) => void;
 }
 
-const SectionHeader = ({ icon: Icon, title }: { icon: any, title: string }) => (
-    <div className="flex items-center gap-4 mb-6">
-        <div className="w-10 h-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shadow-inner border border-primary/20 shrink-0">
-            <Icon className="w-5 h-5" />
-        </div>
-        <div className="space-y-0.5 text-left">
-            <p className="text-[9px] font-black uppercase tracking-widest text-primary/60">Module Entry</p>
-            <h3 className="text-xl font-black uppercase tracking-tighter text-foreground">{title}</h3>
-        </div>
-    </div>
+/** How it was paid: the value kept with the line, and the words shown. */
+export const PAID_WITH: [string, string][] = [
+  ['Business Checking', 'Business checking'], ['Business Credit Card', 'Business credit card'], ['Personal Checking', 'Personal checking'],
+  ['Personal Credit Card', 'Personal credit card'], ['Cash', 'Cash'], ['Other', 'Something else'],
+];
+
+const pad = (n: number) => String(n).padStart(2, '0');
+const ymd = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const hm = (d: Date) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+const Field = ({ label, htmlFor, error, children, hint }: { label: string; htmlFor?: string; error?: string; hint?: string; children: React.ReactNode }) => (
+  <div className="space-y-1.5">
+    <label htmlFor={htmlFor} className="block text-[14px] font-semibold" style={{ color: INK }}>{label}{hint && <span className="font-normal" style={{ color: MUTED }}> {hint}</span>}</label>
+    {children}
+    {error && <p role="alert" className="text-[13px] font-medium" style={{ color: AMBER }}>{error}</p>}
+  </div>
 );
 
-const AddTransactionForm = ({ staff }: { staff: Staff[] }) => {
-    const { control, register, watch, setValue, getValues, formState: { errors } } = useFormContext<TransactionFormData>();
-    const txnType = watch('type');
-    const [customCategory, setCustomCategory] = useState(false);
+const AddTransactionForm = () => {
+  const { control, register, watch, setValue, getValues, formState: { errors } } = useFormContext<TransactionFormData>();
+  const txnType = watch('type');
+  const [customCategory, setCustomCategory] = useState(false);
 
-    // When switching income ↔ expense, clear a category that no longer
-    // belongs to the visible library list (custom entries survive).
-    React.useEffect(() => {
-        const cur = getValues('category');
-        if (cur && !customCategory && !categoriesFor(txnType).some(c => c.name === cur)) {
-            setValue('category', '');
-        }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [txnType]);
+  // When switching money in ↔ out, clear a category that no longer belongs to the list (one typed in stays).
+  useEffect(() => {
+    const cur = getValues('category');
+    if (cur && !customCategory && !categoriesFor(txnType).some((c) => c.name === cur)) setValue('category', '');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [txnType]);
 
-    return (
-        <div className="space-y-10">
-            <div className="space-y-8">
-                <SectionHeader icon={DollarSign} title="Capital Parameters" />
-                <div className="space-y-6">
-                    <Controller
-                        name="amount"
-                        control={control}
-                        render={({ field }) => (
-                            <div className="space-y-3">
-                                <Label htmlFor="amount" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Amount</Label>
-                                <div className="relative">
-                                    <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-6 w-6 text-primary opacity-40" />
-                                    <Input id="amount" type="number" step="0.01" placeholder="0.00" className="h-20 pl-14 rounded-[2rem] border-4 font-black text-5xl tracking-tighter text-primary shadow-inner bg-muted/5 focus-visible:ring-primary/20 text-center" {...field} />
-                                </div>
-                                {errors.amount && <p className="text-[10px] font-black text-destructive uppercase ml-1 text-center">{errors.amount.message}</p>}
-                            </div>
-                        )}
-                    />
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                        <Controller
-                            name="date"
-                            control={control}
-                            render={({ field }) => (
-                                <div className="space-y-2 text-left">
-                                    <Label htmlFor="date" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Archive Date</Label>
-                                    <Popover>
-                                        <PopoverTrigger asChild>
-                                            <Button
-                                                variant={"outline"}
-                                                className={cn(
-                                                "w-full h-14 rounded-2xl border-2 font-black text-lg justify-start px-4 shadow-sm bg-background",
-                                                !field.value && "text-muted-foreground"
-                                                )}
-                                            >
-                                                <CalendarIcon className="mr-3 h-5 w-5 text-primary opacity-40" />
-                                                {field.value ? format(field.value, 'MMM d, yyyy') : 'Pick a date'}
-                                            </Button>
-                                        </PopoverTrigger>
-                                        <PopoverContent className="w-auto p-0 rounded-3xl overflow-hidden shadow-3xl border-4">
-                                            <Calendar
-                                                mode="single"
-                                                selected={field.value}
-                                                onSelect={(date) => {
-                                                    if (date) {
-                                                        const existingDate = field.value || new Date();
-                                                        const newDate = new Date(date);
-                                                        newDate.setHours(existingDate.getHours(), existingDate.getMinutes());
-                                                        field.onChange(newDate);
-                                                    }
-                                                }}
-                                                initialFocus
-                                            />
-                                        </PopoverContent>
-                                    </Popover>
-                                </div>
-                            )}
-                        />
-                        <div className="space-y-2 text-left">
-                            <Label htmlFor="time" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Timestamp</Label>
-                            <div className="relative">
-                                <Clock className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-primary opacity-40" />
-                                <Controller
-                                    name="date"
-                                    control={control}
-                                    render={({ field }) => (
-                                        <Input
-                                            id="time"
-                                            type="time"
-                                            value={field.value ? format(field.value, 'HH:mm') : ''}
-                                            onChange={(e) => {
-                                                const [hours, minutes] = e.target.value.split(':').map(Number);
-                                                const newDate = field.value ? new Date(field.value) : new Date();
-                                                newDate.setHours(hours, minutes);
-                                                field.onChange(newDate);
-                                            }}
-                                            className="h-14 pl-12 rounded-2xl border-2 font-black text-xl shadow-inner bg-muted/5"
-                                        />
-                                    )}
-                                />
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <Separator className="border-dashed" />
-
-            <div className="space-y-8">
-                <SectionHeader icon={FileText} title="Audit Detail" />
-                <div className="space-y-6 text-left">
-                    <div className="space-y-2">
-                        <Label htmlFor="description" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Operational Description</Label>
-                        <Textarea id="description" placeholder="Specify the purpose of this distribution..." {...register('description')} className="rounded-2xl border-2 bg-muted/5 min-h-[100px] focus-visible:ring-primary/20 font-medium" />
-                        {errors.description && <p className="text-[9px] font-black text-destructive uppercase ml-1">{errors.description.message}</p>}
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div className="space-y-2">
-                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Transaction Logic</Label>
-                            <Controller name="type" control={control} render={({ field }) => (
-                                <Select onValueChange={field.onChange} value={field.value}>
-                                    <SelectTrigger className="h-12 rounded-xl border-2 font-black uppercase text-[10px] tracking-widest shadow-inner bg-muted/5"><SelectValue /></SelectTrigger>
-                                    <SelectContent className="rounded-xl border-2 shadow-2xl">
-                                        <SelectItem value="income" className="font-bold">INCOME YIELD</SelectItem>
-                                        <SelectItem value="expense" className="font-bold">EXPENSE LOAD</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            )} />
-                        </div>
-                        <div className="space-y-2">
-                            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Financial Context</Label>
-                            <Controller name="context" control={control} render={({ field }) => (
-                                <RadioGroup onValueChange={field.onChange} value={field.value} className="grid grid-cols-2 gap-2">
-                                    <label htmlFor="bus-add-txn" className="cursor-pointer">
-                                        <div className={cn("flex items-center justify-center p-3 rounded-xl border-2 transition-all", field.value === 'Business' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-background")}>
-                                            <span className="text-[10px] font-black uppercase tracking-widest">Business</span>
-                                            <RadioGroupItem value="Business" id="bus-add-txn" className="sr-only" />
-                                        </div>
-                                    </label>
-                                    <label htmlFor="per-add-txn" className="cursor-pointer">
-                                        <div className={cn("p-3 rounded-xl border-2 text-center transition-all", field.value === 'Personal' ? "border-primary bg-primary/5 shadow-md" : "border-border bg-background")}>
-                                            <span className="text-[10px] font-black uppercase tracking-widest">Personal</span>
-                                            <RadioGroupItem value="Personal" id="per-add-txn" className="sr-only" />
-                                        </div>
-                                    </label>
-                                </RadioGroup>
-                            )} />
-                        </div>
-                    </div>
-
-                    <div className="space-y-2">
-                        <Label htmlFor="category" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Classification Category</Label>
-                        <Controller
-                            name="category"
-                            control={control}
-                            render={({ field }) => {
-                                const inLibrary = categoriesFor(txnType).some(c => c.name === field.value);
-                                const selectValue = customCategory
-                                    ? CUSTOM_CATEGORY
-                                    : inLibrary ? field.value : (field.value ? CUSTOM_CATEGORY : '');
-                                return (
-                                    <div className="space-y-2">
-                                        <Select
-                                            value={selectValue}
-                                            onValueChange={(v) => {
-                                                if (v === CUSTOM_CATEGORY) { setCustomCategory(true); field.onChange(''); }
-                                                else { setCustomCategory(false); field.onChange(v); }
-                                            }}
-                                        >
-                                            <SelectTrigger id="category" className="h-12 rounded-xl border-2 font-black uppercase text-xs shadow-inner bg-muted/5">
-                                                <div className="flex items-center gap-2 min-w-0">
-                                                    <Tag className="h-4 w-4 text-primary opacity-40 shrink-0" />
-                                                    <SelectValue placeholder="SELECT CATEGORY" />
-                                                </div>
-                                            </SelectTrigger>
-                                            <SelectContent className="rounded-xl border-2 shadow-2xl max-h-72">
-                                                {categoriesFor(txnType).map(c => (
-                                                    <SelectItem key={c.name} value={c.name} className="font-bold">
-                                                        {c.name}
-                                                    </SelectItem>
-                                                ))}
-                                                <SelectItem value={CUSTOM_CATEGORY} className="font-bold text-primary">+ Custom category…</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                        {customCategory && (
-                                            <Input
-                                                autoFocus
-                                                placeholder="Type a custom category..."
-                                                value={field.value}
-                                                onChange={e => field.onChange(e.target.value)}
-                                                className="h-12 rounded-xl border-2 font-black uppercase text-xs"
-                                            />
-                                        )}
-                                    </div>
-                                );
-                            }}
-                        />
-                        {errors.category && <p className="text-[9px] font-black text-destructive uppercase ml-1">{errors.category.message}</p>}
-                    </div>
-
-                    <div className="space-y-2">
-                        <Label htmlFor="vendor" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Counterparty (Optional)</Label>
-                        <div className="relative">
-                            <User className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-primary opacity-40" />
-                            <Input id="vendor" placeholder="Counterparty name..." {...register('clientOrVendor')} className="h-12 pl-10 rounded-xl border-2 font-bold uppercase text-xs" />
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <Separator className="border-dashed" />
-
-            <div className="space-y-8">
-                <SectionHeader icon={CreditCard} title="Settlement Protocol" />
-                <div className="space-y-6 text-left">
-                    <div className="space-y-3">
-                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Distribution Source</Label>
-                        <Controller name="paymentMethod" control={control} render={({ field }) => (
-                            <Select onValueChange={field.onChange} value={field.value}>
-                                <SelectTrigger className="h-14 rounded-2xl border-2 font-black uppercase text-xs shadow-inner bg-muted/5"><SelectValue placeholder="SELECT ACCOUNT" /></SelectTrigger>
-                                <SelectContent className="rounded-xl border-2 shadow-2xl">
-                                    <SelectItem value="Business Checking" className="font-bold">BUSINESS CHECKING</SelectItem>
-                                    <SelectItem value="Business Credit Card" className="font-bold">BUSINESS CREDIT CARD</SelectItem>
-                                    <SelectItem value="Personal Checking" className="font-bold">PERSONAL CHECKING</SelectItem>
-                                    <SelectItem value="Personal Credit Card" className="font-bold">PERSONAL CREDIT CARD</SelectItem>
-                                    <SelectItem value="Cash" className="font-bold">CASH TENDER</SelectItem>
-                                    <SelectItem value="Other" className="font-bold">OTHER PROTOCOL</SelectItem>
-                                </SelectContent>
-                            </Select>
-                        )} />
-                        {errors.paymentMethod && <p className="text-[9px] font-black text-destructive uppercase ml-1">{errors.paymentMethod.message}</p>}
-                    </div>
-                    <div className="space-y-2">
-                        <Label htmlFor="paymentMethodIdentifier" className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Account Identifier</Label>
-                        <Input id="paymentMethodIdentifier" placeholder="e.g., Chase ****1234" {...register('paymentMethodIdentifier')} className="h-12 rounded-xl border-2 font-mono font-black text-xs uppercase" />
-                    </div>
-
-                    <div className="space-y-4 pt-4 border-t border-dashed">
-                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground ml-1">Proof of Transaction</Label>
-                        <Controller name="receiptUrl" control={control} render={({ field }) => ( <ImageUpload onImageUploaded={field.onChange} /> )} />
-                    </div>
-                </div>
-            </div>
+  return (
+    <div className="space-y-5" style={{ color: INK }}>
+      <Controller name="type" control={control} render={({ field: f }) => (
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Money in or out">
+          {([['expense', 'Money out'], ['income', 'Money in']] as const).map(([v, l]) => (
+            <button key={v} type="button" aria-pressed={f.value === v} onClick={() => f.onChange(v)} className={`min-h-[44px] rounded-full px-4 text-[14px] ${RING}`} style={chip(f.value === v)}>{l}</button>
+          ))}
         </div>
-    );
+      )} />
+
+      <Controller name="amount" control={control} render={({ field: f }) => (
+        <Field label="Amount" htmlFor="amount" error={errors.amount?.message}>
+          <span className="flex h-12 items-center rounded-xl bg-[#fff] px-3 focus-within:ring-2 focus-within:ring-[#16171a]" style={fieldStyle}>
+            <span aria-hidden style={{ color: MUTED }}>$</span>
+            <input ref={f.ref} id="amount" type="number" inputMode="decimal" step="0.01" min="0" placeholder="0.00" value={f.value ?? ''} onChange={(e) => f.onChange(e.target.value)} onBlur={f.onBlur}
+              className="h-full w-full min-w-0 bg-transparent pl-1 text-[20px] font-semibold tabular-nums focus:outline-none" />
+          </span>
+        </Field>
+      )} />
+
+      <Controller name="date" control={control} render={({ field: f }) => (
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Day" htmlFor="date" error={errors.date?.message}>
+            <input ref={f.ref} id="date" type="date" className={field} style={fieldStyle} value={f.value ? ymd(f.value) : ''}
+              onChange={(e) => { if (!e.target.value) return; const [y, m, d] = e.target.value.split('-').map(Number); const n = new Date(f.value || new Date()); n.setFullYear(y, m - 1, d); f.onChange(n); }} />
+          </Field>
+          <Field label="Time" htmlFor="time">
+            <input id="time" type="time" className={field} style={fieldStyle} value={f.value ? hm(f.value) : ''}
+              onChange={(e) => { if (!e.target.value) return; const [h, mi] = e.target.value.split(':').map(Number); const n = new Date(f.value || new Date()); n.setHours(h, mi); f.onChange(n); }} />
+          </Field>
+        </div>
+      )} />
+
+      <Field label="What was it for?" htmlFor="description" error={errors.description?.message}>
+        <input id="description" placeholder="Printer paper and ink" {...register('description')} className={field} style={fieldStyle} />
+      </Field>
+
+      <Controller name="category" control={control} render={({ field: f }) => {
+        const inList = categoriesFor(txnType).some((c) => c.name === f.value);
+        const value = customCategory ? CUSTOM_CATEGORY : inList ? f.value : (f.value ? CUSTOM_CATEGORY : '');
+        return (
+          <Field label="Category" htmlFor="category" error={errors.category?.message}>
+            <select ref={f.ref} id="category" value={value} className={field} style={fieldStyle}
+              onChange={(e) => { const v = e.target.value; if (v === CUSTOM_CATEGORY) { setCustomCategory(true); f.onChange(''); } else { setCustomCategory(false); f.onChange(v); } }}>
+              <option value="" disabled>Pick one</option>
+              {categoriesFor(txnType).map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}
+              <option value={CUSTOM_CATEGORY}>Something else, typed in</option>
+            </select>
+            {customCategory && <input autoFocus aria-label="Your own category" placeholder="Type the category" value={f.value} onChange={(e) => f.onChange(e.target.value)} className={`${field} mt-2`} style={fieldStyle} />}
+          </Field>
+        );
+      }} />
+
+      <Field label={txnType === 'income' ? 'Who it came from' : 'Who it was paid to'} hint="(if you like)" htmlFor="vendor">
+        <input id="vendor" placeholder={txnType === 'income' ? 'A client or a company' : 'A store or a company'} {...register('clientOrVendor')} className={field} style={fieldStyle} />
+      </Field>
+
+      <Controller name="context" control={control} render={({ field: f }) => (
+        <Field label="Whose books">
+          <div className="flex flex-wrap gap-2" role="group" aria-label="Whose books">
+            {([['Business', 'The business'], ['Personal', 'Personal']] as const).map(([v, l]) => (
+              <button key={v} type="button" aria-pressed={f.value === v} onClick={() => f.onChange(v)} className={`min-h-[44px] rounded-full px-4 text-[14px] ${RING}`} style={chip(f.value === v)}>{l}</button>
+            ))}
+          </div>
+        </Field>
+      )} />
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Controller name="paymentMethod" control={control} render={({ field: f }) => (
+          <Field label="How it was paid" htmlFor="paid-with" error={errors.paymentMethod?.message}>
+            <select ref={f.ref} id="paid-with" value={f.value} onChange={(e) => f.onChange(e.target.value)} className={field} style={fieldStyle}>
+              <option value="" disabled>Pick one</option>
+              {PAID_WITH.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+          </Field>
+        )} />
+        <Field label="Which account" hint="(if you like)" htmlFor="paymentMethodIdentifier">
+          <input id="paymentMethodIdentifier" placeholder="Chase ending 1234" {...register('paymentMethodIdentifier')} className={field} style={fieldStyle} />
+        </Field>
+      </div>
+
+      <Field label="Receipt" hint="(if you have one)">
+        <Controller name="receiptUrl" control={control} render={({ field: f }) => <ImageUpload onImageUploaded={f.onChange} label="Add a photo of the receipt" enableMarkup={false} />} />
+      </Field>
+    </div>
+  );
 };
 
-export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({
-  open,
-  onOpenChange,
-  staff,
-  onConfirm,
-}) => {
-  const isMobile = useIsMobile();
-  const methods = useForm<TransactionFormData>({
-    resolver: zodResolver(transactionSchema),
-    defaultValues: {
-      description: '',
-      category: '',
-      paymentMethod: '',
-      paymentMethodIdentifier: '',
-      clientOrVendor: '',
-      receiptUrl: '',
-      date: new Date(),
-      context: 'Business',
-      type: 'expense'
-    },
-  });
+const EMPTY = (): Partial<TransactionFormData> => ({
+  description: '', category: '', paymentMethod: '', paymentMethodIdentifier: '', clientOrVendor: '', receiptUrl: '',
+  date: new Date(), context: 'Business', type: 'expense', amount: undefined,
+});
 
+export const AddTransactionDialog: React.FC<AddTransactionDialogProps> = ({ open, onOpenChange, onConfirm }) => {
+  const isMobile = useIsMobile();
+  const methods = useForm<TransactionFormData>({ resolver: zodResolver(transactionSchema), defaultValues: EMPTY() });
   const { handleSubmit, reset } = methods;
 
-  useEffect(() => {
-    if (open) {
-      reset({
-        date: new Date(),
-        context: 'Business',
-        type: 'expense',
-        amount: undefined,
-      });
-    }
-  }, [open, reset]);
+  useEffect(() => { if (open) reset(EMPTY()); }, [open, reset]);
 
   const handleFormSubmit = (data: TransactionFormData) => {
     const { staffId, ...rest } = data;
-    const newTransaction: Omit<Transaction, 'id'> = {
+    const newTransaction = {
       ...rest,
       date: data.date.toISOString(),
       hasReceipt: !!data.receiptUrl,
       staffId: staffId === 'none' ? undefined : staffId,
       // v61 — stamp the report-color bucket from the category library
       taxBucket: bucketFor(data.category, data.type),
-    };
+    } as Omit<Transaction, 'id'>;
     onConfirm(newTransaction);
   };
 
-  const DialogContainer = isMobile ? Sheet : Dialog;
-  const ContentComponent = isMobile ? SheetContent : DialogContent;
+  const Container = isMobile ? Sheet : Dialog;
+  const Content = isMobile ? SheetContent : DialogContent;
+  const Title = isMobile ? SheetTitle : DialogTitle;
+  const Description = isMobile ? SheetDescription : DialogDescription;
 
   return (
-    <DialogContainer open={open} onOpenChange={onOpenChange}>
-      <ContentComponent
-        side={isMobile ? "bottom" : undefined}
-        className={cn(
-          "p-0 border-none bg-background flex flex-col shadow-3xl overflow-hidden",
-          isMobile ? "h-[92dvh] rounded-t-[3rem]" : "sm:max-w-2xl max-h-[90dvh]"
-        )}
-      >
+    <Container open={open} onOpenChange={onOpenChange}>
+      <Content side={isMobile ? 'bottom' : undefined}
+        className={cn('flex flex-col overflow-hidden border-0 bg-[#fff] p-0', isMobile ? 'h-[92dvh] rounded-t-3xl' : 'max-h-[90dvh] rounded-3xl sm:max-w-xl')}>
         <FormProvider {...methods}>
-          <form onSubmit={handleSubmit(handleFormSubmit)} className="flex flex-col flex-1 min-h-0">
-
-            <div className="flex-shrink-0 text-left border-b bg-muted/5 p-8 pb-6">
-              <div className="flex items-center gap-3 mb-2">
-                <Sparkles className="w-5 h-5 text-primary" />
-                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Accounting Suite</span>
-              </div>
-              <DialogTitle className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-foreground leading-none">Add New Transaction</DialogTitle>
-              <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">Manually log an income or expense into the studio ledger.</DialogDescription>
+          <form onSubmit={handleSubmit(handleFormSubmit)} className="flex min-h-0 flex-1 flex-col" style={{ color: INK }}>
+            <div className="shrink-0 px-6 pb-3 pt-6 text-left">
+              <Title className="text-[22px] font-semibold leading-tight" style={{ color: INK }}>Add a line to your books</Title>
+              <Description className="mt-1 text-[14px]" style={{ color: MUTED }}>Money in or out that didn’t come through a checkout or your bank feed.</Description>
             </div>
-
-            <div className="flex-1 min-h-0 overflow-y-auto">
-              <div className="p-8 pb-32">
-                <AddTransactionForm staff={staff} />
-              </div>
+            <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-6 pt-2">
+              <AddTransactionForm />
             </div>
-
-            <div className="flex-shrink-0 border-t bg-background shadow-2xl p-6 sm:p-8">
-              <div className="flex w-full gap-4">
-                <Button variant="ghost" onClick={() => onOpenChange(false)} type="button" className="flex-1 h-12 md:h-14 font-black uppercase tracking-widest text-[11px] text-muted-foreground">Cancel</Button>
-                <Button type="submit" className="flex-[2.5] h-12 md:h-14 rounded-[2rem] font-black uppercase tracking-widest text-[11px] shadow-2xl shadow-primary/30 active:scale-95 transition-all group">
-                  Log Transaction <ArrowRight className="ml-2 w-4 h-4 transition-transform group-hover:translate-x-1" />
-                </Button>
-              </div>
+            <div className="flex shrink-0 gap-2 px-6 py-4" style={{ borderTop: `1px solid ${LINE}` }}>
+              <button type="submit" className={btn} style={{ background: INK, color: '#fff' }}>Add it</button>
+              <button type="button" onClick={() => onOpenChange(false)} className={btn} style={{ background: '#fff', color: INK, border: `1px solid ${LINE}` }}>Cancel</button>
             </div>
-
           </form>
         </FormProvider>
-      </ContentComponent>
-    </DialogContainer>
+      </Content>
+    </Container>
   );
 };

@@ -87,6 +87,8 @@ import { ReportsScreen } from '@/components/money/ReportsScreen';
 import { PaydayScreen, spanWords } from '@/components/money/PaydayScreen';
 import { BillsScreen, PAY_WAYS } from '@/components/money/BillsScreen';
 import { ActivityScreen } from '@/components/money/ActivityScreen';
+import { ReceiptDialog } from '@/components/money/ReceiptDialog';
+import { RefundDialog } from '@/components/money/RefundDialog';
 import { bucketFor } from '@/lib/categories';
 import { useInventory } from '@/context/InventoryContext';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -142,280 +144,6 @@ const useAuditActor = () => {
       role: member?.role || undefined,
     };
   }, [currentUser?.uid, currentUser?.displayName, currentUser?.email, staff]);
-};
-
-// ─── ReceiptPreviewDialog (unchanged) ─────────────────────────────────────────
-
-type ReceiptLineItem = { label: string; amount: number; type?: string; staff?: string };
-type ReceiptDoc = {
-  id: string; checkoutSessionId: string; clientName: string; cashierName?: string;
-  studioName?: string; date: string; paymentMethod: string; lineItems: ReceiptLineItem[];
-  subtotal: number; tax: number; tip: number; discount: number; total: number;
-  tendered: number; change: number;
-};
-
-const ReceiptPreviewDialog = ({
-  transaction, tenantId, open, onOpenChange,
-}: { transaction: Transaction | null; tenantId: string; open: boolean; onOpenChange: (o: boolean) => void }) => {
-  const { firestore } = useFirebase();
-  const [receipt,  setReceipt]  = useState<ReceiptDoc | null>(null);
-  const [loading,  setLoading]  = useState(false);
-  const [notFound, setNotFound] = useState(false);
-
-  useEffect(() => {
-    if (!open || !transaction || !firestore || !tenantId) return;
-    const rid = (transaction as any).receiptId;
-    if (!rid) { setNotFound(true); return; }
-    setLoading(true); setReceipt(null); setNotFound(false);
-    getDoc(doc(firestore, `tenants/${tenantId}/receipts`, rid))
-      .then(snap => snap.exists() ? setReceipt(snap.data() as ReceiptDoc) : setNotFound(true))
-      .catch(() => setNotFound(true))
-      .finally(() => setLoading(false));
-  }, [open, transaction?.id, tenantId, firestore]);
-
-  const handlePrint = () => {
-    if (!receipt) return;
-    const win = window.open('', '_blank', 'width=340,height=700');
-    if (!win) return;
-    const lines = (receipt.lineItems || []).map(l =>
-      `<div class="row"><span>${l.label}${l.staff ? ` · ${l.staff}` : ''}</span><span>$${l.amount.toFixed(2)}</span></div>`
-    ).join('');
-    win.document.write(`<!DOCTYPE html><html><head><title>Receipt</title>
-    <style>* { box-sizing:border-box; margin:0; padding:0; } body { font-family:'Courier New',monospace; font-size:13px; padding:20px 16px; max-width:300px; margin:0 auto; } h1 { font-size:16px; text-align:center; font-weight:bold; margin-bottom:2px; } .sub { text-align:center; color:#666; font-size:11px; margin-bottom:14px; } hr { border:none; border-top:1px dashed #bbb; margin:10px 0; } .row { display:flex; justify-content:space-between; margin:4px 0; } .muted { color:#555; } .bold { font-weight:bold; } .total { font-size:15px; font-weight:bold; border-top:1px solid #000; padding-top:8px; margin-top:6px; } .green { color:#2d6a0f; } .footer { text-align:center; margin-top:20px; color:#666; font-size:11px; line-height:2; } @media print { body { padding:0; } }</style></head><body>
-    <h1>${receipt.studioName || 'Studio'}</h1>
-    <div class="sub">${receipt.date ? format(new Date(receipt.date), 'MMM d, yyyy · h:mm a') : ''}<br>Guest: ${receipt.clientName || 'Guest'}${receipt.cashierName ? `<br>Served by: ${receipt.cashierName}` : ''}</div>
-    <hr>${lines}<hr>
-    <div class="row muted"><span>Subtotal</span><span>$${(receipt.subtotal || 0).toFixed(2)}</span></div>
-    ${(receipt.discount || 0) > 0 ? `<div class="row muted"><span>Discount</span><span>-$${receipt.discount.toFixed(2)}</span></div>` : ''}
-    <div class="row muted"><span>Tax</span><span>$${(receipt.tax || 0).toFixed(2)}</span></div>
-    ${(receipt.tip || 0) > 0 ? `<div class="row muted"><span>Gratuity</span><span>$${receipt.tip.toFixed(2)}</span></div>` : ''}
-    <div class="row total"><span>TOTAL</span><span>$${(receipt.total || 0).toFixed(2)}</span></div>
-    <hr>
-    <div class="row bold"><span>${receipt.paymentMethod || 'Payment'}</span><span>$${(receipt.tendered || receipt.total || 0).toFixed(2)}</span></div>
-    ${(receipt.change || 0) > 0.005 ? `<div class="row green bold"><span>Change</span><span>$${receipt.change.toFixed(2)}</span></div>` : ''}
-    <div class="footer">Thank you, ${(receipt.clientName || 'Guest').split(' ')[0]}!<br>We appreciate your business.</div>
-    </body></html>`);
-    win.document.close();
-    setTimeout(() => win.print(), 300);
-  };
-
-  if (!transaction) return null;
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md p-0 border-4 rounded-[3rem] overflow-hidden shadow-2xl bg-background">
-        <DialogHeader className="p-8 pb-4 border-b bg-muted/5 text-left">
-          <div className="flex items-center gap-3 mb-2">
-            <Receipt className="w-5 h-5 text-primary" />
-            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Digital Receipt</span>
-          </div>
-          <DialogTitle className="text-xl font-black uppercase tracking-tighter text-foreground truncate">{transaction.description}</DialogTitle>
-        </DialogHeader>
-        <div className="p-6 max-h-[60vh] overflow-y-auto">
-          {loading && <div className="flex flex-col items-center gap-3 py-12"><Loader className="w-8 h-8 animate-spin text-primary" /><p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Loading receipt...</p></div>}
-          {!loading && notFound && <div className="flex flex-col items-center gap-3 py-12 opacity-30"><FileX className="w-12 h-12" /><p className="text-[10px] font-black uppercase tracking-widest text-center">Receipt not on file.<br />Receipts are generated from checkout v2+</p></div>}
-          {!loading && receipt && (
-            <div className="space-y-4 font-mono text-sm">
-              <div className="text-center space-y-1 pb-3 border-b border-dashed">
-                <p className="font-black text-base uppercase">{receipt.studioName || 'Studio'}</p>
-                <p className="text-[11px] text-muted-foreground">{receipt.date ? format(new Date(receipt.date), 'MMM d, yyyy · h:mm a') : ''}</p>
-                <p className="text-[11px] text-muted-foreground">Guest: {receipt.clientName}</p>
-                {receipt.cashierName && <p className="text-[10px] text-muted-foreground opacity-60">Served by {receipt.cashierName}</p>}
-              </div>
-              <div className="space-y-1.5">
-                {(receipt.lineItems || []).map((item, i) => (
-                  <div key={i} className="flex justify-between items-start gap-3">
-                    <div className="flex-1 min-w-0"><span className="font-bold text-[12px] text-foreground block truncate">{item.label}</span>{item.staff && <span className="text-[10px] text-muted-foreground">· {item.staff}</span>}</div>
-                    <span className="font-black text-foreground shrink-0">${item.amount.toFixed(2)}</span>
-                  </div>
-                ))}
-              </div>
-              <div className="pt-3 border-t border-dashed space-y-1.5">
-                <div className="flex justify-between text-[12px] text-muted-foreground"><span>Subtotal</span><span>${(receipt.subtotal || 0).toFixed(2)}</span></div>
-                {(receipt.discount || 0) > 0 && <div className="flex justify-between text-[12px] text-primary"><span>Discount</span><span>-${receipt.discount.toFixed(2)}</span></div>}
-                <div className="flex justify-between text-[12px] text-muted-foreground"><span>Tax</span><span>${(receipt.tax || 0).toFixed(2)}</span></div>
-                {(receipt.tip || 0) > 0 && <div className="flex justify-between text-[12px] text-muted-foreground"><span>Gratuity</span><span>${receipt.tip.toFixed(2)}</span></div>}
-                <div className="flex justify-between text-[14px] font-black pt-2 border-t border-slate-900"><span>TOTAL</span><span>${(receipt.total || 0).toFixed(2)}</span></div>
-              </div>
-              <div className="pt-3 border-t border-dashed space-y-1.5">
-                <div className="flex justify-between text-[12px] items-center">
-                  <span className="flex items-center gap-1.5 font-bold">{receipt.paymentMethod?.toLowerCase().includes('cash') ? <Banknote className="w-3.5 h-3.5" /> : <CreditCard className="w-3.5 h-3.5" />}{receipt.paymentMethod}</span>
-                  <span className="font-black">${(receipt.tendered || receipt.total || 0).toFixed(2)}</span>
-                </div>
-                {(receipt.change || 0) > 0.005 && <div className="flex justify-between text-[12px] text-green-700 font-black"><span className="flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5" /> Change</span><span>${receipt.change.toFixed(2)}</span></div>}
-              </div>
-              <div className="text-center pt-2 text-[10px] text-muted-foreground opacity-50 border-t border-dashed">Thank you for your visit!</div>
-            </div>
-          )}
-        </div>
-        <DialogFooter className="p-6 pt-4 border-t bg-muted/5 flex flex-col gap-2">
-          {receipt && <Button onClick={handlePrint} className="w-full h-12 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20"><Printer className="w-4 h-4 mr-2" /> Reprint Receipt</Button>}
-          <Button variant="outline" className="w-full h-11 rounded-2xl font-black uppercase text-[10px] tracking-widest border-2" onClick={() => onOpenChange(false)}>Close</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-};
-
-// ─── RefundProtocolDialog (unchanged) ────────────────────────────────────────
-
-const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appointments, inventory, tenant, open, onOpenChange, onConfirm }: any) => {
-  const [pin, setPin] = useState('');
-  const [refundAmount, setRefundAmount] = useState(transaction?.amount || 0);
-  const [refundTip, setRefundTip] = useState(true);
-  const [tipStrategy, setTipStrategy] = useState<'clawback' | 'absorb'>('clawback');
-  const [reason, setReason] = useState('');
-  const [logIncident, setLogIncident] = useState(false);
-  const [withholdOverhead, setWithholdOverhead] = useState(false);
-  const [withholdMaterials, setWithholdMaterials] = useState(false);
-  const [withholdLabor, setWithholdLabor] = useState(false);
-  const { toast } = useToast();
-  const tmhr = hourlyRate(tenant);
-
-  const costsBreakdown = useMemo(() => {
-    if (!transaction || !services || !appointments || !staff) return { overhead: 0, materials: 0, labor: 0, staffMember: null };
-    const apt = appointments.find((a: Appointment) => a.id === transaction.appointmentId);
-    if (!apt) return { overhead: 0, materials: 0, labor: 0, staffMember: null };
-    const svc = services.find((s: Service) => s.id === apt.serviceId);
-    if (!svc) return { overhead: 0, materials: 0, labor: 0, staffMember: null };
-    let materials = 0;
-    if (apt.checkoutState?.formula?.length > 0) {
-      materials = apt.checkoutState.formula.reduce((acc: number, item: any) => acc + item.quantity * item.costPerUnit, 0);
-    } else {
-      materials = planCost(svc, inventory).total;
-    }
-    const actualDuration = apt.actualStartTime && apt.actualEndTime
-      ? differenceInMinutes(safeDate(apt.actualEndTime), safeDate(apt.actualStartTime))
-      : (apt.checkoutState?.actualDuration || svc.duration || 60);
-    // A finished visit: the real time plus the service's set-up and clean-up (lib/product-cost stationMinutes).
-    const overhead = (stationMinutes(svc, { actualMin: actualDuration }) / 60) * tmhr;
-    const staffMember = staff.find((s: Staff) => s.id === apt.staffId);
-    let labor = 0;
-    if (earnsCommission(staffMember)) labor = transaction.amount * (Number(transaction.commissionPct) >= 0 && transaction.commissionPct != null ? Number(transaction.commissionPct) : rateFor(staffMember, svc, 40)) / 100;
-    else if (staffMember?.payStructure === 'hourly' && staffMember.hourlyRate) labor = (actualDuration / 60) * staffMember.hourlyRate;
-    return { overhead, materials, labor, staffMember };
-  }, [transaction, services, appointments, tmhr, staff, inventory]);
-
-  // Commission on a refunded service: taken back (or kept) — the business's default, changeable here.
-  const isServiceSale = transaction?.category === 'Service Revenue' && !!transaction?.staffId;
-  const [takeBack, setTakeBack] = useState<boolean>(true);
-  const [later, setLater] = useState(false);   // a cash sale with the client not here: they choose pickup, an app or credit
-  useEffect(() => { setTakeBack(((tenant as any)?.payRules?.refundCommission || 'take_back') !== 'keep'); }, [transaction?.id, (tenant as any)?.payRules?.refundCommission]);
-  useEffect(() => {
-    if (transaction) { setRefundAmount(transaction.amount); setReason(''); setLogIncident(false); setWithholdOverhead(false); setWithholdMaterials(false); setWithholdLabor(costsBreakdown.staffMember?.payStructure === 'hourly'); }
-  }, [transaction?.id]);
-
-  useEffect(() => {
-    if (!transaction) return;
-    const withheld = (withholdOverhead ? costsBreakdown.overhead : 0) + (withholdMaterials ? costsBreakdown.materials : 0) + (withholdLabor ? costsBreakdown.labor : 0);
-    setRefundAmount(Math.max(0, Number((transaction.amount - withheld).toFixed(2))));
-  }, [withholdOverhead, withholdMaterials, withholdLabor, transaction, costsBreakdown]);
-
-  // (Every hook before the early return: the dialog is mounted with no line, then given one.)
-  const [verifying, setVerifying] = useState(false);
-  if (!transaction) return null;
-  const isCard = transaction.paymentMethod?.toLowerCase().includes('card') || transaction.paymentMethod?.toLowerCase().includes('visa');
-  const tipToRefund = refundTip ? (transaction.tipAmount || 0) : 0;
-  const totalOutlay = refundAmount + tipToRefund;
-
-  // v79 — manager PIN verified server-side (rate-limited; works after
-  // PINs move out of client-readable staff docs). Client compare remains
-  // only as a pre-deploy fallback.
-  const handleAction = async () => {
-    if (verifying) return;
-    if (!reason.trim()) { toast({ variant: 'destructive', title: 'Reason Required' }); return; }
-    setVerifying(true);
-    try {
-      let authorizerId: string | null = null;
-      try {
-        const res = await fetch('/api/portal/auth', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'verify-manager', tenantId: tenant?.id, pin }),
-        });
-        if (res.status === 404) throw new Error('__legacy__');
-        const d = await res.json();
-        if (d.ok && d.manager?.id) authorizerId = d.manager.id;
-        else { toast({ variant: 'destructive', title: 'Unauthorized', description: d.error }); return; }
-      } catch {
-        toast({ variant: 'destructive', title: 'No connection', description: 'PINs are checked online — try again.' }); return;   // never compared on this device
-      }
-      onConfirm({ amount: refundAmount, refundTip: refundTip && (transaction.tipAmount || 0) > 0, tipStrategy, reason, logIncident, authorizerId, takeBack: isServiceSale && takeBack, later: !isCard && later });
-      setPin('');
-    } finally { setVerifying(false); }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl p-0 overflow-hidden bg-background">
-        <DialogHeader className="p-8 pb-6 border-b bg-muted/5 text-left">
-          <div className="flex items-center gap-3 mb-2"><Undo2 className="w-5 h-5 text-destructive" /><span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">Revenue Reversal</span></div>
-          <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-foreground leading-none">Refund Protocol</DialogTitle>
-          <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-60 mt-1">Initiating reversal sequence.</DialogDescription>
-        </DialogHeader>
-        <ScrollArea className="max-h-[60vh]">
-          <div className="p-8 space-y-6">
-            <div className="p-6 rounded-[2rem] bg-destructive/5 border-2 border-destructive/10 text-center space-y-2">
-              <p className="text-[9px] font-black uppercase text-destructive/60 tracking-widest">Reversal Value</p>
-              <p className="text-5xl font-black text-destructive tracking-tighter font-mono">${totalOutlay.toFixed(2)}</p>
-              <p className="text-[10px] font-bold text-foreground/80 uppercase flex items-center justify-center gap-2">
-                {isCard ? <Lock className="w-3 h-3" /> : <Banknote className="w-3 h-3" />}
-                {isCard ? 'Original Card (Locked)' : transaction.paymentMethod}
-              </p>
-            </div>
-            {!isCard && (
-              <div className="space-y-2 rounded-2xl border p-4 text-[14px]">
-                <p className="font-semibold">How they get it back</p>
-                <label className="flex items-center gap-2"><input type="radio" name="refund-when" checked={!later} onChange={() => setLater(false)} className="h-4 w-4" /> They’re here — give it from the till now</label>
-                <label className="flex items-center gap-2"><input type="radio" name="refund-when" checked={later} onChange={() => setLater(true)} className="h-4 w-4" /> They’re not here — text them to choose (cash pickup, an app or credit)</label>
-                {later && <p className="text-[12px] text-muted-foreground">It goes on Refunds to give. Money records it when they collect or it’s sent.</p>}
-              </div>
-            )}
-            {isServiceSale && (
-              <div className="space-y-2 rounded-2xl border p-4 text-[14px]">
-                <p className="font-semibold">The provider’s commission on this service</p>
-                <label className="flex items-center gap-2"><input type="radio" name="refund-commission" checked={takeBack} onChange={() => setTakeBack(true)} className="h-4 w-4" /> Take it back from their next pay</label>
-                <label className="flex items-center gap-2"><input type="radio" name="refund-commission" checked={!takeBack} onChange={() => setTakeBack(false)} className="h-4 w-4" /> They keep it (e.g. they fixed it, or it wasn’t their fault)</label>
-                <p className="text-[12px] text-muted-foreground">In proportion to the amount refunded. An assistant’s share goes the same way.</p>
-              </div>
-            )}
-            <div className="space-y-3">
-              <p className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2"><Scale className="w-3.5 h-3.5" /> Cost Recovery Matrix</p>
-              <div className="rounded-2xl border-2 bg-muted/5 p-4 space-y-3">
-                {[
-                  { label: 'Overhead', icon: <Clock className="w-3 h-3" />, checked: withholdOverhead, set: setWithholdOverhead, val: costsBreakdown.overhead },
-                  { label: 'Materials', icon: <Package className="w-3 h-3" />, checked: withholdMaterials, set: setWithholdMaterials, val: costsBreakdown.materials },
-                  { label: 'Labor', icon: <Users className="w-3 h-3" />, checked: withholdLabor, set: setWithholdLabor, val: costsBreakdown.labor },
-                ].map(row => (
-                  <div key={row.label} className="flex justify-between items-center">
-                    <div className="flex items-center gap-3">
-                      <Switch checked={row.checked} onCheckedChange={row.set} />
-                      <span className="text-[10px] font-bold uppercase opacity-60 flex items-center gap-2">{row.icon} {row.label}</span>
-                    </div>
-                    <span className="font-mono text-[10px]">${row.val.toFixed(2)}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="space-y-3">
-              <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Justification Required</Label>
-              <Textarea placeholder="Provide detailed reasoning..." value={reason} onChange={e => setReason(e.target.value)} className="rounded-2xl border-2 bg-muted/5" />
-            </div>
-            <div className="flex items-center justify-between p-4 rounded-2xl border-2 border-dashed bg-muted/5">
-              <div><Label className="text-xs font-black uppercase flex items-center gap-2"><FileWarning className="w-4 h-4 text-amber-600" /> Log as Incident</Label><p className="text-[9px] text-muted-foreground uppercase opacity-60">File in guest dossier</p></div>
-              <Switch checked={logIncident} onCheckedChange={setLogIncident} />
-            </div>
-            <div className="space-y-3 pt-4 border-t border-dashed">
-              <div className="flex items-center gap-3"><div className="p-2 bg-muted rounded-xl"><Lock className="w-4 h-4 text-muted-foreground" /></div><Label className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Manager PIN</Label></div>
-              <Input type="password" maxLength={4} value={pin} onChange={e => setPin(e.target.value.replace(/\D/g, ''))} className="h-16 text-center text-4xl font-black tracking-[0.5em] rounded-2xl border-4 shadow-inner bg-muted/5" placeholder="••••" />
-            </div>
-          </div>
-        </ScrollArea>
-        <DialogFooter className="p-8 pt-4 border-t bg-muted/5 flex flex-col gap-3">
-          <Button onClick={handleAction} disabled={pin.length < 4 || !reason.trim()} className="w-full h-16 rounded-2xl text-xl font-black uppercase bg-destructive text-destructive-foreground hover:bg-destructive/90">Authorize Reversal</Button>
-          <Button variant="ghost" onClick={() => onOpenChange(false)} className="w-full font-black uppercase text-[10px] tracking-widest text-muted-foreground">Abort</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
 };
 
 // ─── LedgerTab (formerly LedgerPage) ──────────────────────────────────────────
@@ -581,10 +309,10 @@ const LedgerTab = () => {
       const r = await payPost('/api/refund-payouts', { tenantId, action: 'create', mode: 'client', saleId: t0.id, clientId: t0.clientId || null, appointmentId: t0.appointmentId || null, amountCents: Math.round(total * 100), reason: data.reason,
         ledger: { ...(pr.length ? { payReversals: pr, staffId: t0.staffId } : {}), ...(data.refundTip && (t0.tipAmount || 0) > 0 && data.tipStrategy !== 'absorb' && t0.staffId ? { tipReversal: { staffId: t0.staffId, amount: Number(t0.tipAmount) || 0 } } : {}) } });
       if (!r.ok) { toast({ variant: 'destructive', title: 'Couldn’t set up the refund', description: r.error }); return; }
-      toast({ title: 'Refund set up', description: r.sent ? 'We’ve texted them to choose how. It’s on Refunds to give.' : 'We couldn’t text them — share the link from Refunds to give.' });
+      toast({ title: 'Refund set up', description: r.sent ? 'We’ve texted them to choose how. It’s on Refunds to give.' : 'We couldn’t text them. Share the link from Refunds to give.' });
       setTransactionToRefund(null); return;
     }
-    if (isCash && !activeTill) { toast({ variant: 'destructive', title: 'Till Required' }); return; }
+    if (isCash && !activeTill) { toast({ variant: 'destructive', title: 'Open the till first', description: 'A cash refund comes out of an open till. Or pick “They’re not here” to let them choose how.' }); return; }
     let refundTotal = data.amount + (data.refundTip ? (transactionToRefund.tipAmount || 0) : 0);
     // Card sales go back to the card first; the books only change once the card refund went through. The server writes
     // the refund line for a card refund itself (with the reason and anything taken back), so it's never left out if this
@@ -617,7 +345,7 @@ const LedgerTab = () => {
         if (r.card) { toCard = { card: true, cents: r.refundedCents }; if (r.shortCents > 0) refundTotal = Math.round(r.refundedCents) / 100; }
         if (r.card && r.recorded) {
           afterwards(Math.round(Number(r.refundedCents) || 0));
-          toast({ title: r.already ? 'Already refunded' : 'Refund Authorized', description: `$${(Number(r.refundedCents) / 100).toFixed(2)} ${r.already ? 'went' : 'sent'} back to the card${r.shortCents > 0 ? ` ($${(Number(r.shortCents) / 100).toFixed(2)} couldn’t go back to a card)` : ''}. It shows on their statement in 5–10 days.` });
+          toast({ title: r.already ? 'Already refunded' : 'Refunded', description: `$${(Number(r.refundedCents) / 100).toFixed(2)} ${r.already ? 'went' : 'sent'} back to the card${r.shortCents > 0 ? ` ($${(Number(r.shortCents) / 100).toFixed(2)} couldn’t go back to a card)` : ''}. It shows on their statement in 5–10 days.` });
           setTransactionToRefund(null); return;
         }
       } catch { toast({ variant: 'destructive', title: 'We didn’t hear back', description: 'The card may or may not have been refunded. Try again in a couple of minutes: it won’t refund twice.' }); return; }
@@ -647,7 +375,7 @@ const LedgerTab = () => {
         if (cur.refundedAt || cur.voided) throw Object.assign(new Error('already'), { code: 'already' });
         for (const w of writes) w(tx);
       });
-      toast({ title: 'Refund Authorized', description: toCard.card ? `$${refundTotal.toFixed(2)} sent back to the card. It shows on their statement in 5–10 days.` : `$${refundTotal.toFixed(2)} reversed.` });
+      toast({ title: 'Refunded', description: toCard.card ? `$${refundTotal.toFixed(2)} sent back to the card. It shows on their statement in 5–10 days.` : `$${refundTotal.toFixed(2)} reversed.` });
       // Refunds are PIN-authorized — credit the authorizing manager by name.
       const authorizer = (staff || []).find(s => s.id === data.authorizerId);
       writeAudit(firestore, tenantId, {
@@ -718,7 +446,7 @@ const LedgerTab = () => {
 
   return (
     <div className="w-full overflow-x-hidden">
-      <div className="mx-auto w-full max-w-6xl p-4 md:p-8">
+      <div className="mx-auto w-full max-w-[1180px] px-4 py-5 md:px-6">
         <OwedToClientsCard />
         <BooksScreen lines={filteredTransactions} byId={ledgerById} loading={isLoading} biz={selectedTenant} staff={staff || []} tenantId={tenantId || ''}
           filters={booksFilters} reports={reportsMenu} onNew={() => setIsAddTxnOpen(true)}
@@ -733,14 +461,15 @@ const LedgerTab = () => {
 
       <AddTransactionDialog open={isAddTxnOpen} onOpenChange={setIsAddTxnOpen} staff={staff || []} onConfirm={handleAddTransaction} />
 
-      <ReceiptPreviewDialog
+      <ReceiptDialog
         transaction={previewTransaction}
         tenantId={tenantId || ''}
+        firestore={firestore || null}
         open={!!previewTransaction}
         onOpenChange={o => { if (!o) setPreviewTransaction(null); }}
       />
 
-      <RefundProtocolDialog
+      <RefundDialog
         open={!!transactionToRefund}
         onOpenChange={(v: boolean) => { if (!v) setTransactionToRefund(null); }}
         transaction={transactionToRefund}

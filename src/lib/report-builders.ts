@@ -205,6 +205,7 @@ const ACTION_WORDS: Record<string, string> = {
   'deposit.paid': 'A deposit was paid', 'deposit.waived': 'Waived a deposit', 'deposit.moved': 'Moved a deposit', 'balance.paid': 'A balance was paid', 'balance.paid_online': 'A balance was paid online',
   'fee.paid': 'A fee was paid', 'fee.waived': 'Waived a fee', 'fee.auto_refunded': 'Refunded a fee', 'night.close': 'Closed the night', 'tab.void': 'Voided a check', 'tab.comp': 'Comped an item',
   'mileage.rate': 'Changed the mileage rate', 'inventory.order': 'Ordered stock', 'inventory.cost': 'Changed a cost', 'records.tips_declared': 'Declared tips', 'card.saved': 'Saved a card',
+  'debt.collect': 'Marked a fee paid', 'debt.charge_card': 'Charged a saved card',
 };
 /** Whether the action has its own plain words (the rest are worked out from its name). */
 export const knownAction = (action: unknown): boolean => !!ACTION_WORDS[String(action || '')];

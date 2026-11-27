@@ -1,56 +1,22 @@
 'use client';
-
-/**
- * BadDebtAgingCard
- *
- * Drop-in replacement for the inline bad-debt section in LedgerPage.
- *
- * What this fixes vs. the original:
- *  1. "Mark collected (cash/other)" removes the fee from clients.unpaidFees
- *     immediately via arrayRemove — the aging widget clears in real-time.
- *  2. "Charge card on file" charges the saved card through /api/stripe/charge-card
- *     (staff only, one charge per fee), then on success removes the fee and
- *     logs an income transaction — fully automated.
- *  3. Tax Collected is excluded from revenue in the summary panel passed down
- *     from LedgerPage (fix that in financialSummary useMemo there — see comment).
- *  4. Collapsible on mobile — collapsed by default when total === 0.
- *  5. Each fee has a stable `feeId` (nanoid) so arrayRemove can target it
- *     precisely. For old fees without feeId the full object is used as the
- *     remove key (Firestore arrayRemove uses deep equality).
- *
- * Usage in LedgerPage — replace the existing badDebtAging JSX block with:
- *   <BadDebtAgingCard clients={clients || []} tenantId={tenantId || ''} />
- *
- * Make sure you also fix financialSummary in LedgerPage:
- *   const revenue = filteredTransactions
- *     .filter(t => t.type === 'income' && t.category !== 'Tax Collected')
- *     .reduce((s, t) => s + t.amount, 0);
- *   const taxLiability = filteredTransactions
- *     .filter(t => t.category === 'Tax Collected')
- *     .reduce((s, t) => s + t.amount, 0);
- *   // Add taxLiability to the returned object and show it in TransactionFilters.
- */
+// src/components/ledger/BadDebtAgingCard.tsx — FEES CLIENTS OWE (the Books tab, under the lines): every unpaid fee on a
+// client (a no-show, a late cancel), how long it's been owed, and two ways to settle it:
+//   Charge their card  the card they saved, through /api/stripe/charge-card (staff only, one charge per fee however often
+//                      it's tapped; a declined card can be tried again). The fee is then cleared and recorded here, so
+//                      the route records nothing.
+//   Mark paid          paid in cash or another way.
+// Either one takes the fee off the client (by its feeId, or the whole fee for older ones), adds the money to the books
+// and notes it in the activity, in one write. It's everything owed now, not tied to the dates the Books tab shows.
 
 import React, { useMemo, useState, useCallback, useEffect } from 'react';
-import {
-  ChevronDown, ChevronUp, AlertTriangle, CreditCard, Banknote,
-  CheckCircle2, Loader2, X, FileWarning, CircleCheck,
-} from 'lucide-react';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 import { differenceInDays } from 'date-fns';
 import { doc, writeBatch, arrayRemove, collection } from 'firebase/firestore';
 import { nanoid } from 'nanoid';
-import { cn, safeNumber } from '@/lib/utils';
+import { safeNumber } from '@/lib/utils';
 import { useFirebase } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle,
-  DialogDescription, DialogFooter,
-} from '@/components/ui/dialog';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Separator } from '@/components/ui/separator';
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { auditEntry } from '@/lib/audit';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 
@@ -108,18 +74,12 @@ const bucketOf = (days: number): 0 | 1 | 2 | 3 => {
   return 3;
 };
 
-const BUCKET_LABELS = ['0–30 days', '31–60 days', '61–90 days', '90+ days'] as const;
+const BUCKET_LABELS = ['Up to 30 days', '31 to 60 days', '61 to 90 days', 'Over 90 days'] as const;
 
-const BUCKET_STYLES = [
-  // 0–30: warning
-  { badge: 'bg-amber-100 text-amber-800', val: 'text-amber-700' },
-  // 31–60: stronger warning
-  { badge: 'bg-orange-100 text-orange-800', val: 'text-orange-700' },
-  // 61–90: danger-adjacent
-  { badge: 'bg-red-100 text-red-800', val: 'text-red-600' },
-  // 90+: full red
-  { badge: 'bg-red-200 text-red-900', val: 'text-red-700' },
-] as const;
+const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
+const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
+const btn = `inline-flex min-h-[44px] items-center justify-center rounded-full px-4 text-[14px] font-semibold disabled:opacity-50 ${RING}`;
+const solid = { background: INK, color: '#fff' }; const plain = { background: '#fff', color: INK, border: `1px solid ${LINE}` };
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
@@ -203,10 +163,7 @@ const ChargeCardDialog = ({
       // Stripe charge succeeded — parent clears Firestore + logs transaction
       onSuccess(item, data.paymentIntentId);
       onOpenChange(false);
-      toast({
-        title: 'Card charged successfully',
-        description: `${fmt(item.amount)} collected from ${item.clientName}.`,
-      });
+      toast({ title: 'Card charged', description: `${fmt(item.amount)} from ${item.clientName}.` });
     } catch (e: any) {
       setError('No answer, so the charge may or may not have gone through. Try again in a couple of minutes: it won’t charge twice.');
     } finally {
@@ -220,87 +177,21 @@ const ChargeCardDialog = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-sm rounded-[2.5rem] border-4 shadow-2xl p-0 overflow-hidden bg-background">
-        <DialogHeader className="p-7 pb-5 border-b bg-muted/5 text-left">
-          <div className="flex items-center gap-3 mb-2">
-            <CreditCard className="w-4 h-4 text-primary" />
-            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground opacity-60">
-              Card on File
-            </span>
+      <DialogContent className="rounded-3xl border-0 bg-[#fff] p-0 sm:max-w-sm">
+        <div className="p-6" style={{ color: INK }}>
+          <DialogTitle className="pr-8 text-[20px] font-semibold leading-tight" style={{ color: INK }}>Charge {item.clientName}’s saved card</DialogTitle>
+          <DialogDescription className="mt-1 text-[14px]" style={{ color: MUTED }}>{item.reason}, owed for {item.days} {item.days === 1 ? 'day' : 'days'}. The card is charged as soon as you tap.</DialogDescription>
+          <div className="mt-4 rounded-2xl px-4 py-4 text-center" style={{ background: SOFT }}>
+            <p className="text-[14px]" style={{ color: MUTED }}>Charge</p>
+            <p className="text-[30px] font-semibold tabular-nums leading-tight">{fmt(item.amount)}</p>
           </div>
-          <DialogTitle className="text-xl font-black uppercase tracking-tighter text-foreground leading-none">
-            Charge saved card
-          </DialogTitle>
-          <DialogDescription className="text-xs font-bold uppercase tracking-widest opacity-50 mt-1">
-            This will immediately process the charge.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="p-7 space-y-5">
-          <div className="p-5 rounded-[1.5rem] bg-primary/5 border-2 border-primary/10 text-center space-y-1">
-            <p className="text-[9px] font-black uppercase tracking-[0.3em] text-primary/50">
-              Charge amount
-            </p>
-            <p className="text-4xl font-black font-mono tracking-tighter text-primary">
-              {fmt(item.amount)}
-            </p>
-            <p className="text-[11px] font-bold uppercase text-muted-foreground">
-              {item.clientName}
-            </p>
+          {!hasCard && <p className="mt-3 rounded-2xl px-4 py-3 text-[14px]" style={{ background: AMBER_TINT, color: AMBER }}>There’s no saved card for {item.clientName}. Take the payment another way, then tap Mark paid.</p>}
+          {error && <p role="alert" className="mt-3 rounded-2xl px-4 py-3 text-[14px]" style={{ background: AMBER_TINT, color: AMBER }}>{error}</p>}
+          <div className="mt-5 flex flex-wrap gap-2">
+            <button type="button" onClick={handleCharge} disabled={loading || !hasCard} className={btn} style={solid}>{loading ? 'Charging the card' : `Charge ${fmt(item.amount)}`}</button>
+            <button type="button" onClick={() => onOpenChange(false)} disabled={loading} className={btn} style={plain}>Cancel</button>
           </div>
-
-          <div className="space-y-1">
-            <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">
-              Reason
-            </p>
-            <p className="text-sm font-bold text-foreground">{item.reason}</p>
-            <p className="text-[10px] font-bold text-amber-600 uppercase">
-              {item.days} days outstanding
-            </p>
-          </div>
-
-          {!hasCard && (
-            <div className="flex items-start gap-3 p-4 rounded-2xl bg-amber-50 border-2 border-amber-200">
-              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-              <div>
-                <p className="text-xs font-black uppercase text-amber-800">No card on file</p>
-                <p className="text-[10px] text-amber-700 mt-1 leading-relaxed">
-                  This client doesn&apos;t have a saved payment method. Use &quot;Mark collected&quot; after
-                  taking payment another way.
-                </p>
-              </div>
-            </div>
-          )}
-
-          {error && (
-            <div className="flex items-start gap-3 p-4 rounded-2xl bg-destructive/5 border-2 border-destructive/20">
-              <X className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
-              <p className="text-xs font-bold text-destructive leading-relaxed">{error}</p>
-            </div>
-          )}
         </div>
-
-        <DialogFooter className="p-7 pt-0 flex flex-col gap-2">
-          <Button
-            onClick={handleCharge}
-            disabled={loading || !hasCard}
-            className="w-full h-14 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl shadow-primary/20"
-          >
-            {loading ? (
-              <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Processing...</>
-            ) : (
-              <><CreditCard className="w-4 h-4 mr-2" /> Confirm charge {fmt(item.amount)}</>
-            )}
-          </Button>
-          <Button
-            variant="ghost"
-            onClick={() => onOpenChange(false)}
-            disabled={loading}
-            className="w-full font-black uppercase text-[10px] tracking-widest text-muted-foreground"
-          >
-            Cancel
-          </Button>
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
@@ -418,7 +309,7 @@ export const BadDebtAgingCard = ({ clients, tenantId, actor }: BadDebtAgingCardP
       amount: item.amount,
       paymentMethod: opts.paymentMethod,
       hasReceipt: false,
-      notes: `Bad debt collection — originally outstanding ${item.days} days.${
+      notes: `A fee the client owed, paid after ${item.days} days.${
         opts.stripePaymentIntentId ? ` Stripe PI: ${opts.stripePaymentIntentId}` : ''
       }`,
     });
@@ -433,8 +324,8 @@ export const BadDebtAgingCard = ({ clients, tenantId, actor }: BadDebtAgingCardP
         action: opts.paymentMethod === 'Card on File' ? 'debt.charge_card' : 'debt.collect',
         targetType: 'transaction',
         targetId: txnRef.id,
-        summary: `${opts.paymentMethod === 'Card on File' ? 'Charged card on file' : 'Collected'}: ${item.reason} — ${item.clientName} (${item.days}d outstanding)${
-          opts.stripePaymentIntentId ? ` · Stripe ${opts.stripePaymentIntentId}` : ''
+        summary: `${opts.paymentMethod === 'Card on File' ? 'Charged their saved card' : 'Paid'}: ${item.reason}, ${item.clientName} (owed ${item.days} days)${
+          opts.stripePaymentIntentId ? `, Stripe ${opts.stripePaymentIntentId}` : ''
         }`,
         amount: item.amount,
         actor: actor || { type: 'user' },
@@ -451,13 +342,10 @@ export const BadDebtAgingCard = ({ clients, tenantId, actor }: BadDebtAgingCardP
 
     try {
       await clearFee(item, { paymentMethod: 'Cash / Other' });
-      toast({
-        title: 'Fee marked as collected',
-        description: `${fmt(item.amount)} cleared for ${item.clientName}.`,
-      });
+      toast({ title: 'Marked paid', description: `${fmt(item.amount)} from ${item.clientName} is in your books.` });
     } catch (e) {
       console.error(e);
-      toast({ variant: 'destructive', title: 'Failed to update — try again.' });
+      toast({ variant: 'destructive', title: 'That didn’t save', description: 'Nothing changed. Try again.' });
     } finally {
       setProcessing(prev => { const s = new Set(prev); s.delete(key); return s; });
     }
@@ -475,176 +363,66 @@ export const BadDebtAgingCard = ({ clients, tenantId, actor }: BadDebtAgingCardP
       });
     } catch (e) {
       console.error(e);
-      toast({ variant: 'destructive', title: 'Stripe charge succeeded but ledger update failed. Refresh and check.' });
+      toast({ variant: 'destructive', title: 'The card was charged, but your books didn’t update', description: 'Refresh the page and check the fee is gone and the money is in your books.' });
     } finally {
       setProcessing(prev => { const s = new Set(prev); s.delete(key); return s; });
     }
   }, [clearFee, toast]);
 
-  // ── Nothing outstanding — render a small "all clear" pill ─────────────────
-  if (total === 0 && items.length === 0) {
-    return (
-      <div className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-green-50 border border-green-200 text-green-700 text-xs font-black uppercase tracking-widest w-fit">
-        <CircleCheck className="w-3.5 h-3.5" />
-        No outstanding fees
-      </div>
-    );
-  }
+  // (Nothing owed: nothing to show.)
+  if (total === 0 && items.length === 0) return null;
 
   return (
     <>
-      <Card
-        className={cn(
-          'border-2 shadow-sm rounded-3xl overflow-hidden transition-colors',
-          total > 0 ? 'border-amber-200 bg-amber-50/30' : 'border-border',
-        )}
-      >
-        <CardHeader
-          className="border-b border-amber-200/70 bg-amber-50/50 py-4 cursor-pointer select-none"
-          onClick={() => setExpanded(e => !e)}
-        >
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="p-2 rounded-xl bg-amber-100 shrink-0">
-                <FileWarning className="w-4 h-4 text-amber-700" />
-              </div>
-              <div className="min-w-0">
-                <CardTitle className="text-sm font-black uppercase tracking-widest text-amber-800 leading-none">
-                  Bad Debt Aging
-                </CardTitle>
-                <CardDescription className="text-[10px] font-bold uppercase tracking-tight opacity-60 mt-0.5">
-                  {items.length} unpaid fee{items.length !== 1 ? 's' : ''} · snapshot, not period-filtered
-                </CardDescription>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 shrink-0">
-              <span className={cn(
-                'font-mono font-black text-lg tracking-tighter',
-                total > 0 ? 'text-amber-800' : 'text-green-700',
-              )}>
-                {fmt(total)}
-              </span>
-              {expanded
-                ? <ChevronUp className="w-4 h-4 text-amber-600" />
-                : <ChevronDown className="w-4 h-4 text-amber-600" />
-              }
-            </div>
-          </div>
-        </CardHeader>
+      <section aria-label="Fees clients owe" className="rounded-3xl bg-[#fff] px-5 pb-3 pt-2" style={{ border: `1px solid ${LINE}`, color: INK }}>
+        <button type="button" onClick={() => setExpanded((e) => !e)} aria-expanded={expanded} className={`flex min-h-[56px] w-full items-center justify-between gap-3 text-left ${RING}`}>
+          <span className="min-w-0">
+            <span className="block text-[17px] font-semibold">Fees clients owe</span>
+            <span className="block text-[14px]" style={{ color: MUTED }}>{items.length} unpaid {items.length === 1 ? 'fee' : 'fees'}, all owed now, whatever the dates above</span>
+          </span>
+          <span className="flex shrink-0 items-center gap-2">
+            <span className="text-[17px] font-semibold tabular-nums" style={{ color: AMBER }}>{fmt(total)}</span>
+            {expanded ? <ChevronUp className="h-5 w-5" style={{ color: MUTED }} /> : <ChevronDown className="h-5 w-5" style={{ color: MUTED }} />}
+          </span>
+        </button>
 
         {expanded && (
-          <CardContent className="p-0">
-            <div className="grid grid-cols-4 divide-x divide-amber-200 border-b border-amber-200">
+          <div className="pb-1">
+            <div className="mt-1 grid grid-cols-2 gap-2 sm:grid-cols-4">
               {(buckets as number[]).map((amt, i) => (
-                <div key={i} className="py-3 px-2 text-center">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60 mb-1">
-                    {BUCKET_LABELS[i]}
-                  </p>
-                  <p className={cn(
-                    'font-mono font-black text-sm tracking-tighter',
-                    amt > 0 ? BUCKET_STYLES[i].val : 'text-muted-foreground opacity-30',
-                  )}>
-                    {fmt(amt)}
-                  </p>
+                <div key={i} className="rounded-2xl px-3 py-2" style={{ background: SOFT }}>
+                  <p className="text-[13px]" style={{ color: MUTED }}>{BUCKET_LABELS[i]}</p>
+                  <p className="text-[15px] font-semibold tabular-nums" style={{ color: amt > 0 ? INK : MUTED }}>{fmt(amt)}</p>
                 </div>
               ))}
             </div>
-
-            <ScrollArea className="max-h-80">
-              <div className="divide-y divide-amber-100">
-                {items.map((item, idx) => {
-                  const key = item.feeObj.feeId || `${item.clientId}-${item.amount}-${idx}`;
-                  const isProcessing = processing.has(
-                    item.feeObj.feeId || `${item.clientId}-${item.amount}`,
-                  );
-                  const hasCard = item.hasCard;
-
-                  return (
-                    <div
-                      key={key}
-                      className={cn(
-                        'flex items-center gap-3 px-4 py-3.5 transition-opacity',
-                        isProcessing && 'opacity-40 pointer-events-none',
-                      )}
-                    >
-                      <Badge
-                        className={cn(
-                          'shrink-0 font-black text-[9px] border-none h-5 px-2 uppercase tracking-widest',
-                          BUCKET_STYLES[item.bucket].badge,
-                        )}
-                      >
-                        {item.days}d
-                      </Badge>
-
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-black uppercase tracking-tight text-foreground truncate">
-                          {item.clientName}
-                        </p>
-                        <p className="text-[10px] text-muted-foreground font-bold truncate opacity-60">
-                          {item.reason}
-                        </p>
-                      </div>
-
-                      <span className="font-mono font-black text-sm text-amber-800 shrink-0">
-                        {fmt(item.amount)}
+            <div className="mt-2 max-h-[420px] overflow-y-auto">
+              {items.map((item, idx) => {
+                const key = item.feeObj.feeId || `${item.clientId}-${item.amount}-${idx}`;
+                const busy = processing.has(item.feeObj.feeId || `${item.clientId}-${item.amount}`);
+                return (
+                  <div key={key} className="flex flex-wrap items-center gap-x-3 gap-y-2 py-2.5" style={{ borderTop: `1px solid ${LINE}`, opacity: busy ? 0.5 : 1 }}>
+                    <span className="flex min-w-[240px] flex-1 items-start justify-between gap-3">
+                      <span className="min-w-0">
+                        <span className="block">{item.clientName}</span>
+                        <span className="block text-[13px]" style={{ color: item.bucket >= 2 ? AMBER : MUTED }}>{item.reason}, owed {item.days} {item.days === 1 ? 'day' : 'days'}</span>
                       </span>
-
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        {isProcessing ? (
-                          <Loader2 className="w-4 h-4 animate-spin text-primary" />
-                        ) : (
-                          <>
-                            {hasCard && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-8 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest gap-1 text-primary border-primary/30 hover:bg-primary/5"
-                                onClick={() => setCharging(item)}
-                                title="Charge card on file"
-                              >
-                                <CreditCard className="w-3 h-3" />
-                                Card
-                              </Button>
-                            )}
-
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-8 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest gap-1 text-green-700 border-green-300 hover:bg-green-50"
-                              onClick={() => handleMarkCollected(item)}
-                              title="Mark as collected (cash / other)"
-                            >
-                              <CheckCircle2 className="w-3 h-3" />
-                              Collected
-                            </Button>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </ScrollArea>
-
-            <div className="flex items-center justify-between px-4 py-3 border-t border-amber-200 bg-amber-50/40">
-              <div className="flex items-center gap-4 text-[10px] font-bold uppercase text-muted-foreground opacity-60">
-                <span className="flex items-center gap-1.5">
-                  <CreditCard className="w-3 h-3" />
-                  Card = charges Stripe
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <Banknote className="w-3 h-3" />
-                  Collected = cash/other
-                </span>
-              </div>
-              <span className="font-mono font-black text-sm text-amber-800">
-                {fmt(total)} total
-              </span>
+                      <span className="shrink-0 pt-0.5 font-semibold tabular-nums">{fmt(item.amount)}</span>
+                    </span>
+                    <span className="ml-auto flex shrink-0 items-center gap-2">
+                      {busy ? <span role="status" className="text-[13px]" style={{ color: MUTED }}>Saving</span> : <>
+                        {item.hasCard && <button type="button" onClick={() => setCharging(item)} className={btn} style={plain}>Charge their card</button>}
+                        <button type="button" onClick={() => handleMarkCollected(item)} className={btn} style={plain}>Mark paid</button>
+                      </>}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
-          </CardContent>
+            <p className="mt-1 text-[13px]" style={{ color: MUTED, borderTop: `1px solid ${LINE}`, paddingTop: 8 }}>Charge their card charges the card they saved. Mark paid is for cash or another way. Either one adds the money to your books.</p>
+          </div>
         )}
-      </Card>
+      </section>
 
       <ChargeCardDialog
         tenantId={tenantId}
@@ -656,36 +434,3 @@ export const BadDebtAgingCard = ({ clients, tenantId, actor }: BadDebtAgingCardP
     </>
   );
 };
-
-// ─── LedgerPage drop-in notes ─────────────────────────────────────────────────
-//
-// 1. In LedgerPage, remove the entire badDebtAging useMemo and the JSX block
-//    that renders the existing aging card.
-//
-// 2. Add this import at the top of LedgerPage:
-//    import { BadDebtAgingCard } from '@/components/ledger/BadDebtAgingCard';
-//
-// 3. In the JSX where the old card was, add:
-//    <BadDebtAgingCard clients={clients || []} tenantId={tenantId || ''} />
-//
-// 4. Fix financialSummary to exclude Tax Collected from revenue:
-//    const revenue = filteredTransactions
-//      .filter(t => t.type === 'income' && t.category !== 'Tax Collected')
-//      .reduce((s, t) => s + t.amount, 0);
-//    const taxLiability = filteredTransactions
-//      .filter(t => t.category === 'Tax Collected')
-//      .reduce((s, t) => s + t.amount, 0);
-//    // Return taxLiability from the memo and add a "Tax Liability" row
-//    // to the summary panel in TransactionFilters, styled differently
-//    // (e.g. text-slate-500 with a note "Held for government — not income").
-//
-// 5. When creating new unpaid fees (no-show handler, cancellation policy, etc.)
-//    add feeId: nanoid() to the fee object so future arrayRemove is precise:
-//    const fee: UnpaidFee = {
-//      feeId: nanoid(),
-//      feeAmount: amount,
-//      reason: 'No-show cancellation fee',
-//      appointmentDate: appointment.date,
-//      createdAt: new Date().toISOString(),
-//    };
-//    // Then: arrayUnion(fee) on the client doc.
