@@ -92,7 +92,7 @@ const req = (body: any, q: Record<string, string> = {}) => ({ json: async () => 
   const page = src('src/app/(app)/money/page.tsx'), screen = src('src/components/money/PaydayScreen.tsx'), card = src('src/components/money/GustoMatchCard.tsx'), proute = src('src/app/api/gusto/payroll/route.ts');
   check('payroll isn’t sent to Gusto until every employee with pay is matched (to someone who hasn’t left), and the screen says who', /o\.earned > 0 && !gustoPeople\.some\(\(g\) => g\.staffId === o\.id && !g\.terminated\)/.test(page) && /\|\| gustoUnmatched\.length\) return;/.test(page)
     && /\|\| !!p\.gustoUnmatched\?\.length\}/.test(screen) && /to Gusto first, below, then send payroll\./.test(screen));
-  check('the matching card shows once Gusto is connected, with the payrolls sent (never a recorded payday)', /gustoSlot=\{gusto\.connected \? <GustoMatchCard/.test(page) && /orderBy\('submittedAt', 'desc'\)/.test(page) && /\.filter\(\(d: any\) => d\.kind !== 'payday'\)/.test(page)
+  check('the matching card shows once Gusto is connected and runs payroll, with the payrolls sent (never a recorded payday)', /gustoSlot=\{gusto\.connected && runBy === 'gusto' \? <GustoMatchCard/.test(page) && /orderBy\('submittedAt', 'desc'\)/.test(page) && /\.filter\(\(d: any\) => d\.kind !== 'payday'\)/.test(page)
     && /Match your team to Gusto/.test(card) && /Look in Gusto again/.test(card) && /Payroll in Gusto/.test(card));
   check('a payroll sent keeps the business’s own first and last day', /periodStartDay: dayFrom, periodEndDay: dayTo/.test(page) && /fromDay: String\(draft\.periodStartDay/.test(proute) && /toDay: endDay \|\| null/.test(proute));
   check('the house style', !/\buppercase\b|font-black|\{\/\*| · |[Cc]all us|[Cc]ontact us/.test(card) && /min-h-\[44px\]/.test(card));
@@ -111,7 +111,7 @@ const req = (body: any, q: Record<string, string> = {}) => ({ json: async () => 
     && rows[rows.length - 1][0] === 'Dee Cash' && rows[rows.length - 1][6] === 0 && rows[rows.length - 1][7] === 30, rows.slice(-3));
   check('…and a name can never run as a formula in the spreadsheet', CSV.toCsv(rows).includes(`'=Jo Park`));
   check('Payday downloads it, as Gusto would be sent it, and not while corrections can’t be read', /payrollExportRows\(staffObligations\.map/.test(page) && /const handleExport = \(\) => \{\s+if \(adjustmentsError\) return;/.test(page)
-    && /downloadCsv\(csvName\(String\(\(selectedTenant as any\)\?\.name \|\| ''\), 'payroll', `\$\{dayFrom\} to \$\{dayTo\}`\), rows\)/.test(page) && /Download for another payroll company/.test(screen));
+    && /downloadCsv\(csvName\(String\(\(selectedTenant as any\)\?\.name \|\| ''\), 'payroll', `\$\{dayFrom\} to \$\{dayTo\}`\), rows\)/.test(page) && /Download for \{runBy === 'company' \? 'your' : 'another'\} payroll company/.test(screen));
 
   console.log(failures ? `\n${failures} failed` : '\nall passed');
   process.exit(failures ? 1 : 0);

@@ -152,7 +152,9 @@ export function buildTaxSummaryHtml(txns: Txn[], range: Range, currency = 'USD',
 /** Pay by person. A payday recorded as one line for the team (lib/payday-record) is shown person by person from its
  *  payroll run (tenants/{t}/payrollRuns/payday_{period}), when it could be read; else as the team's one line. */
 export function payrollRows(txns: Txn[], staff: any[], runs: any[] = []) {
-  const byStaff = new Map<string, { name: string; count: number; total: number }>();
+  // (When payroll is run in ClarityFlow, each payday's run also has what was withheld and what each person took home.)
+  type PayRow = { name: string; count: number; total: number; withheld?: number; takeHome?: number };
+  const byStaff = new Map<string, PayRow>();
   const byRun = new Map<string, any>(runs.filter((r) => r?.kind === 'payday' && r.periodKey && Array.isArray(r.people)).map((r) => [String(r.periodKey), r]));
   const shown = new Set<string>();
   for (const t of txns.filter((x) => x.category === 'Payroll' && (x.type === 'expense' || x.type === 'payment'))) {
@@ -161,22 +163,45 @@ export function payrollRows(txns: Txn[], staff: any[], runs: any[] = []) {
       if (shown.has(run.periodKey)) continue; shown.add(run.periodKey);
       for (const p of run.people.filter((x: any) => !x.contractor)) {
         const total = (Number(p.paid) || 0) + (Number(p.cashTips) || 0); if (total <= 0) continue;
-        const cur = byStaff.get(String(p.staffId)) || { name: staff.find((s: any) => s.id === p.staffId)?.name || String(p.name || 'Team member'), count: 0, total: 0 };
-        cur.count += 1; cur.total += total; byStaff.set(String(p.staffId), cur);
+        const cur: PayRow = byStaff.get(String(p.staffId)) || { name: staff.find((s: any) => s.id === p.staffId)?.name || String(p.name || 'Team member'), count: 0, total: 0 };
+        cur.count += 1; cur.total += total;
+        if (p.taxes) { cur.withheld = (cur.withheld || 0) + (Number(p.taxes.employeeTotal) || 0); cur.takeHome = (cur.takeHome || 0) + (Number(p.taxes.takeHome) || 0); }
+        byStaff.set(String(p.staffId), cur);
       }
       continue;
     }
     const key = t.staffId || t.clientOrVendor || 'unassigned';
     const name = staff.find((s: any) => s.id === t.staffId)?.name || t.clientOrVendor || 'Not assigned to anyone';
-    const cur = byStaff.get(key) || { name, count: 0, total: 0 };
+    const cur: PayRow = byStaff.get(key) || { name, count: 0, total: 0 };
     cur.count += 1; cur.total += Number(t.amount) || 0; byStaff.set(key, cur);
   }
   return [...byStaff.values()].sort((a, b) => b.total - a.total);
 }
+/** The employer's payroll taxes for these dates, from the books: payday's own line when payroll is run in ClarityFlow
+ *  (paydaytax_), what a payroll company took beyond the pay booked on payday (paydiff_), and, for a payroll company's
+ *  withdrawals claimed for a payday when it was recorded, only what they came to beyond the employees' pay (the rest is
+ *  the pay, withheld taxes included). Undone lines come back off. None of those: an estimate from the state's rate. */
+export function employerTaxesOf(txns: Txn[], gross: number, pct: number, runs: any[] = []): { amount: number; booked: boolean } {
+  const byId = lookupOf(txns as any[]); const runOf = new Map<string, any>(runs.filter((r) => r?.kind === 'payday' && r.periodKey).map((r) => [String(r.periodKey), r]));
+  let amount = 0, booked = false; const claimed = new Set<string>();
+  for (const t of txns as any[]) {
+    const e = effectOf(t, byId); if (e.side === 'skip') continue;
+    const undone = String(t?.type || '').toLowerCase() === 'reversal' || String(t?.category || '').toLowerCase() === 'void';
+    const o: any = (undone ? byId.get(String(t.reversalOf || t.voidOf || '')) : t) || t; const id = String(o?.id || '');
+    if (/^(paydaytax|paydiff)_/.test(id) && e.category === 'Payroll Taxes') { amount += e.amount; booked = true; continue; }
+    // (A payroll company's withdrawals claimed for a payday, sorted as payroll or payroll taxes: once per payday.)
+    if (o?.paydayPeriod && String(o.paymentMethod || '') === 'Bank feed' && !undone && /^payroll( taxes)?$/i.test(String(o.category || ''))) {
+      const r = runOf.get(String(o.paydayPeriod)); if (!r || claimed.has(String(r.periodKey))) continue; claimed.add(String(r.periodKey));
+      amount += Math.max(0, (Number(r.viaBankCents) || 0) / 100 - (Number(r.employeesTotal) || 0)); booked = true;
+    }
+  }
+  return booked ? { amount: Math.round(Math.max(0, amount) * 100) / 100, booked: true } : { amount: Math.round(gross * pct) / 100, booked: false };
+}
 export function payrollCsv(txns: Txn[], staff: any[], profile: { code: string; employerPayrollTaxPct: number }, runs: any[] = []) {
-  const list = payrollRows(txns, staff, runs); const gross = list.reduce((s, r) => s + r.total, 0);
-  return [['Person', 'Payouts', 'Paid'], ...list.map((r) => [r.name, r.count, Math.round(r.total * 100) / 100]), ['Total pay', '', Math.round(gross * 100) / 100],
-    [`Employer payroll taxes, estimated (${profile.employerPayrollTaxPct}%)`, '', Math.round(gross * profile.employerPayrollTaxPct) / 100]];
+  const list = payrollRows(txns, staff, runs); const gross = list.reduce((s, r) => s + r.total, 0); const er = employerTaxesOf(txns, gross, profile.employerPayrollTaxPct, runs);
+  const taxed = list.some((r) => r.withheld != null); const r2 = (n: number) => Math.round(n * 100) / 100;
+  return [['Person', 'Payouts', 'Paid', ...(taxed ? ['Withheld', 'Take-home'] : [])], ...list.map((r) => [r.name, r.count, r2(r.total), ...(taxed ? [r.withheld == null ? '' : r2(r.withheld), r.takeHome == null ? '' : r2(r.takeHome)] : [])]),
+    ['Total pay', '', r2(gross)], [er.booked ? 'Employer payroll taxes, in your books' : `Employer payroll taxes, estimated (${profile.employerPayrollTaxPct}%)`, '', er.amount]];
 }
 
 export function buildPayrollRegisterHtml(
@@ -185,20 +210,21 @@ export function buildPayrollRegisterHtml(
 ) {
   const list = payrollRows(txns, staff, opts.payrollRuns || []);
   const gross = list.reduce((s, r) => s + r.total, 0);
-  const employerTaxes = gross * (profile.employerPayrollTaxPct / 100);
+  const er = employerTaxesOf(txns, gross, profile.employerPayrollTaxPct, opts.payrollRuns || []); const employerTaxes = er.amount;
+  const taxed = list.some((r) => r.withheld != null); const cols = taxed ? 5 : 3;
   const body = `
     <h2>Pay by person</h2>
-    <table><thead><tr><th>Person</th><th>Payouts</th><th class="r">Paid</th></tr></thead><tbody>
-      ${list.map(r => `<tr><td>${esc(r.name)}</td><td>${r.count}</td><td class="r">${printMoney(r.total, currency)}</td></tr>`).join('') || '<tr><td colspan="3" class="faint">No pay in this period.</td></tr>'}
+    <table><thead><tr><th>Person</th><th>Payouts</th><th class="r">Paid</th>${taxed ? '<th class="r">Withheld</th><th class="r">Take-home</th>' : ''}</tr></thead><tbody>
+      ${list.map(r => `<tr><td>${esc(r.name)}</td><td>${r.count}</td><td class="r">${printMoney(r.total, currency)}</td>${taxed ? `<td class="r">${r.withheld == null ? '' : printMoney(r.withheld, currency)}</td><td class="r">${r.takeHome == null ? '' : printMoney(r.takeHome, currency)}</td>` : ''}</tr>`).join('') || `<tr><td colspan="${cols}" class="faint">No pay in this period.</td></tr>`}
     </tbody></table>
     ${printLine('Total pay', gross, 'total')}
-    ${printLine(`Employer payroll taxes, estimated (${hasStateSet ? `${esc(profile.code)}, ` : 'federal only, '}${profile.employerPayrollTaxPct}%)`, employerTaxes, 'sub')}
+    ${printLine(er.booked ? 'Employer payroll taxes, in your books' : `Employer payroll taxes, estimated (${hasStateSet ? `${esc(profile.code)}, ` : 'federal only, '}${profile.employerPayrollTaxPct}%)`, employerTaxes, 'sub')}
     ${printLine('Total cost of pay', gross + employerTaxes, 'total')}
   `;
   return printPage({
     title: 'Payroll register', heading: 'Payroll <b>register</b>', subtitle: esc(periodLabel(range)), shopName: opts.shopName,
     body,
-    footNote: `Employer taxes are estimates (FICA, FUTA and an approximate SUTA${hasStateSet ? '' : '; set your state in Payday for your state’s figures'}). When Gusto is connected, Gusto’s filings are the record.`,
+    footNote: er.booked ? 'Employer taxes are the ones in your books for these dates. Withheld and take-home are each payday’s own, when payroll is worked out in ClarityFlow.' : `Employer taxes are estimates (FICA, FUTA and an approximate SUTA${hasStateSet ? '' : '; set your state in Payday for your state’s figures'}). When Gusto is connected, Gusto’s filings are the record.`,
     footRight: esc(periodLabel(range)),
   });
 }

@@ -47,7 +47,7 @@ const src = (f: string) => fs.readFileSync(f, 'utf8');
     && /A payroll draft is ready/.test(pay) && /role="switch"/.test(pay));
   const tab = page.slice(page.indexOf('const PaydayTab'), page.indexOf('// ─── BillsTab'));
   check('the Payday tab hands its own figures to the screen: the period’s income, the pay worked out per person, the payroll tax estimate, the bills due',
-    /<PaydayScreen/.test(tab) && /cameIn=\{currentBalance\}/.test(tab) && /team=\{staffObligations\} teamTotal=\{staffTotalOwed\} employerTaxes=\{employerTaxes\}/.test(tab)
+    /<PaydayScreen/.test(tab) && /cameIn=\{currentBalance\}/.test(tab) && /team=\{staffObligations\} teamTotal=\{staffTotalOwed\} employerTaxes=\{selfTaxes \? selfTaxes\.employerTotal : employerTaxes\}/.test(tab)
     && /\[\.\.\.upcomingBusiness, \.\.\.upcomingPersonal\]/.test(tab) && /onSendToGusto=\{handleApprovePayroll\}/.test(tab) && /onRecord=\{handleConfirmDistributions\}/.test(tab));
   const rec = src('src/lib/payday-record.ts'), recRoute = src('src/app/api/payroll/record/route.ts');
   check('recording payday books the team’s pay and the set-asides (never what stays to run the business), audited',

@@ -22,7 +22,8 @@ M._load = function (request: string, ...rest: any[]) {
   return load.call(this, request, ...rest);
 };
 const src = (f: string) => fs.readFileSync(f, 'utf8');
-const tenant = { timezone: 'America/New_York', workweekStartsOn: 1, payroll: { cadence: 'bi-weekly', periodAnchor: '2026-11-02', paydayAfterDays: 4 } };
+// (A business whose payroll company works out the taxes: payroll run in ClarityFlow is scripts/verify/payroll-self-run.)
+const tenant = { timezone: 'America/New_York', workweekStartsOn: 1, payroll: { cadence: 'bi-weekly', periodAnchor: '2026-11-02', paydayAfterDays: 4 }, payrollTax: { runBy: 'company' } };
 
 (async () => {
   const R = await import('../../src/lib/payday-record');

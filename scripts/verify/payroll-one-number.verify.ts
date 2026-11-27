@@ -8,7 +8,7 @@
 //   reported to payroll as cash tips, and booked as the cash that left the till.
 //   Gusto is only sent to the open payroll that covers the period; never another one in its place.
 //   What came in is the books' own reading (never sales tax), for Payday and the draft alike.
-//   Recording payday says it doesn't withhold or file anyone's taxes.
+//   Recording payday says it doesn't withhold or file anyone's taxes, when a payroll company or Gusto does that.
 // Run: npx tsx --tsconfig tsconfig.json scripts/verify/payroll-one-number.verify.ts
 import fs from 'fs';
 import { makeDb, check, failures } from './fake-db';
@@ -130,7 +130,8 @@ const tip = (amount: number, method: string, d = '2026-11-18') => ({ id: `tip${a
   check('when the approved corrections can’t be read, payday isn’t recorded or sent without them, and the screen says why',
     /error: adjustmentsError \} = useCollection/.test(tab) && /if \(!firestore \|\| !tenantId \|\| recorded \|\| adjustmentsError\) return;/.test(tab) && /if \(payees\.length === 0 \|\| !tenantId \|\| adjustmentsError \|\| gustoUnmatched\.length\) return;/.test(tab)
     && /blocked=\{adjustmentsError \? 'Approved pay corrections couldn’t be read/.test(tab) && /disabled=\{\(p\.setAside <= 0 && !p\.team\.length\) \|\| p\.recording \|\| !!p\.blocked\}/.test(screen) && /p\.sendingToGusto \|\| !!p\.blocked \|\| !!p\.gustoUnmatched\?\.length\}/.test(screen));
-  check('recording payday says it doesn’t withhold or file anyone’s taxes', /It doesn’t withhold or file anyone’s taxes: for employees, a payroll company does that\./.test(screen));
+  check('recording payday says it doesn’t withhold or file anyone’s taxes, when a payroll company or Gusto does', /runBy === 'company' && employees\.length > 0 && <Note>Recording payday puts what you paid in your books\. It doesn’t withhold or file anyone’s taxes: your payroll company does that\./.test(screen)
+    && /runBy === 'gusto' && !p\.gusto\.connected && employees\.length > 0 && <Note>[^<]*for employees, Gusto does that once it’s connected\./.test(screen));
   check('a contractor is shown as one, and their share of the team’s pay is named', />Contractor</.test(screen) && /of it to \$\{contractors === 1 \? 'a contractor'/.test(screen));
   const settings = src('src/app/(app)/settings/page.tsx');
   check('the business says how cash tips are paid (on the paycheck, or taken home the same day)', /pr\.cashTips === 'same_day'/.test(settings) && /set\(\{ cashTips: e\.target\.value \}\)/.test(settings) && /Taken home the same day/.test(settings));

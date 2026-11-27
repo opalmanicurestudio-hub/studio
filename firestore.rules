@@ -78,7 +78,7 @@ service cloud.firestore {
     // Pay rates live in staffPay (managers and the person only) — never on the staff record the team reads.
     function payKeys() {
       return ['commissionRate', 'retailCommissionRate', 'hourlyRate', 'serviceHourRate', 'servicePay', 'serviceCommission', 'nonServiceRate',
-              'commissionTiers', 'salaryAmount', 'salaryPer', 'salaryWeekly', 'overtimeExempt', 'overtimeNonExempt'];
+              'commissionTiers', 'salaryAmount', 'salaryPer', 'salaryWeekly', 'overtimeExempt', 'overtimeNonExempt', 'taxForms'];
     }
     function isManager(tenantId) {
       return isSignedIn() && (

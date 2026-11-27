@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 
 // Kept in step with PAY_FIELDS in lib/staff-pay (this file stays dependency-free: it's loaded by every data hook).
 const FIELDS = ['commissionRate', 'retailCommissionRate', 'hourlyRate', 'serviceHourRate', 'servicePay', 'serviceCommission', 'nonServiceRate',
-  'commissionTiers', 'salaryAmount', 'salaryPer', 'salaryWeekly', 'overtimeExempt', 'overtimeNonExempt'];
+  'commissionTiers', 'salaryAmount', 'salaryPer', 'salaryWeekly', 'overtimeExempt', 'overtimeNonExempt', 'taxForms'];
 function mergePay(s: any, pay: any) { if (!s || !pay) return s; const out: any = { ...s }; for (const k of FIELDS) if (k in pay) { if (pay[k] === null) delete out[k]; else out[k] = pay[k]; } return out; }
 
 type Store = { tenantId: string | null; byId: Record<string, any>; v: number; loading: string | null };   // loading: the tenant whose rates are on their way

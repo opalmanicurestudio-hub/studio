@@ -78,9 +78,10 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
     { id: 'alerts', title: 'Order alerts', meaning: 'Who hears about new orders, and how', href: '/retail-orders/alerts', words: 'alerts notifications new orders', module: 'retail' },
     { id: 'design', title: 'Shop design', meaning: 'Colors, layout and the product page', href: '/retail-orders/designer', words: 'design theme colors layout product page designer look', module: 'retail' },
   ] },
-  { id: 'team', title: 'Team and approvals', meaning: 'Roles, what each can do, the time clock and pay', pages: [
+  { id: 'team', title: 'Team and approvals', meaning: 'Roles, what each can do, the time clock, pay and payroll', pages: [
     { id: 'roles', title: 'Roles and access', meaning: 'Roles and what each one can see and do', href: '/settings/roles', words: 'roles permissions access who sees what staff privacy' },
     { id: 'clock', title: 'Time clock and pay', meaning: 'Clocking in, pay periods, breaks and overtime', href: T('timeclock'), words: 'clock in out timesheet pin geofence overtime breaks pay period', module: 'team' },
+    { id: 'payroll', title: 'Payroll', meaning: 'Who runs payroll, and the payroll taxes worked out here', href: T('payroll'), words: 'payroll gusto adp paychex taxes withholding w-4 nc-4 irs deposits unemployment suta futa state local' },
   ] },
   { id: 'rooms', title: 'Rooms and cleaning', meaning: 'Stations, rooms and cleaning between visits', pages: [
     { id: 'cleaning', title: 'Cleaning', meaning: 'Cleaning steps between visits', href: T('operations'), words: 'cleaning protocol sanitize disinfect turnover checklist' },

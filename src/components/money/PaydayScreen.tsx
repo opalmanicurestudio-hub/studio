@@ -3,7 +3,9 @@
 // Payday, read like a statement"). What came in this pay period, what goes out on payday (the team's pay and the bills
 // due), what's left, and the split to set aside from it. Every figure is worked out by the Payday tab (money/page.tsx:
 // lib/pay-period for the pay, the business's own state for the taxes) and handed in; this screen lays it out and hands
-// the taps back.
+// the taps back. When payroll is run in ClarityFlow (design board "Payroll run in ClarityFlow", A), each person shows
+// what they take home after taxes, the taxes under it and how they're paid, and the taxes to keep for later have
+// their own card, with when each is due (lib/withholding, lib/payroll-taxes).
 import * as React from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
@@ -26,6 +28,30 @@ export type PayPerson = {
   contractor?: boolean; adjustments?: number; tipsInHand?: number;
 };
 export type PayBill = { id: string; name: string; amount: number; due: Date; personal?: boolean };
+export type PayMethod = 'transfer' | 'check' | 'cash';
+/** One employee's taxes this payday (lib/withholding), as the screen shows them. */
+export type PersonTax = {
+  gross: number; takeHome: number; employeeTotal: number; federal: number; fica: number; state: number;
+  other: { name: string; amount: number }[]; pretax: number; short: number;
+  stateHow: 'none' | 'built_in' | 'percent' | 'missing'; noW4: boolean; noStateForm: boolean; exempt: boolean;
+};
+/** Payroll run in ClarityFlow: each employee's taxes and take-home, and what the payday owes, to whom and when. */
+export type SelfRun = {
+  people: Record<string, PersonTax>;
+  takeHome: number; employeeTaxes: number; employerTaxes: number; pretax: number;
+  owed: { key: string; name: string; sub: string; amount: number }[]; owedTotal: number;
+  /** "North Carolina"; the state's own form ("NC-4") when it's built in. */
+  stateName: string; stateForm?: string | null;
+  methods: Record<string, { method: PayMethod; checkNo: string }>;
+  onMethod: (id: string, method: PayMethod, checkNo: string) => void;
+  /** Open someone's tax forms (managers): left out for someone who can't change them. */
+  onForms?: (id: string) => void;
+  /** Settings > Payroll. */
+  payrollHref: string;
+  /** The tax tables are older than the payday's year. */
+  stale?: boolean;
+};
+const METHODS: { v: PayMethod; label: string }[] = [{ v: 'transfer', label: 'Bank transfer' }, { v: 'check', label: 'Check' }, { v: 'cash', label: 'Cash' }];
 /** One part of the split: taxes, the owner's own pay, profit, and what stays to run the business. */
 export type SetAsidePart = { key: 'tax' | 'owner' | 'profit' | 'opex'; pct: number; amount: number };
 const PART_NAMES: Record<SetAsidePart['key'], string> = { tax: 'Taxes', owner: 'Your pay', profit: 'Profit', opex: 'Running the business' };
@@ -70,6 +96,39 @@ const Note = ({ children, warn }: { children: React.ReactNode; warn?: boolean })
   <p className="mt-2 rounded-2xl px-4 py-3 text-[14px]" style={warn ? { background: AMBER_TINT, color: AMBER } : { background: SOFT, color: MUTED }}>{children}</p>
 );
 
+/** Under a person: the taxes taken out, what's missing from their forms, and anything that couldn't be taken. */
+function TaxLines({ t, self, id }: { t: PersonTax; self: SelfRun; id: string }) {
+  const parts = [`federal ${usd(t.federal)}`, `Social Security and Medicare ${usd(t.fica)}`];
+  if (t.stateHow !== 'none' && t.stateHow !== 'missing') parts.push(`${self.stateName || 'state'} ${usd(t.state)}`);
+  for (const o of t.other) parts.push(`${o.name} ${usd(o.amount)}`);
+  const form = self.stateForm || 'state form';
+  const missing = t.noW4 && t.noStateForm ? { text: `No W-4 or ${form} on file. Taxed as single until they’re added, as the IRS and ${self.stateName} require.`, add: 'Add them' }
+    : t.noW4 ? { text: 'No W-4 on file. Taxed as single until one is added, as the IRS requires.', add: 'Add W-4' }
+    : t.noStateForm ? { text: `No ${form} on file. ${self.stateName} tax is as single with no allowances until one is added.`, add: `Add ${form}` } : null;
+  return (<>
+    <span className="block text-[13px]" style={{ color: MUTED }}>Withheld {usd(t.employeeTotal)}: {parts.join(', ')}{t.exempt ? '. Exempt from federal income tax on their W-4' : ''}</span>
+    {t.pretax > 0 && <span className="block text-[13px]" style={{ color: MUTED }}>{usd(t.pretax)} taken out before taxes for retirement and health</span>}
+    {t.stateHow === 'missing' && <a href={self.payrollHref} className={`-my-1 flex min-h-[44px] items-center text-[13px] font-semibold underline underline-offset-2 ${RING}`} style={{ color: AMBER }}>{self.stateName || 'State'} income tax isn’t set up yet, so none is taken out. Set it up</a>}
+    {missing && <span className="block text-[13px] font-semibold" style={{ color: AMBER }}>{missing.text}{!self.onForms ? ' A manager can add it.' : ''}</span>}
+    {missing && self.onForms && <button type="button" onClick={() => self.onForms!(id)} className={`-my-1 block min-h-[44px] text-left text-[13px] font-semibold underline underline-offset-2 ${RING}`} style={{ color: INK }}>{missing.add}</button>}
+    {t.short > 0 && <span className="block text-[13px] font-semibold" style={{ color: AMBER }}>The paycheck is too small for all the taxes: {usd(t.short)} can’t be withheld. Ask your accountant how to collect it.</span>}
+  </>);
+}
+/** How a person is paid this payday, and the check number for a check. */
+function PaidBy({ id, name, self }: { id: string; name: string; self: SelfRun }) {
+  const m = self.methods[id] || { method: 'transfer' as PayMethod, checkNo: '' };
+  return (
+    <span className="mt-1 flex flex-wrap items-center gap-2">
+      <label className="inline-flex flex-wrap items-center gap-x-2 gap-y-1 text-[14px]" style={{ color: MUTED }}><span className="whitespace-nowrap">Paid by</span>
+        <select value={m.method} onChange={(e) => self.onMethod(id, e.target.value as PayMethod, m.checkNo)} aria-label={`How ${name} is paid`} className={field} style={{ border: `1px solid ${LINE}`, color: INK }}>
+          {METHODS.map((x) => <option key={x.v} value={x.v}>{x.label}</option>)}
+        </select></label>
+      {m.method === 'check' && <label className="inline-flex flex-wrap items-center gap-x-2 gap-y-1 text-[14px]" style={{ color: MUTED }}><span className="whitespace-nowrap">Check number</span>
+        <input value={m.checkNo} onChange={(e) => self.onMethod(id, 'check', e.target.value.replace(/[^0-9A-Za-z-]/g, '').slice(0, 12))} inputMode="numeric" className={`${field} w-[96px]`} style={{ border: `1px solid ${LINE}`, color: INK }} /></label>}
+    </span>
+  );
+}
+
 export type PaydayScreenProps = {
   /** The period's first and last day (the business's own pay periods, Settings > Time clock), and its payday. */
   from: Date; to: Date; payday: Date | null; cadenceWords: string; settingsHref: string;
@@ -91,6 +150,12 @@ export type PaydayScreenProps = {
     country: string; countries: { code: string; name: string; enabled: boolean }[]; onCountry: (code: string) => void;
   };
   gusto: { connected: boolean; companyName?: string };
+  /** Who runs payroll (Settings > Payroll), and, when it's ClarityFlow, everyone's taxes. */
+  runBy?: 'clarityflow' | 'gusto' | 'company';
+  selfRun?: SelfRun | null;
+  /** Nobody has said who works out the payroll taxes yet (and Gusto isn't connected): asked once, here. `onPick` is
+   *  left out for someone who can't change it (only the owner can). */
+  askRunBy?: { onPick?: (v: 'clarityflow' | 'gusto' | 'company') => void } | null;
   onConnectGusto: () => void; onSendToGusto: () => void; sendingToGusto: boolean;
   /** Employees with pay who aren't matched to anyone in Gusto yet (payroll waits for them), the matching card itself, and
    *  the pay period as a spreadsheet for another payroll company. */
@@ -121,6 +186,9 @@ export function PaydayScreen(p: PaydayScreenProps) {
   const paydayWords = p.payday ? p.payday.toLocaleDateString('en-US', { month: 'long', day: 'numeric' }) : '';
   const employees = p.team.filter((o) => !o.contractor); const contractors = p.team.length - employees.length;
   const contractorPay = p.team.filter((o) => o.contractor).reduce((n, o) => n + (Number(o.amount) || 0), 0);
+  const self = p.runBy === 'clarityflow' ? p.selfRun || null : null;
+  const runBy = p.runBy || (p.gusto.connected ? 'gusto' : 'clarityflow');
+  const later = self ? Math.round((self.employeeTaxes + self.employerTaxes) * 100) / 100 : 0;
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const parts = PART_ORDER.map((k) => p.parts.find((x) => x.key === k)).filter(Boolean) as SetAsidePart[];
   const toTeam = () => { teamRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); teamRef.current?.focus({ preventScroll: true }); };
@@ -156,7 +224,7 @@ export function PaydayScreen(p: PaydayScreenProps) {
         <Row label="Came in, after costs" sub="Sales, tips and other income, less refunds and costs. Sales tax and money held for others aren’t in it." value={`${p.cameIn < 0 ? '−' : ''}${usd(p.cameIn)}`} />
         <Row label="Your team’s pay" sub={!p.team.length ? 'Nobody has pay for these dates yet' : contractors ? `Hours, commission and tips. ${usd(contractorPay)} of it to ${contractors === 1 ? 'a contractor' : `${contractors} contractors`}` : 'Hours, commission and tips, from the time clock and checkouts'} value={p.teamTotal ? `−${usd(p.teamTotal)}` : usd(0)} />
         {cashOut > 0 && <Row label="Cash tips taken home" sub="Paid out of the till the same day, so they aren’t paid again on payday" value={`−${usd(cashOut)}`} />}
-        {p.employerTaxes > 0 && <Row label="Payroll taxes you pay as the employer" sub={`An estimate, about ${p.tax.employerPct}% of pay${p.tax.hasState ? ` in ${p.tax.stateName}` : ''}`} value={`−${usd(p.employerTaxes)}`} />}
+        {p.employerTaxes > 0 && <Row label="Payroll taxes you pay as the employer" sub={self ? 'Worked out from each person’s pay' : `An estimate, about ${p.tax.employerPct}% of pay${p.tax.hasState ? ` in ${p.tax.stateName}` : ''}`} value={`−${usd(p.employerTaxes)}`} />}
         <Row label="Bills due these dates" sub={p.bills.length ? namesOf(p.bills.map((b) => b.name)) : 'None left to pay'} value={billsTotal ? `−${usd(billsTotal)}` : usd(0)} />
         {left >= 0
           ? <Row label="Left after payday" value={usd(left)} tone="good" />
@@ -172,12 +240,26 @@ export function PaydayScreen(p: PaydayScreenProps) {
   const team = (
     <section ref={teamRef} tabIndex={-1} id="payday-team" aria-label="Your team" className={`${card} scroll-mt-24 focus:outline-none`} style={{ border: `1px solid ${LINE}` }}>
       <h3 className="text-[17px] font-semibold">Your team</h3>
-      <p className="text-[14px]" style={{ color: MUTED }}>What each person earned these dates.{p.gusto.connected ? ` Gusto is connected, so payday goes through ${p.gusto.companyName || 'Gusto'}.` : ''}</p>
+      <p className="text-[14px]" style={{ color: MUTED }}>{self ? `What each person earned, the taxes withheld, and what they take home. Worked out from their W-4${self.stateForm ? ` and ${self.stateForm}` : ''}.` : `What each person earned these dates.${runBy === 'gusto' && p.gusto.connected ? ` Gusto is connected, so payday goes through ${p.gusto.companyName || 'Gusto'}.` : ''}`}</p>
+      {p.askRunBy && (
+        <div className="mt-3 rounded-2xl p-4" style={{ background: SOFT }}>
+          <p className="text-[15px] font-semibold">Who works out your team’s payroll taxes?</p>
+          <p className="mt-1 text-[14px]" style={{ color: MUTED }}>ClarityFlow can work out each person’s taxes and take-home pay from their W-4, with pay stubs and what you owe and when, and you pay from your bank. Or Gusto, or another payroll company, works them out and files.</p>
+          {p.askRunBy.onPick
+            ? <div className="mt-3 flex flex-wrap gap-2">
+                <button type="button" onClick={() => p.askRunBy!.onPick!('clarityflow')} className={btn} style={solid}>ClarityFlow</button>
+                <button type="button" onClick={() => p.askRunBy!.onPick!('gusto')} className={btn} style={plain}>Gusto</button>
+                <button type="button" onClick={() => p.askRunBy!.onPick!('company')} className={btn} style={plain}>Another payroll company</button>
+              </div>
+            : <p className="mt-2 text-[13px]" style={{ color: MUTED }}>The owner picks this in Settings, Payroll.</p>}
+        </div>
+      )}
       <div className="mt-2">
         {p.team.length === 0 && <p className="py-3 text-[14px]" style={{ color: MUTED, borderTop: `1px solid ${LINE}` }}>No pay for these dates yet. It shows here from the time clock and checkouts.</p>}
         {p.team.map((o) => {
           const open = p.statementFor === o.id;
           const miss = Number(o.missingClockOuts) || 0, waiting = Number(o.unapprovedSessions) || 0;
+          const tx = self && !o.contractor ? self.people[o.id] || null : null;
           return (
             <div key={o.id} style={{ borderTop: `1px solid ${LINE}` }}>
               <div className="flex min-h-[56px] items-start gap-3 pt-3">
@@ -190,31 +272,49 @@ export function PaydayScreen(p: PaydayScreenProps) {
                   {miss > 0 && <a href="/timesheets" className="block text-[13px] font-semibold underline underline-offset-2" style={{ color: AMBER }}>{miss} forgotten clock-out{miss === 1 ? '' : 's'}, not paid until fixed on Timesheets</a>}
                   {waiting > 0 && <a href="/timesheets" className="block text-[13px] font-semibold underline underline-offset-2" style={{ color: AMBER }}>{waiting} shift{waiting === 1 ? '' : 's'} waiting for approval, not paid yet</a>}
                   {o.noHours && !o.contractor && <span className="block text-[13px]" style={{ color: AMBER }}>No hours on the clock, so minimum wage and overtime can’t be checked</span>}
+                  {tx && <span className="block text-[13px] sm:hidden" style={{ color: MUTED }}>Takes home {usd(tx.takeHome)} of {usd(tx.gross)} earned</span>}
+                  {tx && <TaxLines t={tx} self={self!} id={o.id} />}
+                  {self && o.contractor && <span className="block text-[13px]" style={{ color: MUTED }}>Nothing is taken out.</span>}
+                  {self && (tx || o.contractor) && <PaidBy id={o.id} name={o.name} self={self} />}
                   <button type="button" onClick={() => p.onStatement(open ? null : o.id)} aria-expanded={open} className={`-my-1 min-h-[44px] text-left text-[13px] underline underline-offset-2 ${RING}`} style={{ color: INK }}>{open ? 'Hide how it’s worked out' : 'How it’s worked out'}</button>
                 </span>
-                <span className="shrink-0 self-start pt-0.5 font-semibold tabular-nums">{usd(o.amount)}</span>
+                {tx
+                  ? <span className="shrink-0 self-start text-right"><span className="hidden text-[13px] sm:block" style={{ color: MUTED }}>Takes home</span><span className="block text-[17px] font-semibold tabular-nums">{usd(tx.takeHome)}</span><span className="hidden text-[13px] tabular-nums sm:block" style={{ color: MUTED }}>of {usd(tx.gross)} earned</span></span>
+                  : <span className="shrink-0 self-start pt-0.5 font-semibold tabular-nums">{usd(o.amount)}</span>}
               </div>
               {open && <div className="pb-3">{p.statement(o)}</div>}
             </div>
           );
         })}
       </div>
-      {p.team.length > 0 && <>
+      {p.team.length > 0 && !self && <>
         <Row label="Your team’s pay" value={usd(p.teamTotal)} />
         {p.employerTaxes > 0 && <Row label="Payroll taxes you pay as the employer" sub={p.tax.hasState ? `An estimate for ${p.tax.stateName}` : `An estimate until your ${p.tax.regionLabel.toLowerCase()} is picked`} value={usd(p.employerTaxes)} />}
         <Row label="Payday comes to" value={usd(payday)} tone="total" />
         {p.cameIn < payday && <Note warn>What came in these dates is {usd(payday - p.cameIn)} less than payday needs. Check the account has enough before you pay.</Note>}
       </>}
-      <div className="mt-3 flex flex-wrap items-center gap-2">
+      {p.team.length > 0 && self && <>
+        <Row label="Take-home for your team" value={usd(self.takeHome)} />
+        {contractors > 0 && <Row label={contractors === 1 ? `${p.team.find((o) => o.contractor)?.name || 'A contractor'}, contractor` : `${contractors} contractors`} value={usd(contractorPay)} />}
+        {self.pretax > 0 && <Row label="Taken out before taxes" sub="For retirement and health plans" value={usd(self.pretax)} />}
+        <Row label="Withheld from their pay" sub={`For the IRS${self.employeeTaxes > 0 && self.stateName ? ` and ${self.stateName}` : ''}`} value={usd(self.employeeTaxes)} />
+        <Row label="Taxes you pay as the employer" sub="Your share of Social Security and Medicare, and unemployment" value={usd(self.employerTaxes)} />
+        <Row label="Payday comes to" value={usd(payday)} tone="total" />
+        <p className="mt-1 text-[13px]" style={{ color: MUTED }}>{usd(self.takeHome + contractorPay)} goes to your team now{self.pretax > 0 ? `, and ${usd(self.pretax)} to their retirement and health plans` : ''}. The {usd(later)} in taxes stays in the account until each one is due.</p>
+        {p.cameIn < payday && <Note warn>What came in these dates is {usd(payday - p.cameIn)} less than payday needs. Check the account has enough before you pay.</Note>}
+      </>}
+      {runBy === 'gusto' && <div className="mt-3 flex flex-wrap items-center gap-2">
         {p.gusto.connected
           ? <button type="button" onClick={p.onSendToGusto} disabled={!employees.length || p.sendingToGusto || !!p.blocked || !!p.gustoUnmatched?.length} className={btn} style={solid}>{p.sendingToGusto ? 'Sending to Gusto' : `Send payroll to Gusto${contractors ? `, ${employees.length} ${employees.length === 1 ? 'employee' : 'employees'}` : ''}`}</button>
           : <button type="button" onClick={p.onConnectGusto} className={btn} style={plain}>Connect Gusto</button>}
         <span className="text-[13px]" style={{ color: MUTED }}>{p.gusto.connected ? 'Gusto works out the exact taxes, sends the deposits and files.' : 'To pay your team and file payroll taxes from here. Until then, record payday in your books below.'}</span>
-      </div>
-      {p.gusto.connected && !!p.gustoUnmatched?.length && <Note warn>Match {peopleOf(p.gustoUnmatched)} to Gusto first, below, then send payroll.</Note>}
-      {p.onExport && <div className="mt-2 flex flex-wrap items-center gap-2"><button type="button" onClick={p.onExport} disabled={!!p.blocked} className={btn} style={plain}>Download for another payroll company</button>
+      </div>}
+      {runBy === 'gusto' && p.gusto.connected && !!p.gustoUnmatched?.length && <Note warn>Match {peopleOf(p.gustoUnmatched)} to Gusto first, below, then send payroll.</Note>}
+      {runBy !== 'clarityflow' && p.onExport && <div className="mt-2 flex flex-wrap items-center gap-2"><button type="button" onClick={p.onExport} disabled={!!p.blocked} className={btn} style={runBy === 'company' ? solid : plain}>Download for {runBy === 'company' ? 'your' : 'another'} payroll company</button>
         <span className="text-[13px]" style={{ color: MUTED }}>Hours and pay for these dates, as a spreadsheet for ADP, Paychex, QuickBooks Payroll or your bookkeeper.</span></div>}
-      {contractors > 0 && <Note>Contractors aren’t on payroll: nothing is withheld for them, and no employer taxes are owed. Pay them directly, then record payday. If your payroll company pays them, book its withdrawal for them as Contract Labor.</Note>}
+      {runBy === 'clarityflow' && <p className="mt-3 text-[13px]" style={{ color: MUTED }}>Taxes worked out here, using the IRS’s{self?.stateForm ? ` and ${self.stateName}’s` : ''} tables. You send the pay and the taxes from your bank, and file the forms or hand them to your accountant. <a href={self?.payrollHref || '/settings?tab=payroll'} className="underline underline-offset-2" style={{ color: INK }}>Use Gusto or another payroll company instead</a></p>}
+      {self?.stale && <Note warn>The tax tables are from an earlier year. Check each person’s taxes with your accountant until this year’s are in.</Note>}
+      {contractors > 0 && <Note>Contractors aren’t on payroll: nothing is withheld for them, and no employer taxes are owed. Pay them directly, then record payday.{runBy !== 'clarityflow' ? ' If your payroll company pays them, book its withdrawal for them as Contract Labor.' : ''}</Note>}
       <div className="mt-3 flex min-h-[56px] items-center justify-between gap-3 py-2" style={{ borderTop: `1px solid ${LINE}` }}>
         <span className="min-w-0"><span className="block">A payroll draft each payday</span>
           <span className="block text-[13px]" style={{ color: MUTED }}>Put together when each pay period ends ({p.cadenceWords}), with a note to you. Nothing is paid until you approve it.</span></span>
@@ -267,10 +367,12 @@ export function PaydayScreen(p: PaydayScreenProps) {
           ? <p role="status" className="mt-3 rounded-2xl px-4 py-3 text-[14px] font-medium" style={{ background: GREEN_TINT, color: GREEN }}>{p.recordedSpan ? `Payday for ${p.recordedSpan} is in your books, recorded ${p.recordedOn.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}. These dates overlap it, so it can’t be recorded again.` : `Payday for these dates is in your books, recorded ${p.recordedOn.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}.`}</p>
           : <>
             {p.blocked && <Note warn>{p.blocked}</Note>}
-            {!p.gusto.connected && employees.length > 0 && <Note>Recording payday puts what you paid in your books. It doesn’t withhold or file anyone’s taxes: for employees, a payroll company does that.</Note>}
+            {runBy === 'company' && employees.length > 0 && <Note>Recording payday puts what you paid in your books. It doesn’t withhold or file anyone’s taxes: your payroll company does that.</Note>}
+            {runBy === 'gusto' && !p.gusto.connected && employees.length > 0 && <Note>Recording payday puts what you paid in your books. It doesn’t withhold or file anyone’s taxes: for employees, Gusto does that once it’s connected.</Note>}
             <button type="button" onClick={p.onRecord} disabled={(p.setAside <= 0 && !p.team.length) || p.recording || !!p.blocked} className={`${btn} mt-3`} style={solid}>{p.recording ? 'Recording' : 'Record payday in your books'}</button>
             <p className="mt-2 text-[13px]" style={{ color: MUTED }}>
-              {p.setAside > 0
+              {self && employees.length > 0 ? `Adds each person’s pay (${usd(p.teamTotal + cashOut)} in all${cashOut > 0 ? ', cash tips taken home included' : ''}) and ${usd(self.employerTaxes)} in payroll taxes you pay as the employer to your books, dated today, and keeps each person’s taxes for their pay stub.${p.setAside > 0 ? ' The set-asides too.' : ''} It’s recorded once for these dates.`
+                : p.setAside > 0
                 ? `Adds ${p.team.length ? `each person’s pay (${usd(p.teamTotal + cashOut)} in all${cashOut > 0 ? ', cash tips taken home included' : ''}) and ` : ''}these set-asides to your books, dated today. It’s recorded once for these dates.`
                 : p.team.length ? `Adds each person’s pay (${usd(p.teamTotal + cashOut)} in all${cashOut > 0 ? ', cash tips taken home included' : ''}) to your books, dated today. Put in an amount to split to add the set-asides too.` : 'Put in an amount to split, and recording adds the set-asides to your books.'}
             </p>
@@ -278,6 +380,18 @@ export function PaydayScreen(p: PaydayScreenProps) {
       </div>
     </section>
   );
+
+  const keep = self && self.owed.length > 0 ? (
+    <section aria-label="Payroll taxes to pay later" className={card} style={{ border: `1px solid ${LINE}` }}>
+      <h3 className="text-[17px] font-semibold">Payroll taxes to pay later</h3>
+      <p className="text-[14px]" style={{ color: MUTED }}>From this payday: what’s withheld from the team’s pay, and your share as the employer.</p>
+      <div className="mt-2">
+        {self.owed.map((x) => <Row key={x.key} label={x.name} sub={x.sub} value={usd(x.amount)} />)}
+        <Row label="In all" value={usd(self.owedTotal)} tone="total" />
+      </div>
+      <p className="mt-2 pb-1 text-[13px]" style={{ color: MUTED }}>When you pay one, sort its bank line as Payroll Tax Deposit: it’s in your books from payday already, so it isn’t counted twice.</p>
+    </section>
+  ) : null;
 
   const bills = (
     <section aria-label="Bills due these dates" className={card} style={{ border: `1px solid ${LINE}` }}>
@@ -309,7 +423,7 @@ export function PaydayScreen(p: PaydayScreenProps) {
       )}
       <div className="grid items-start gap-4 lg:grid-cols-[1.1fr_1fr]">
         <div className="space-y-4">{period}{team}{p.gustoSlot}</div>
-        <div className="space-y-4">{aside}{bills}</div>
+        <div className="space-y-4">{keep}{aside}{bills}</div>
       </div>
     </div>
   );

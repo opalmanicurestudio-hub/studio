@@ -11,8 +11,9 @@ const dayMs = (d: string) => Date.parse(`${String(d).slice(0, 10)}T12:00:00Z`);
 const cents = (t: any) => Math.round((Number(t?.amount) || 0) * 100);
 
 /** A payday line a payroll company's withdrawal can be matched to: the employees' pay (never cash tips taken home,
- *  contractors or set-asides), in these books. */
-export const coverable = (t: any, context = 'Business') => !!t?.paydayPeriod && /^payroll$/i.test(String(t?.category || '')) && String(t?.paymentMethod || '') === 'Distribution'
+ *  contractors or set-asides), and, when payroll is run in ClarityFlow, the employer's payroll taxes payday booked (a
+ *  tax payment booked as payroll a few days after payday is that money, not more of it), in these books. */
+export const coverable = (t: any, context = 'Business') => !!t?.paydayPeriod && /^payroll( taxes)?$/i.test(String(t?.category || '')) && String(t?.paymentMethod || '') === 'Distribution'
   && (t?.context || 'Business') === context && (t?.type || 'expense') === 'expense' && t?.voided !== true;
 /** What's left of a payday line to match: nothing once it's matched in full. */
 export const leftOf = (t: any, btId?: string) => (t?.reconciled && !(btId && t?.bankCover?.[btId] != null) ? 0

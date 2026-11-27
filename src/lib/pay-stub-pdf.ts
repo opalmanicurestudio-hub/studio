@@ -1,7 +1,8 @@
 // src/lib/pay-stub-pdf.ts — THE PAY STUB AS A PDF (letter size): page 1 is the statement — the business, the person,
 // the period and payday, the total, where it came from, hours and notes; the pages after list EVERY line (visits,
 // retail, tips, adjustments, period items, shifts) with how each was worked out, ending with the check that the lines
-// add up to the total. Uses the business's colour.
+// add up to the total. Uses the business's colour. When payroll is run in ClarityFlow, page 1 also has the taxes
+// withheld, the take-home pay and the year so far (stub.taxes).
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
 import type { Stub } from '@/lib/pay-stub';
 import type { AuditLine } from '@/lib/pay-audit';
@@ -26,7 +27,7 @@ export async function stubPdf(stub: Stub, business: { name: string; accent: stri
     const size = o.size ?? 9, font = o.font ?? R; const t = o.max ? fit(s, font, size, o.max) : safe(s); const w = font.widthOfTextAtSize(t, size);
     page.drawText(t, { x: o.right ? x - w : x, y: yy, size, font, color: o.color ?? INK }); };
   const footer = () => { page.drawLine({ start: { x: M, y: 34 }, end: { x: W - M, y: 34 }, thickness: 0.6, color: LINE });
-    text('Earnings before taxes and deductions. Your official payslip comes from your payroll provider.', M, 22, { size: 7.5, color: MUTED });
+    text(stub.taxes ? 'Earnings, the taxes withheld from them and the take-home pay, from the IRS and state withholding tables.' : 'Earnings before taxes and deductions. Your official payslip comes from your payroll provider.', M, 22, { size: 7.5, color: MUTED });
     text(`${ref}  -  page ${pageNo}`, W - M, 22, { size: 7.5, color: MUTED, right: true }); };
   const newPage = () => { footer(); page = doc.addPage([W, H]); pageNo++; y = H - M;
     text(`${business.name}  -  ${stub.name}  -  ${day(stub.period.from)} - ${longDay(stub.period.to)}`, M, y, { size: 8, color: MUTED }); y -= 20; };
@@ -57,6 +58,21 @@ export async function stubPdf(stub: Stub, business: { name: string; accent: stri
   const counts: Record<string, number> = { Services: stub.audit.visits.length, Tips: stub.audit.tips.length, Retail: stub.audit.retail.length, Time: stub.audit.period.filter((x) => ['p:hourly', 'p:training', 'p:salary', 'p:ot', 'p:minwage'].includes(x.ref)).length, Other: stub.audit.period.filter((x) => !['p:hourly', 'p:training', 'p:salary', 'p:ot', 'p:minwage'].includes(x.ref)).length, Adjustments: stub.audit.adjustments.length };
   for (const [k, v] of parts) { if (!v && !counts[k]) continue; text(k, M, y); text(String(counts[k] || ''), M + 300, y, { right: true, color: MUTED }); text(money(v), W - M, y, { right: true }); y -= 6; page.drawLine({ start: { x: M, y }, end: { x: W - M, y }, thickness: 0.5, color: LINE }); y -= 12; }
   text('Total', M, y, { font: B }); text(money(stub.total), W - M, y, { font: B, right: true }); y -= 28;
+
+  const tx = stub.taxes;
+  if (tx) {
+    need(48 + 18 * (tx.lines.length + 4));
+    text(tx.recorded ? 'Taxes withheld' : 'Taxes withheld, worked out until payday is recorded', M, y, { size: 11, font: B }); y -= 16;
+    head([['TAX', M], ['THIS PAYDAY', M + 380, true], ['THIS YEAR', W - M, true]]);
+    const row = (k: string, a: number, b: number | null, bold = false) => { text(k, M, y, bold ? { font: B } : {}); text(money(a), M + 380, y, { right: true, ...(bold ? { font: B } : {}) }); if (b != null) text(money(b), W - M, y, { right: true, ...(bold ? { font: B } : {}) }); y -= 6; page.drawLine({ start: { x: M, y }, end: { x: W - M, y }, thickness: 0.5, color: LINE }); y -= 12; };
+    for (const l of tx.lines) row(l.label, l.amount, l.ytd);
+    row('Taxes in all', tx.withheld, tx.ytd.withheld, true);
+    if (tx.inHand > 0) row('Cash tips you took home (taxed, not in this pay)', -tx.inHand, null);
+    if (tx.pretax > 0) row('Taken out before taxes', -tx.pretax, null);
+    row(`Take-home pay${tx.method === 'check' && tx.checkNo ? `, check ${tx.checkNo}` : tx.method === 'cash' ? ', in cash' : tx.method === 'transfer' ? ', by bank transfer' : ''}`, tx.takeHome, tx.ytd.takeHome, true);
+    if (tx.short > 0) { text(`${money(tx.short)} of the taxes couldn't be withheld: the pay was too small for them.`, M, y, { size: 8.5, color: MUTED }); y -= 14; }
+    y -= 14;
+  }
 
   text('Time', M, y, { size: 11, font: B }); y -= 16;
   head([['', M], ['HOURS PAID', M + 260, true], ['OVERTIME', M + 380, true], ['SHIFTS', W - M, true]]);

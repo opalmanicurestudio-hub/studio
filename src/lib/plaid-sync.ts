@@ -18,6 +18,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { findCategory } from './categories';
 import { drawerCashCents, lineCents, nearOk, notBankMoney, saleOf } from './bank-match';
 import { coverWithPayday } from './payroll-bank';
+import { runByOf, payDateOf } from './payroll-taxes';
 
 const PLAID_BASE: Record<string, string> = {
   sandbox: 'https://sandbox.plaid.com',
@@ -152,6 +153,33 @@ async function syncBody(db: any, tenantId: string): Promise<SyncResult> {
   // match to something already in the books or a card payout, which are matches, not choices.
   const tenantDoc: any = (await db.doc(`tenants/${tenantId}`).get()).data() || {};
   const autoSort = automationOn(tenantDoc, 'bank-sort');
+  // Payroll run in ClarityFlow (lib/payroll-taxes): a payment to the IRS, or to the state for what recent paydays owe it
+  // (a payday, a month or a quarter of them), is a payroll tax deposit, already in the books from payday. It's suggested
+  // as one, never as sales tax or a second payroll expense, and never booked by a payee rule on its own.
+  const selfRun = runByOf(tenantDoc) === 'clarityflow';
+  const stateOwed = new Set<number>(); const irsOwed = new Set<number>();
+  if (selfRun) {
+    const runs = (await db.collection(`tenants/${tenantId}/payrollRuns`).where('recordedAt', '>=', new Date(Date.now() - 200 * DAY).toISOString()).limit(300).get().catch(() => ({ docs: [] as any[] })))
+      .docs.map((d: any) => d.data() || {}).filter((r: any) => r.kind === 'payday' && r.taxes?.owed);
+    const sums = new Map<string, number>(); const add = (k: string, v: number) => sums.set(k, (sums.get(k) || 0) + v);
+    for (const r of runs) {
+      const d = payDateOf(r, tenantDoc); const q = `${d.slice(0, 4)}q${Math.floor((Number(d.slice(5, 7)) - 1) / 3)}`;
+      const st = Math.round((Number(r.taxes.owed.state) || 0) * 100), sui = Math.round((Number(r.taxes.owed.sui) || 0) * 100);
+      const irs = Math.round((Number(r.taxes.owed.irs) || 0) * 100), futa = Math.round((Number(r.taxes.owed.futa) || 0) * 100);
+      if (st) { stateOwed.add(st); add(`m${d.slice(0, 7)}`, st); add(`q${q}`, st); }
+      if (sui) add(`u${q}`, sui);
+      if (irs) { irsOwed.add(irs); add(`im${d.slice(0, 7)}`, irs); add(`iq${q}`, irs); }
+      if (futa) { add(`fq${q}`, futa); add(`fy${d.slice(0, 4)}`, futa); }
+    }
+    for (const [k, v] of sums) (/^(im|iq|fq|fy)/.test(k) ? irsOwed : stateOwed).add(v);
+  }
+  // 'paid': the amount is what recent paydays owe; 'maybe': a payment to the IRS that matches nothing (the owner's own
+  // estimated tax, a penalty): suggested all the same, and asked.
+  const taxDeposit = (name: string, cents: number): 'paid' | 'maybe' | null => {
+    if (!selfRun) return null; const n = name.toUpperCase(); const near = (set: Set<number>) => [...set].some((v) => Math.abs(v - cents) <= 100);
+    if (/\bIRS\b|USATAXPYMT|EFTPS|TREAS(URY)? TAX/.test(n)) return near(irsOwed) ? 'paid' : 'maybe';
+    return /DEPT? OF REVENUE|DEPARTMENT OF REVENUE|NCDOR|EMPLOYMENT SECURITY|NCDES|UNEMPLOYMENT/.test(n) && near(stateOwed) ? 'paid' : null;
+  };
 
   const added: any[] = []; const removed: string[] = []; const needsLogin: string[] = []; const cursors: { ref: any; cursor: any }[] = [];
   for (const item of items) {
@@ -417,8 +445,10 @@ async function syncBody(db: any, tenantId: string): Promise<SyncResult> {
     const outflow = bt.amount > 0;
     const cents = Math.round(Math.abs(bt.amount) * 100);
     const pfc = bt.personal_finance_category || {};
-    const sugg = mapCategory(pfc.primary, bt.merchant_name || bt.name, pfc.detailed, pfc.confidence_level);
+    let sugg = mapCategory(pfc.primary, bt.merchant_name || bt.name, pfc.detailed, pfc.confidence_level);
     const vendorName = bt.merchant_name || bt.name;
+    const deposit = outflow && !bt.pending ? taxDeposit(`${bt.merchant_name || ''} ${bt.name || ''}`, cents) : null;
+    if (deposit) sugg = { category: 'Payroll Tax Deposit', taxBucket: 'transfer', type: 'expense', sure: false };
 
     // A card payout arriving: matched to the payout, never booked again.
     const btDate = new Date(bt.date + 'T00:00:00Z').getTime();
@@ -479,6 +509,8 @@ async function syncBody(db: any, tenantId: string): Promise<SyncResult> {
       suggestedCategory: sugg.category, suggestedTaxBucket: sugg.taxBucket, suggestedType: sugg.type,
       plaidDetailed: pfc.detailed || null, plaidConfidence: pfc.confidence_level || null, accountId: bt.account_id || null,
       // (A deposit bigger than the cash and checks taken lately: it may be a sale nobody rang up, or her own money.)
+      ...(deposit === 'paid' ? { hint: 'A payroll tax payment: it’s in your books from payday already, so it’s sorted as Payroll Tax Deposit, not counted again.' } : {}),
+      ...(deposit === 'maybe' ? { hint: 'A payment to the IRS. Payroll taxes? Keep it as Payroll Tax Deposit: they’re in your books from payday already. Your own income tax paid from here is a Distribution.' } : {}),
       ...(!outflow && isDeposit(bt) && !cashDeposit && !payout && !appCode ? { hint: 'More than the cash and checks taken lately. A client’s check nobody rang up, or money you put in?' } : {}),
       // (An app's payout that fits none of its weeks: its orders are in the books already, so it's never income.)
       // (Money for a week whose difference she booked already: it makes up that difference.)
@@ -629,7 +661,8 @@ async function syncBody(db: any, tenantId: string): Promise<SyncResult> {
           summary: `Sorted ${vendorName} as ${sugg.category} (the bank’s own category)`,
           amount: cents / 100, actor: { type: 'system', name: 'bank-sync' },
         });
-      } else if (autoSort && rule && !bt.pending && !near && !appCode && !(outflow && findCategory(rule.category)?.type === 'income' && rule.taxBucket !== 'transfer')) {
+      } else if (autoSort && rule && !bt.pending && !near && !appCode && !(outflow && findCategory(rule.category)?.type === 'income' && rule.taxBucket !== 'transfer')
+        && !(deposit && rule.category !== 'Payroll Tax Deposit')) {
         // (The way the money went decides the side: money back from a supplier comes off that cost, never a second cost.
         // A payee's sale category never books money going out to them: that waits for her.)
         const txnRef = db.doc(`tenants/${tenantId}/transactions/bank_${String(btId).replace(/[^A-Za-z0-9_-]/g, '')}`);   // (one id per bank line: a check started again never books it twice)

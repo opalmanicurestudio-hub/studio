@@ -10,6 +10,8 @@
 export const PAY_FIELDS = [
   'commissionRate', 'retailCommissionRate', 'hourlyRate', 'serviceHourRate', 'servicePay', 'serviceCommission', 'nonServiceRate',
   'commissionTiers', 'salaryAmount', 'salaryPer', 'salaryWeekly', 'overtimeExempt', 'overtimeNonExempt',
+  // (Their W-4 and state form, before-tax deductions and how they're paid, when payroll is run in ClarityFlow: lib/withholding.)
+  'taxForms',
 ] as const;
 export type PayField = typeof PAY_FIELDS[number];
 

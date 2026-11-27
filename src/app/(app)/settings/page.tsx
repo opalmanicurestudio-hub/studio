@@ -9,6 +9,9 @@ import { staffAuthHeader } from '@/lib/staff-fetch';
 import { CancellationReview } from '@/components/settings/CancellationReview';
 import { moduleEnabled, MODULES, SETTINGS_TAB_MODULE } from '@/lib/modules';
 import { Section, Row, Toggle, Choice, More, cfInput, cfInputStyle, toPicker, fromPicker } from '@/components/settings/settings-ui';
+import { runByOf, payrollStateOf } from '@/lib/payroll-taxes';
+import { NO_WAGE_TAX, BUILT_IN_STATES, suiOf, TABLES_YEAR } from '@/lib/withholding';
+import { getStateProfile, STATE_OPTIONS } from '@/lib/state-tax-profiles';
 import { GuestWifiRows } from '@/components/settings/GuestWifiRows';
 import { stripPrivate } from '@/lib/tenant-private-fields';
 import { usePrivateSettings } from '@/lib/tenant-private-client';
@@ -484,6 +487,7 @@ function SettingsPageImpl() {
     { value: 'operations',  label: 'Cleaning protocols',       icon: <SprayCan className="w-4 h-4" />    },
     // Team
     { value: 'timeclock',   label: 'Time clock & pay',         icon: <Timer className="w-4 h-4" />       },
+    { value: 'payroll',     label: 'Payroll',                  icon: <DollarSign className="w-4 h-4" />  },
   ].filter((t) => !SETTINGS_TAB_MODULE[t.value] || moduleEnabled(selectedTenant, SETTINGS_TAB_MODULE[t.value]));   // only tools on this business's plan
 
   // Tabs that manage their own state — hide global save/cancel for these
@@ -982,6 +986,68 @@ function SettingsPageImpl() {
               </>); })()}
             </TabsContent>
 
+            <TabsContent value="payroll" className="mt-0 space-y-10 text-left">
+              {(() => { const pt: any = (tenantData as any).payrollTax || {}; const set = (patch: any) => setTenantData((prev: any) => ({ ...prev, payrollTax: { ...((prev as any).payrollTax || {}), ...patch } }));
+                const runBy = runByOf(tenantData); const st = payrollStateOf(tenantData); const stName = st ? getStateProfile(st).name : '';
+                const noTax = !!st && NO_WAGE_TAX.includes(st); const builtIn = !!st && BUILT_IN_STATES.includes(st); const sui = suiOf(st, null, TABLES_YEAR);
+                const num = (v: string, lo: number, hi: number) => (v === '' ? null : Math.max(lo, Math.min(hi, Number(v) || 0)));
+                const other: any[] = Array.isArray(pt.other) ? pt.other : []; const setOther = (list: any[]) => set({ other: list });
+                const ipt = { ...cfInputStyle, maxWidth: 140 } as any;
+                const HOW: Record<string, string> = {
+                  clarityflow: 'Each person’s taxes and take-home pay are worked out on Payday, from their W-4 and state form, with pay stubs, what you owe and when. You send the pay and the taxes from your bank, and file the forms or hand them to your accountant.',
+                  gusto: (tenantData as any).gusto?.connected ? 'Gusto pays your team, sends the taxes and files. Payday sends each payroll to it.' : 'Gusto pays your team, sends the taxes and files. Connect it from Payday.',
+                  company: 'ADP, Paychex, QuickBooks Payroll or your bookkeeper works out the taxes and files. Payday gives them the hours and pay as a spreadsheet.',
+                };
+                return (<>
+                <Section title="How you run payroll">
+                  <Row label="Who works out the taxes" help={HOW[runBy]}>
+                    <Choice label="Who works out the taxes" value={runBy} options={[{ value: 'clarityflow', label: 'ClarityFlow' }, { value: 'gusto', label: 'Gusto' }, { value: 'company', label: 'Another payroll company' }]} onChange={(v) => set({ runBy: v })} />
+                  </Row>
+                </Section>
+                {runBy === 'clarityflow' && (<>
+                <Section title="Payroll taxes">
+                  <Row label="Your state" help={st ? (noTax ? `${stName} has no income tax on wages.` : builtIn ? `${stName}’s withholding is worked out from its own tables (NC-30).` : `${stName}’s own withholding isn’t worked out here yet: set a percentage below.`) : 'Where your team works. State income tax and unemployment follow it.'} inline>
+                    <select value={st || ''} onChange={(e) => setTenantData((prev: any) => ({ ...prev, taxState: e.target.value || null }))} aria-label="Your state" className={cfInput} style={{ ...cfInputStyle, maxWidth: 240 } as any}>
+                      <option value="">Pick your state</option>{STATE_OPTIONS.map((x) => <option key={x.code} value={x.code}>{x.name}</option>)}
+                    </select>
+                  </Row>
+                  <Row label="How often you pay the IRS" help="The IRS tells you which in its letter each fall: each month unless your payroll taxes came to more than $50,000 in a year.">
+                    <Choice label="How often you pay the IRS" value={pt.federalDeposits === 'semiweekly' ? 'semiweekly' : 'monthly'} options={[{ value: 'monthly', label: 'Each month' }, { value: 'semiweekly', label: 'Twice a week' }]} onChange={(v) => set({ federalDeposits: v })} />
+                  </Row>
+                  {builtIn && <Row label={`How often you file ${stName} withholding`} help="By what you withhold a month on average: each quarter under $250, each month from $250, twice a week from $2,000. North Carolina tells you which when you register.">
+                    <Choice label={`How often you file ${stName} withholding`} value={pt.stateFiling === 'quarterly' || pt.stateFiling === 'semiweekly' ? pt.stateFiling : 'monthly'} options={[{ value: 'quarterly', label: 'Each quarter' }, { value: 'monthly', label: 'Each month' }, { value: 'semiweekly', label: 'Twice a week' }]} onChange={(v) => set({ stateFiling: v })} />
+                  </Row>}
+                  {st && !noTax && !builtIn && <Row label={`${stName} income tax`} help={`A percentage of wages, from ${stName}’s withholding tables. A person’s own percentage, on their tax forms, is used instead when they have one.`} inline>
+                    <span className="inline-flex items-center gap-2 text-[15px]"><input type="number" min={0} max={20} step={0.01} inputMode="decimal" value={pt.statePct ?? ''} placeholder="0" onChange={(e) => set({ statePct: num(e.target.value, 0, 20) })} aria-label={`${stName} income tax percent`} className={cfInput} style={ipt} /><span className="cf-muted">%</span></span>
+                  </Row>}
+                  <Row label="Your state unemployment rate" help={`From the notice your state sends each year.${st === 'NC' ? ' North Carolina’s rate for a new business is 1%.' : ''}`} inline>
+                    <span className="inline-flex items-center gap-2 text-[15px]"><input type="number" min={0} max={20} step={0.01} inputMode="decimal" value={pt.suiRate ?? ''} placeholder={sui.rate ? String(sui.rate) : '0'} onChange={(e) => set({ suiRate: num(e.target.value, 0, 20) })} aria-label="State unemployment rate" className={cfInput} style={ipt} /><span className="cf-muted">%</span></span>
+                  </Row>
+                  <Row label="Wage limit per person" help={`Each person’s wages a year that state unemployment is on.${sui.base && st === 'NC' ? ` North Carolina’s is $${sui.base.toLocaleString('en-US')} for ${TABLES_YEAR}.` : ''}`} inline>
+                    <span className="inline-flex items-center gap-2 text-[15px]">$<input type="number" min={0} step={100} inputMode="decimal" value={pt.suiWageBase ?? ''} placeholder={sui.base ? String(sui.base) : '0'} onChange={(e) => set({ suiWageBase: num(e.target.value, 0, 1000000) })} aria-label="State unemployment wage limit" className={cfInput} style={ipt} /></span>
+                  </Row>
+                </Section>
+                <Section title="Other payroll taxes">
+                  <Row label="A city or county tax, or a state paid-leave program" help="Each one at a rate of wages, paid by the employee (taken out of their pay) or by you, up to a wage limit if it has one.">
+                    <div className="space-y-2 text-[15px]">
+                      {!other.length && <p className="cf-muted text-[14px]">None yet.</p>}
+                      {other.map((o: any, i: number) => { const put = (patch: any) => setOther(other.map((x: any, j: number) => (j === i ? { ...x, ...patch } : x))); return (
+                        <div key={o.id || i} className="flex flex-wrap items-center gap-2">
+                          <input value={o.name || ''} onChange={(e) => put({ name: e.target.value.slice(0, 60) })} placeholder="Name" aria-label="Name" className={cfInput} style={{ ...cfInputStyle, maxWidth: 220 } as any} />
+                          <input type="number" min={0} max={20} step={0.01} value={o.rate ?? ''} onChange={(e) => put({ rate: num(e.target.value, 0, 20) })} aria-label="Rate percent" className={cfInput} style={{ ...cfInputStyle, maxWidth: 90 } as any} /><span className="cf-muted">%</span>
+                          <select value={o.who === 'employer' ? 'employer' : 'employee'} onChange={(e) => put({ who: e.target.value })} aria-label="Who pays" className={cfInput} style={{ ...cfInputStyle, maxWidth: 200 } as any}><option value="employee">taken out of their pay</option><option value="employer">paid by you</option></select>
+                          <span className="cf-muted">limit $</span><input type="number" min={0} step={100} value={o.wageBase ?? ''} placeholder="none" onChange={(e) => put({ wageBase: num(e.target.value, 0, 10000000) })} aria-label="Wage limit" className={cfInput} style={{ ...cfInputStyle, maxWidth: 120 } as any} />
+                          <button type="button" onClick={() => setOther(other.filter((_: any, j: number) => j !== i))} className="h-11 rounded-full px-4 text-[13px] font-semibold" style={{ background: 'var(--soft)' }}>Remove</button>
+                        </div>); })}
+                      {other.length < 8 && <button type="button" onClick={() => setOther([...other, { id: `t${Date.now().toString(36)}`, name: '', rate: null, who: 'employee', wageBase: null }])} className="h-11 rounded-full px-4 text-[13px] font-semibold" style={{ background: 'var(--soft)' }}>Add one</button>}
+                    </div>
+                  </Row>
+                </Section>
+                <p className="px-1 text-[13px] cf-muted">Taxes are worked out from the IRS’s and {builtIn ? stName : 'your state'}’s {TABLES_YEAR} withholding tables. Each person’s W-4 and state form are on their page in Team, or from Payday. ClarityFlow never asks for or keeps Social Security numbers or tax ID numbers: you add those when you file.</p>
+                </>)}
+                </>); })()}
+            </TabsContent>
+
           </Tabs>}
         </div>
       </main>
@@ -1010,12 +1076,13 @@ const WHATS_HERE: Record<string, string> = {
   terminal: 'Your card reader for taking payments in person.',
   kiosk: 'The check-in kiosk clients use when they arrive.',
   timeclock: 'How your team clocks in and out — the rules for the whole business. Where they can clock in is set on each location.',
+  payroll: 'Who runs payroll, and, when ClarityFlow does, the payroll taxes it works out: how often they’re paid, your state’s rates and any other payroll tax.',
   visits: 'The steps every visit goes through, what you call them, and what clients see on their visit link.',
   operations: 'Your cleaning procedures. Attached to a service, they become its turnover checklist.',
 };
 
 // Settings pages that belong together — shown as quick links at the top of each page.
-const TAB_GROUPS: string[][] = [['profile', 'hours', 'locations'], ['payments', 'terminal'], ['policies'], ['visits', 'kiosk', 'experience'], ['operations'], ['timeclock']];
+const TAB_GROUPS: string[][] = [['profile', 'hours', 'locations'], ['payments', 'terminal'], ['policies'], ['visits', 'kiosk', 'experience'], ['operations'], ['timeclock', 'payroll']];
 
 export default function SettingsPage() {
   return (

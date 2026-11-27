@@ -102,6 +102,21 @@ export function PayStubView({ tenantId, from, accent = INK, previousTotal, previ
         </>);
       })()}
 
+      {stub.taxes && (() => { const t = stub.taxes; const row = 'grid grid-cols-[1fr_auto_auto] items-baseline gap-3 py-2 text-[14px]';
+        const how = t.method === 'check' && t.checkNo ? `By check ${t.checkNo}` : t.method === 'check' ? 'By check' : t.method === 'cash' ? 'In cash' : t.method === 'transfer' ? 'By bank transfer' : '';
+        return (
+        <section aria-label="Taxes and take-home" className="rounded-[20px] border px-4 pb-2 pt-3" style={{ borderColor: LINE }}>
+          <p className="text-[15px] font-extrabold">Taxes and take-home</p>
+          <p className="text-[13px]" style={{ color: MUTED }}>{t.recorded ? 'Withheld on payday, from your W-4.' : 'Worked out from your W-4 until payday is recorded.'}</p>
+          <div className={row} style={{ color: MUTED }}><span className="text-[12px] font-bold">Tax</span><span className="w-20 text-right text-[12px] font-bold">This payday</span><span className="w-20 text-right text-[12px] font-bold">This year</span></div>
+          {t.lines.map((l: any) => <div key={l.key} className={row} style={{ borderTop: `1px solid ${LINE}` }}><span>{l.label}</span><span className="w-20 text-right tabular-nums">{money(l.amount)}</span><span className="w-20 text-right tabular-nums" style={{ color: MUTED }}>{money(l.ytd)}</span></div>)}
+          <div className={`${row} font-bold`} style={{ borderTop: `1px solid ${INK}` }}><span>Taxes in all</span><span className="w-20 text-right tabular-nums">{money(t.withheld)}</span><span className="w-20 text-right tabular-nums">{money(t.ytd.withheld)}</span></div>
+          {t.inHand > 0 && <div className={row} style={{ borderTop: `1px solid ${LINE}`, color: MUTED }}><span>Cash tips you took home: taxed, but not in this pay</span><span className="w-20 text-right tabular-nums">{money(-t.inHand)}</span><span className="w-20" /></div>}
+          {t.pretax > 0 && <div className={row} style={{ borderTop: `1px solid ${LINE}`, color: MUTED }}><span>Taken out before taxes</span><span className="w-20 text-right tabular-nums">{money(-t.pretax)}</span><span className="w-20" /></div>}
+          <div className="flex items-baseline justify-between gap-3 py-2" style={{ borderTop: `1px solid ${LINE}` }}><span className="text-[14px]"><span className="block font-bold">Take-home pay</span>{how && <span className="block text-[13px]" style={{ color: MUTED }}>{how}</span>}</span><span className="text-[22px] font-extrabold tabular-nums">{money(t.takeHome)}</span></div>
+          {t.short > 0 && <p className="pb-1 text-[13px]" style={{ color: '#9a5b00' }}>{money(t.short)} of the taxes couldn’t be withheld: the pay was too small for them.</p>}
+        </section>); })()}
+
       {dayPick && <div className="flex items-center justify-between rounded-[14px] px-3.5 py-2.5 text-[14px]" style={{ background: `${accent}12` }}><span className="font-semibold">Showing {dshort(dayPick)} only</span><button type="button" onClick={() => setDayPick(null)} className="font-bold" style={{ color: accent }}>Show all</button></div>}
       <section aria-label="Every line" className="overflow-hidden rounded-[20px] border" style={{ borderColor: LINE }}>
         {groups.map((g, gi) => { const on = openPart === g.key; return (

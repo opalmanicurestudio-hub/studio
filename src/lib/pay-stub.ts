@@ -1,18 +1,30 @@
 // src/lib/pay-stub.ts — A PAY STUB: one person, one pay period — the statement (lib/pay-statement), every line behind
 // it (lib/pay-audit), approved corrections, and payday. Once payday has passed the stub is SAVED (payStubs/{staff}_{from})
 // and never changes again — a later fix goes on the next stub as an adjustment, so what someone was paid stays what
-// they were shown.
+// they were shown. When payroll is run in ClarityFlow it also has the taxes withheld, the take-home and the year so far
+// (lib/payroll-taxes stubTaxes): from the payday recorded, or worked out until it is (and filled in once it is).
 import { buildStatement } from '@/lib/pay-statement';
 import { auditOf, type Audit } from '@/lib/pay-audit';
 import { sessionsFrom, clockPolicy } from '@/lib/timeclock';
 import { recentPeriods, periodRange, isPaid, type PayPeriod } from '@/lib/pay-periods';
 import { staffWithPay } from '@/lib/staff-pay-server';
+import { runByOf, stubTaxes, payrollStateOf, yearRunsFrom, type StubTaxes } from '@/lib/payroll-taxes';
+import { getStateProfile } from '@/lib/state-tax-profiles';
 
 export type Stub = { staffId: string; name: string; role: string; period: PayPeriod; paid: boolean; frozen: boolean; payStructure: string;
   total: number; parts: { services: number; tips: number; retail: number; time: number; other: number; adjustments: number };
   hours: number; overtimeHours: number; visits: number; notes: string[]; audit: Audit; savedAt?: string;
   stats?: { avgVisit: number | null; rebookPct: number | null; retailPerVisit: number | null; clients: number; sales?: number; retailSales?: number };
-  weeks?: { weekStart: string; hours: number; earned: number; topUp: number }[] };
+  weeks?: { weekStart: string; hours: number; earned: number; topUp: number }[]; taxes?: StubTaxes };
+
+/** The taxes on a stub (payroll run in ClarityFlow, employees only), from the paydays recorded this year. */
+async function taxesFor(db: any, tenantId: string, tenant: any, member: any, period: PayPeriod, gross: number, inHand: number): Promise<StubTaxes | undefined> {
+  if (runByOf(tenant) !== 'clarityflow' || member?.employmentType === 'contractor' || !(gross > 0)) return undefined;
+  const year = Number(String(period.payday).slice(0, 4));
+  const runs = (await db.collection(`tenants/${tenantId}/payrollRuns`).where('recordedAt', '>=', yearRunsFrom(year)).limit(500).get()).docs.map((d: any) => d.data() || {});
+  const state = payrollStateOf(tenant);
+  return stubTaxes({ tenant, staffId: member.id, periodKey: `${period.from}_${period.to}`, payDate: period.payday, runs, forms: member.taxForms || null, gross, inHand: Math.min(inHand, gross), stateName: state ? getStateProfile(state).name : '' });
+}
 
 const r2 = (v: number) => Math.round((v || 0) * 100) / 100;
 
@@ -63,7 +75,8 @@ export async function buildStub(db: any, tenantId: string, staffId: string, peri
   const timeKeys = ['p:hourly', 'p:training', 'p:salary', 'p:ot', 'p:minwage'];
   const parts = { services: sum(audit.visits), tips: sum(audit.tips), retail: sum(audit.retail), time: sum(audit.period.filter((x) => timeKeys.includes(x.ref))),
     other: sum(audit.period.filter((x) => !timeKeys.includes(x.ref))), adjustments: sum(audit.adjustments) };
-  return { staffId, name: member.name || 'Team member', role: String(member.role || 'staff'), period, paid: isPaid(tenant, period), frozen: false, payStructure: st.payStructure,
+  const taxes = await taxesFor(db, tenantId, tenant, { ...member, id: staffId }, period, r2(audit.check.total), r2(Number(st.line.tipsInHand) || 0));
+  return { staffId, name: member.name || 'Team member', role: String(member.role || 'staff'), period, paid: isPaid(tenant, period), frozen: false, payStructure: st.payStructure, ...(taxes ? { taxes } : {}),
     total: audit.check.total, parts, hours: r2(st.line.hours), overtimeHours: r2(st.line.overtimeHours), visits: visitIds.length, notes: st.notes, audit, stats,
     weeks: (st.line.weeks || []).map((w: any) => ({ weekStart: w.weekStart, hours: r2(w.hours), earned: r2(w.earned), topUp: r2(w.topUp) })) };
 }
@@ -72,7 +85,16 @@ export async function buildStub(db: any, tenantId: string, staffId: string, peri
 export async function stubFor(db: any, tenantId: string, staffId: string, period: PayPeriod): Promise<Stub | null> {
   const ref = db.doc(`tenants/${tenantId}/payStubs/${staffId}_${period.from}`);
   const saved = await ref.get();
-  if (saved.exists) return { ...(saved.data() as any), frozen: true };
+  if (saved.exists) {
+    const s: any = saved.data();
+    // (Saved before payday was recorded: its taxes were worked out then. Once payday is recorded, they're the ones kept.)
+    if (s?.taxes && !s.taxes.recorded) {
+      const [tSnap, member] = await Promise.all([db.doc(`tenants/${tenantId}`).get(), staffWithPay(db, tenantId, staffId)]);
+      const t = await taxesFor(db, tenantId, tSnap.data() || {}, { ...(member || {}), id: staffId }, period, Number(s.taxes.earned) || 0, Number(s.taxes.inHand) || 0);
+      if (t?.recorded) { await ref.set({ taxes: JSON.parse(JSON.stringify(t)) }, { merge: true }); return { ...s, taxes: t, frozen: true }; }
+    }
+    return { ...s, frozen: true };
+  }
   const s = await buildStub(db, tenantId, staffId, period); if (!s) return null;
   if (s.paid) { const snap = { ...s, frozen: true, savedAt: new Date().toISOString() }; await ref.set(JSON.parse(JSON.stringify(snap))); return snap; }
   return s;

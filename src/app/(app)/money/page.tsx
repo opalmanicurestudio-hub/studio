@@ -6,7 +6,7 @@ import { payPost } from '@/components/pay/pay-client';
 import { PayStatement } from '@/components/staff/PayStatement';
 import { serviceCommission, earnsCommission, rateFor, serviceEarnings, paidPerService, payExtras, reversalsFor } from '@/lib/commission';
 import { periodPay, payrollFields, paidOnPayday } from '@/lib/pay-period';
-import { periodOf, periodToPay, periodBefore, periodAfter, periodRange, cadenceWords, type PayPeriod } from '@/lib/pay-periods';
+import { periodOf, periodToPay, periodBefore, periodAfter, periodRange, cadenceWords, todayIn, type PayPeriod } from '@/lib/pay-periods';
 import { sessionsFrom, clockPolicy } from '@/lib/timeclock';
 import { useTransactionsInRange, usePunchesInRange } from '@/hooks/use-transactions';
 import { useAppointmentsByIds } from '@/hooks/use-appointments';
@@ -87,7 +87,12 @@ import { OwedToClients } from '@/components/money/OwedToClients';
 import { BankScreen } from '@/components/money/BankScreen';
 import { BooksScreen, wayOf, type BooksFilters } from '@/components/money/BooksScreen';
 import { ReportsScreen } from '@/components/money/ReportsScreen';
-import { PaydayScreen, spanWords } from '@/components/money/PaydayScreen';
+import { PaydayScreen, spanWords, type SelfRun, type PersonTax, type PayMethod } from '@/components/money/PaydayScreen';
+import { TaxFormsDialog } from '@/components/staff/TaxFormsDialog';
+import { runByOf, runByChosen, paydayTaxes, ytdFrom, payDateFor, dueDates, yearRunsFrom } from '@/lib/payroll-taxes';
+import type { TaxForms } from '@/lib/withholding';
+import { saveStaffPay } from '@/lib/staff-pay-client';
+import { payOverlayReady } from '@/firebase/firestore/pay-overlay';
 import { BillsScreen, PAY_WAYS } from '@/components/money/BillsScreen';
 import { ActivityScreen } from '@/components/money/ActivityScreen';
 import { ReceiptDialog } from '@/components/money/ReceiptDialog';
@@ -532,7 +537,7 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
   const { billDefinitions, billInstances, staff, isLoading: ctxLoading, services } = useInventory();
   const auditActor = useAuditActor();
   const { firestore } = useFirebase();
-  const { selectedTenant } = useTenant();
+  const { selectedTenant, role: payRole } = useTenant() as any;
   const { toast } = useToast();
   const tenantId = selectedTenant?.id;
 
@@ -788,6 +793,63 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
   // and never for dates that overlap a payday already recorded (a custom period a day shorter is the same payday).
   const payFromYmd = dayFrom, payToYmd = dayTo;
   const periodKey = `${payFromYmd}_${payToYmd}`;
+
+  // ── Payroll run in ClarityFlow (Settings > Payroll; design board "Payroll run in ClarityFlow"). Each employee's taxes
+  // from their tax forms and what they've been taxed on so far this year (lib/withholding, lib/payroll-taxes), worked out
+  // again on the server when payday is recorded, so the two always agree. ──
+  const runBy = runByOf(selectedTenant);
+  const selfRunOn = runBy === 'clarityflow';
+  const payDate = selectedTenant ? payDateFor(selectedTenant, payFromYmd, payToYmd, todayIn(selectedTenant)) : payToYmd;
+  const taxYear = Number(payDate.slice(0, 4));
+  const { data: yearRuns } = useCollection<any>(useMemoFirebase(() => (firestore && tenantId && selfRunOn ? query(collection(firestore, `tenants/${tenantId}/payrollRuns`), where('recordedAt', '>=', yearRunsFrom(taxYear)), limit(500)) : null), [firestore, tenantId, selfRunOn, taxYear]));
+  const selfTaxes = useMemo(() => {
+      if (!selfRunOn || !selectedTenant) return null;
+      const forms: Record<string, TaxForms | null> = Object.fromEntries((staff || []).map((m: any) => [m.id, m.taxForms || null]));
+      return paydayTaxes({ tenant: selectedTenant, payDate, forms, ytd: ytdFrom(yearRuns || [], selectedTenant, taxYear, periodKey),
+          people: employees.map((o) => ({ staffId: o.id, gross: Math.max(0, Math.round((o.amount + cashLineOf(o)) * 100) / 100), inHand: cashLineOf(o) })) });
+  }, [selfRunOn, selectedTenant, staff, payDate, yearRuns, taxYear, periodKey, employees]); // eslint-disable-line react-hooks/exhaustive-deps
+  // How each person is paid this payday: what their forms say, unless picked otherwise here.
+  const [methods, setMethods] = useState<Record<string, { method: PayMethod; checkNo: string }>>({});
+  useEffect(() => { setMethods({}); }, [periodKey]);
+  const methodsNow = useMemo(() => Object.fromEntries(staffObligations.map((o) => { const m: any = (staff || []).find((x: any) => x.id === o.id);
+      return [o.id, methods[o.id] || { method: (m?.taxForms?.payMethod || 'transfer') as PayMethod, checkNo: '' }]; })), [staffObligations, staff, methods]);
+  const [formsFor, setFormsFor] = useState<string | null>(null);   // whose tax forms are open
+  const formsPerson: any = formsFor ? (staff || []).find((m: any) => m.id === formsFor) : null;
+  const canEditForms = ['owner', 'admin', 'manager'].includes(String(payRole || '').toLowerCase());
+  const stateName = hasTaxLocation ? stateProfile.name : 'your state';
+  const selfRun: SelfRun | null = useMemo(() => {
+      if (!selfTaxes || !selectedTenant) return null;
+      const r2 = (n: number) => Math.round(n * 100) / 100;
+      const people: Record<string, PersonTax> = {};
+      for (const [id, w] of Object.entries(selfTaxes.by)) people[id] = {
+          gross: w.gross, takeHome: w.takeHome, employeeTotal: w.employeeTotal, federal: w.employee.federal,
+          fica: r2(w.employee.socialSecurity + w.employee.medicare + w.employee.additionalMedicare), state: w.employee.state,
+          other: w.employee.other.map((o) => ({ name: o.name, amount: o.amount })), pretax: r2(w.pretax.retirement + w.pretax.health),
+          short: r2(w.short.socialSecurity + w.short.medicare + w.short.federal + w.short.state), stateHow: w.stateHow,
+          noW4: w.flags.includes('no_w4'), noStateForm: w.flags.includes('no_state_form'), exempt: w.flags.includes('exempt'),
+      };
+      const due = dueDates(payDate, selectedTenant);
+      const on = (d: string | null) => (d ? new Date(`${d}T12:00:00`).toLocaleDateString('en-US', { month: 'long', day: 'numeric' }) : '');
+      const o = selfTaxes.owed; const nc = taxState === 'NC';
+      const owed: SelfRun['owed'] = [];
+      if (o.irs > 0) owed.push({ key: 'irs', name: 'IRS', sub: `Federal income tax, Social Security and Medicare. Due ${on(due.irs)}`, amount: o.irs });
+      if (o.state > 0) owed.push({ key: 'state', name: `${stateName} income tax`, sub: nc ? `Form NC-5. Due ${on(due.state)}` : `Due when ${stateName} says, for how often you file`, amount: o.state });
+      if (o.sui > 0) owed.push({ key: 'sui', name: `${stateName} unemployment`, sub: `With the quarter’s wage report. Due ${on(due.sui)}`, amount: o.sui });
+      if (o.futa > 0) owed.push({ key: 'futa', name: 'Federal unemployment', sub: `Paid by ${on(due.futa)} once it passes $500 for the year, or with Form 940 in January`, amount: o.futa });
+      for (const x of o.other) owed.push({ key: `other_${x.id}`, name: x.name, sub: 'Due when it’s filed', amount: x.amount });
+      return {
+          people, takeHome: selfTaxes.takeHome, employeeTaxes: selfTaxes.employeeTotal, employerTaxes: selfTaxes.employerTotal, pretax: selfTaxes.pretax,
+          owed, owedTotal: o.total, stateName: hasTaxLocation ? stateProfile.name : '', stateForm: nc ? 'NC-4' : null,
+          methods: methodsNow, onMethod: (id, method, checkNo) => setMethods((m) => ({ ...m, [id]: { method, checkNo } })),
+          onForms: canEditForms ? (id) => setFormsFor(id) : undefined, payrollHref: '/settings?tab=payroll',
+          stale: Object.values(selfTaxes.by).some((w) => w.flags.includes('stale_tables')),
+      };
+  }, [selfTaxes, selectedTenant, payDate, taxState, stateName, hasTaxLocation, stateProfile, methodsNow, canEditForms]);
+  const saveForms = async (forms: TaxForms) => {
+      if (!firestore || !tenantId || !formsFor) return 'Not saved. Try again.';
+      try { await saveStaffPay(firestore as any, tenantId, formsFor, { taxForms: forms }); return null; }
+      catch { return 'Not saved: only a manager can change someone’s tax forms.'; }
+  };
   const [recorded, setRecorded] = useState<{ on: string; from: string; to: string } | null>(null);
   const recordedFor = useCallback(async () => {
       if (!firestore || !tenantId) return null;
@@ -807,7 +869,9 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
     // employees, one for contractors and one for cash tips taken home (who was paid what is kept where only payroll
     // reads it), and pay the bank already booked from a payroll company isn't booked again.
     const people = staffObligations.filter(o => o.amount > 0 || cashLineOf(o) > 0)
-        .map(o => ({ staffId: o.id, name: o.name, amount: Math.round(o.amount * 100) / 100, cash: cashLineOf(o), contractor: !!o.contractor }));
+        .map(o => { const m = methodsNow[o.id]; return { staffId: o.id, name: o.name, amount: Math.round(o.amount * 100) / 100, cash: cashLineOf(o), contractor: !!o.contractor,
+            ...(selfRunOn && m ? { method: m.method, ...(m.method === 'check' && m.checkNo ? { checkNo: m.checkNo } : {}) } : {}),
+            tips: Math.round(((Number(o.tips) || 0) + (Number(o.cashTips) || 0)) * 100) / 100 }; });
     const setAsides = suggestions.filter(b => b.amount > 0 && b.key !== 'opex').map(b => ({ key: b.key, label: b.label, amount: Number(b.amount.toFixed(2)) }));
     if (!people.length && !setAsides.length) return;
     setIsSubmitting(true);
@@ -823,7 +887,8 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
         if (!res.ok || !r?.ok) { toast({ variant: 'destructive', title: 'Payday wasn’t recorded', description: r?.error || 'Nothing was added to your books. Try again.' }); return; }
         setRecorded({ on: String(r.recordedAt || new Date().toISOString()), from: payFromYmd, to: payToYmd });
         const viaBank = Number(r.viaBankCents) || 0;
-        toast({ title: 'Payday recorded', description: viaBank > 0
+        if (r.taxes) toast({ title: 'Payday recorded', description: `Each person’s pay and ${fmtCurrency(r.taxes.employer)} in employer payroll taxes are in your books. ${fmtCurrency(r.taxes.owed)} in payroll taxes is kept to pay later, and each pay stub shows what was withheld.` });
+        else toast({ title: 'Payday recorded', description: viaBank > 0
             ? `Your bank already shows ${fmtCurrency(viaBank / 100)} paid through your payroll company for these dates, so the team’s pay wasn’t added twice. Contractors, cash tips and the set-asides are in your books.`
             : 'The team’s pay and the set-asides are in your books.' });
         setAllocationAmount(0);
@@ -919,7 +984,9 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
         onFirstDay={(v) => { if (/^\d{4}-\d{2}-\d{2}$/.test(v)) setCustom(c => ({ from: v, to: c && c.to >= v ? c.to : v })); }}
         onLastDay={(v) => { if (/^\d{4}-\d{2}-\d{2}$/.test(v)) setCustom(c => ({ from: c && c.from <= v ? c.from : v, to: v })); }}
         cameIn={currentBalance}
-        team={staffObligations} teamTotal={staffTotalOwed} employerTaxes={employerTaxes} cashTipsOut={cashTipsOut}
+        team={staffObligations} teamTotal={staffTotalOwed} employerTaxes={selfTaxes ? selfTaxes.employerTotal : employerTaxes} cashTipsOut={cashTipsOut}
+        runBy={runBy} selfRun={selfRun}
+        askRunBy={selectedTenant && !runByChosen(selectedTenant) && !gusto.connected ? { onPick: String(payRole || '').toLowerCase() === 'owner' && firestore && tenantId ? (v) => updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId), { 'payrollTax.runBy': v }) : undefined } : null}
         blocked={adjustmentsError ? 'Approved pay corrections couldn’t be read with your access, so payday can’t be recorded or sent from here. The owner can do it.' : null}
         bills={[...upcomingBusiness, ...upcomingPersonal]
           .map(item => ({ id: String(item.instance.id), name: String(item.definition?.name || 'A bill'), amount: Number(item.definition?.amount) || 0, due: safeDate(item.instance.dueDate), personal: item.definition?.context === 'Personal' }))
@@ -934,7 +1001,7 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
         gusto={{ connected: !!gusto.connected, companyName: gusto.companyName }}
         onConnectGusto={() => { if (tenantId) beginGustoConnect(tenantId); }}
         onSendToGusto={handleApprovePayroll} sendingToGusto={isSubmittingPayroll} gustoUnmatched={gustoUnmatched} onExport={staffObligations.length ? handleExport : undefined}
-        gustoSlot={gusto.connected ? <GustoMatchCard companyName={gusto.companyName} loading={gustoLoading} error={gustoError} busy={gustoBusy} gusto={gustoPeople}
+        gustoSlot={gusto.connected && runBy === 'gusto' ? <GustoMatchCard companyName={gusto.companyName} loading={gustoLoading} error={gustoError} busy={gustoBusy} gusto={gustoPeople}
           team={(staff || []).filter((m: any) => m.isRenter !== true && m.archived !== true).map((m: any) => ({ id: m.id, name: String(m.name || 'Team member'), contractor: m.employmentType === 'contractor', hasPay: staffObligations.some((o) => o.id === m.id && o.earned > 0) }))}
           onMatch={matchGusto} onLookAgain={() => { void loadGusto(); }} runs={gustoRuns} onCheckRun={checkRun} /> : null}
         autoDraft={autoDraftEnabled} onAutoDraft={handleAutoDraftToggle}
@@ -952,6 +1019,8 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
         statement={(o) => tenantId ? <PayStatement tenantId={tenantId} staffId={o.id} from={dateRange.from.toISOString()} to={dateRange.to.toISOString()} title={`${o.name}, pay statement`} /> : null}
         onSeeBills={onNavigate ? () => { onNavigate('bills'); if (typeof window !== 'undefined') window.scrollTo({ top: 0 }); } : undefined}
       />
+      {formsPerson && <TaxFormsDialog open={!!formsFor} onOpenChange={(o) => { if (!o) setFormsFor(null); }} name={String(formsPerson.name || 'Team member')} forms={formsPerson.taxForms || null}
+        state={taxState} stateName={stateName} onSave={saveForms} notReady={!!tenantId && !payOverlayReady(tenantId)} />}
     </div>
   );
 };

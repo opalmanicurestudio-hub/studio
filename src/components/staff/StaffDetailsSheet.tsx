@@ -64,6 +64,11 @@ import { doc, setDoc } from 'firebase/firestore';
 import { MessageCircle } from 'lucide-react';
 import { AvatarUpload } from '@/components/shared/AvatarUpload';
 import { PRINT_FONT_STACK } from '@/lib/print-style';
+import { TaxFormsDialog } from '@/components/staff/TaxFormsDialog';
+import { saveStaffPay } from '@/lib/staff-pay-client';
+import { payOverlayReady } from '@/firebase/firestore/pay-overlay';
+import { runByOf, payrollStateOf } from '@/lib/payroll-taxes';
+import { getStateProfile } from '@/lib/state-tax-profiles';
 
 // What the Print button puts on paper: just this sheet, flowing over as many pages as it needs, in the app's print look
 // (lib/print-style) rather than the screen's bolder print voice: text as written, semibold at most, thin lines, no
@@ -182,8 +187,9 @@ export const StaffDetailsSheet = ({
   const router = useRouter();
   const { firestore } = useFirebase();
   const { user: currentUser } = useUser();
-  const { selectedTenant } = useTenant();
+  const tenantCtx = useTenant(); const { selectedTenant } = tenantCtx; const viewerRole = (tenantCtx as any).role;
   const tenantId = selectedTenant?.id;
+  const [formsOpen, setFormsOpen] = useState(false);   // their tax forms (payroll run in ClarityFlow)
   const [activitySearch, setActivitySearch] = useState('');
   const [transactionSearch, setTransactionSearch] = useState('');
   const [periodPreset, setPeriodPreset] = useState('30days');
@@ -353,6 +359,21 @@ export const StaffDetailsSheet = ({
                 <p><span className="text-muted-foreground">Tips:</span> {tipPart}</p>
                 <p><span className="text-muted-foreground">Sees money:</span> {m.showProfitability === true ? 'yes' : 'no'}</p>
               </div>
+            </section>); })()}
+          {tenantId && staffMember?.id && runByOf(selectedTenant) === 'clarityflow' && ['owner', 'admin', 'manager'].includes(String(viewerRole || '').toLowerCase())
+            && staffMember.role !== 'renter' && staffMember.employmentType !== 'contractor' && (() => { const t: any = (staffMember as any).taxForms || null; const f = t?.federal; const st = payrollStateOf(selectedTenant);
+            const fed = !f ? 'No W-4 on file: taxed as single' : f.exempt ? 'Exempt from federal income tax' : `${({ single: 'Single', married: 'Married filing jointly', hoh: 'Head of household' } as any)[f.status] || 'Single'}${f.form === 'pre2020' ? `, ${f.allowances || 0} allowances (2019 W-4)` : f.multipleJobs ? ', two jobs' : ''}${f.dependents ? `, $${Number(f.dependents).toLocaleString('en-US')} for dependents` : ''}`;
+            const how = ({ transfer: 'Bank transfer', check: 'Check', cash: 'Cash' } as any)[t?.payMethod] || 'Bank transfer';
+            return (<section className="space-y-2 rounded-2xl border p-4" style={{ borderColor: 'hsl(var(--border))' }} aria-label="Tax forms">
+              <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-[15px] font-semibold">Tax forms</p>
+                <button type="button" onClick={() => setFormsOpen(true)} className="inline-flex min-h-[44px] items-center rounded-full px-4 text-[14px] font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16171a]" style={{ border: '1px solid #ececee', background: '#fff', color: '#16171a' }}>{f ? 'Change' : 'Add W-4'}</button></div>
+              <div className="grid grid-cols-1 gap-1 text-[14px] sm:grid-cols-2">
+                <p style={!f ? { color: '#b45309' } : undefined}><span className="text-muted-foreground">Federal:</span> {fed}</p>
+                {st === 'NC' && <p style={!t?.state ? { color: '#b45309' } : undefined}><span className="text-muted-foreground">North Carolina:</span> {t?.state ? `${t.state.exempt ? 'Exempt' : `${t.state.allowances || 0} allowance${t.state.allowances === 1 ? '' : 's'}`}` : 'No NC-4 on file'}</p>}
+                <p><span className="text-muted-foreground">Paid by:</span> {how}</p>
+              </div>
+              <TaxFormsDialog open={formsOpen} onOpenChange={setFormsOpen} name={String(staffMember.name || 'Team member')} forms={t} state={st} stateName={st ? getStateProfile(st).name : ''} notReady={!payOverlayReady(String(tenantId))}
+                onSave={async (forms) => { try { await saveStaffPay(firestore as any, String(tenantId), staffMember.id, { taxForms: forms }); return null; } catch { return 'Not saved: only a manager can change someone’s tax forms.'; } }} />
             </section>); })()}
           {tenantId && staffMember?.id && <CommissionByService tenantId={tenantId} staffMember={staffMember} services={staffServices.length ? staffServices : (services || [])} />}
           {tenantId && staffMember?.id && <TypicalTimes tenantId={tenantId} staffId={staffMember.id} staffMember={staffMember} services={staffServices.length ? staffServices : (services || [])} />}

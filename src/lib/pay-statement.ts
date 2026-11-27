@@ -8,11 +8,13 @@
 //   Minimum wage the top-up, week by week
 //   Extras       membership / package sales, share of no-show fees
 //   Tips         their tips (or their approved share when tips are shared)
-// Not a payslip: taxes and deductions are the payroll service's.
+// Not a payslip: taxes and deductions are on the pay stub (lib/pay-stub) when payroll is run in ClarityFlow, and the
+// payroll service's otherwise.
 import { periodPay, type PayLine } from '@/lib/pay-period';
 import { serviceCommission, perServicePay, earnsCommission, paidPerService, payExtras } from '@/lib/commission';
 import { sessionsFrom, clockPolicy } from '@/lib/timeclock';
 import { staffWithPay } from '@/lib/staff-pay-server';
+import { runByOf } from '@/lib/payroll-taxes';
 
 export type StatementLine = { label: string; detail?: string; amount: number };
 export type Statement = { staffId: string; name: string; from: string; to: string; payStructure: string; sections: { title: string; lines: StatementLine[] }[]; total: number; tips: number; notes: string[]; line: PayLine };
@@ -61,7 +63,7 @@ export function buildStatement(input: { member: any; from: string; to: string; i
   if (l.noHours && !l.contractor) notes.push('No hours on the clock this period — clock in each shift so minimum wage and overtime can be checked.');
   if (l.contractor) notes.push('Paid as a contractor: what you earned, with no overtime or minimum-wage top-up.');
   if (l.tipsInHand) notes.push(`${money(l.tipsInHand)} of your tips were cash you took home, so they aren’t paid again on payday.`);
-  notes.push('Before taxes and deductions — your payroll service takes those out.');
+  notes.push(runByOf(tenant) === 'clarityflow' ? 'Before taxes. What’s withheld, and what you take home, is on your pay stub once payday is recorded.' : 'Before taxes and deductions — your payroll service takes those out.');
   return { staffId: m.id, name: m.name || 'Team member', from: input.from, to: input.to, payStructure: l.payStructure, sections, total: l.total, tips: l.tips, notes, line: l };
 }
 
