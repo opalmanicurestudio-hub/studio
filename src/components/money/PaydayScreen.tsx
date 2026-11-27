@@ -57,6 +57,8 @@ export function payWords(p: PayPerson): string {
 
 /** "Rent", "Rent and Phone", "3 bills" (a bill's own name can have a comma in it). */
 const namesOf = (names: string[]) => names.length <= 2 ? names.join(' and ') : `${names.length} bills`;
+/** "Kim", "Kim and Rae", "Kim, Rae and 2 more". */
+const peopleOf = (names: string[]) => names.length <= 2 ? names.join(' and ') : `${names.slice(0, 2).join(', ')} and ${names.length - 2} more`;
 
 const Row = ({ label, sub, value, tone }: { label: React.ReactNode; sub?: React.ReactNode; value: React.ReactNode; tone?: 'total' | 'good' | 'short' }) => (
   <div className="flex min-h-[44px] items-center justify-between gap-3 py-2" style={{ borderTop: `1px solid ${tone ? INK : LINE}`, fontWeight: tone ? 600 : undefined }}>
@@ -90,6 +92,9 @@ export type PaydayScreenProps = {
   };
   gusto: { connected: boolean; companyName?: string };
   onConnectGusto: () => void; onSendToGusto: () => void; sendingToGusto: boolean;
+  /** Employees with pay who aren't matched to anyone in Gusto yet (payroll waits for them), the matching card itself, and
+   *  the pay period as a spreadsheet for another payroll company. */
+  gustoUnmatched?: string[]; gustoSlot?: React.ReactNode; onExport?: () => void;
   autoDraft: boolean; onAutoDraft: (on: boolean) => void;
   draft: { from: Date; to: Date; people: number; gross: number; taxes: number } | null; onOpenDraft: () => void;
   setAside: number; onSetAside: (n: number) => void; parts: SetAsidePart[];
@@ -202,10 +207,13 @@ export function PaydayScreen(p: PaydayScreenProps) {
       </>}
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {p.gusto.connected
-          ? <button type="button" onClick={p.onSendToGusto} disabled={!employees.length || p.sendingToGusto || !!p.blocked} className={btn} style={solid}>{p.sendingToGusto ? 'Sending to Gusto' : `Send payroll to Gusto${contractors ? `, ${employees.length} ${employees.length === 1 ? 'employee' : 'employees'}` : ''}`}</button>
+          ? <button type="button" onClick={p.onSendToGusto} disabled={!employees.length || p.sendingToGusto || !!p.blocked || !!p.gustoUnmatched?.length} className={btn} style={solid}>{p.sendingToGusto ? 'Sending to Gusto' : `Send payroll to Gusto${contractors ? `, ${employees.length} ${employees.length === 1 ? 'employee' : 'employees'}` : ''}`}</button>
           : <button type="button" onClick={p.onConnectGusto} className={btn} style={plain}>Connect Gusto</button>}
         <span className="text-[13px]" style={{ color: MUTED }}>{p.gusto.connected ? 'Gusto works out the exact taxes, sends the deposits and files.' : 'To pay your team and file payroll taxes from here. Until then, record payday in your books below.'}</span>
       </div>
+      {p.gusto.connected && !!p.gustoUnmatched?.length && <Note warn>Match {peopleOf(p.gustoUnmatched)} to Gusto first, below, then send payroll.</Note>}
+      {p.onExport && <div className="mt-2 flex flex-wrap items-center gap-2"><button type="button" onClick={p.onExport} disabled={!!p.blocked} className={btn} style={plain}>Download for another payroll company</button>
+        <span className="text-[13px]" style={{ color: MUTED }}>Hours and pay for these dates, as a spreadsheet for ADP, Paychex, QuickBooks Payroll or your bookkeeper.</span></div>}
       {contractors > 0 && <Note>Contractors aren’t on payroll: nothing is withheld for them, and no employer taxes are owed. Pay them directly, then record payday. If your payroll company pays them, book its withdrawal for them as Contract Labor.</Note>}
       <div className="mt-3 flex min-h-[56px] items-center justify-between gap-3 py-2" style={{ borderTop: `1px solid ${LINE}` }}>
         <span className="min-w-0"><span className="block">A payroll draft each payday</span>
@@ -300,7 +308,7 @@ export function PaydayScreen(p: PaydayScreenProps) {
         </section>
       )}
       <div className="grid items-start gap-4 lg:grid-cols-[1.1fr_1fr]">
-        <div className="space-y-4">{period}{team}</div>
+        <div className="space-y-4">{period}{team}{p.gustoSlot}</div>
         <div className="space-y-4">{aside}{bills}</div>
       </div>
     </div>

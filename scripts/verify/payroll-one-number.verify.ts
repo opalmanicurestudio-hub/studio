@@ -128,8 +128,8 @@ const tip = (amount: number, method: string, d = '2026-11-18') => ({ id: `tip${a
     && /const cashLineOf = \(o: \{ tipsInHand\?: number; earned: number \}\) => Math\.round\(Math\.min\(Number\(o\.tipsInHand\) \|\| 0, Math\.max\(0, o\.earned\)\) \* 100\) \/ 100;/.test(tab)
     && /cash = \(p: PaydayPerson\) => r2\(Math\.min\(p\.cash, Math\.max\(0, p\.amount \+ p\.cash\)\)\)/.test(rec) && /cashTipsOut=\{cashTipsOut\}/.test(tab));
   check('when the approved corrections can’t be read, payday isn’t recorded or sent without them, and the screen says why',
-    /error: adjustmentsError \} = useCollection/.test(tab) && /if \(!firestore \|\| !tenantId \|\| recorded \|\| adjustmentsError\) return;/.test(tab) && /if \(payees\.length === 0 \|\| !tenantId \|\| adjustmentsError\) return;/.test(tab)
-    && /blocked=\{adjustmentsError \? 'Approved pay corrections couldn’t be read/.test(tab) && /disabled=\{\(p\.setAside <= 0 && !p\.team\.length\) \|\| p\.recording \|\| !!p\.blocked\}/.test(screen) && /p\.sendingToGusto \|\| !!p\.blocked\}/.test(screen));
+    /error: adjustmentsError \} = useCollection/.test(tab) && /if \(!firestore \|\| !tenantId \|\| recorded \|\| adjustmentsError\) return;/.test(tab) && /if \(payees\.length === 0 \|\| !tenantId \|\| adjustmentsError \|\| gustoUnmatched\.length\) return;/.test(tab)
+    && /blocked=\{adjustmentsError \? 'Approved pay corrections couldn’t be read/.test(tab) && /disabled=\{\(p\.setAside <= 0 && !p\.team\.length\) \|\| p\.recording \|\| !!p\.blocked\}/.test(screen) && /p\.sendingToGusto \|\| !!p\.blocked \|\| !!p\.gustoUnmatched\?\.length\}/.test(screen));
   check('recording payday says it doesn’t withhold or file anyone’s taxes', /It doesn’t withhold or file anyone’s taxes: for employees, a payroll company does that\./.test(screen));
   check('a contractor is shown as one, and their share of the team’s pay is named', />Contractor</.test(screen) && /of it to \$\{contractors === 1 \? 'a contractor'/.test(screen));
   const settings = src('src/app/(app)/settings/page.tsx');

@@ -64,6 +64,8 @@ import { booksSummary, effectOf, isTeamPay, lookupOf, netSalesOf, normalizeLine,
 import { esc, printLine, printMoney, printPage } from '@/lib/print-style';
 import { buildLedgerHtml, ledgerCsv } from '@/lib/report-builders';
 import { csvName, downloadCsv } from '@/lib/csv';
+import { payrollExportRows } from '@/lib/payroll-export';
+import { GustoMatchCard, type GustoPerson, type GustoRun } from '@/components/money/GustoMatchCard';
 import {
   getGustoConnection, beginGustoConnect, submitGustoPayroll,
   type GustoPayrollDraft,
@@ -670,6 +672,41 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
   // ── Gusto payroll ──
   const gusto = getGustoConnection(selectedTenant);
   const [isSubmittingPayroll, setIsSubmittingPayroll] = useState(false);
+  // Who's who in Gusto (api/gusto/employees: saved, the same email, or a likely name to confirm), and the payrolls sent
+  // to it (payrollRuns, newest first: a recorded payday has no submittedAt, so it isn't one of them).
+  const [gustoPeople, setGustoPeople] = useState<GustoPerson[] | null>(null);
+  const [gustoLoading, setGustoLoading] = useState(false); const [gustoError, setGustoError] = useState<string | null>(null); const [gustoBusy, setGustoBusy] = useState<string | null>(null);
+  const loadGusto = useCallback(async () => {
+      if (!tenantId || !gusto.connected) return;
+      setGustoLoading(true); setGustoError(null);
+      try {
+          const r: any = await fetch(`/api/gusto/employees?tenantId=${encodeURIComponent(tenantId)}`).then(x => x.json()).catch(() => null);
+          if (!r?.ok) { setGustoError(r?.error || 'Gusto didn’t answer. Try again in a minute.'); setGustoPeople(null); return; }
+          setGustoPeople((r.employees || []).map((e: any) => ({ gustoEmployeeId: String(e.gustoEmployeeId), name: `${e.firstName || ''} ${e.lastName || ''}`.trim() || 'Someone', email: e.email || null,
+              terminated: !!e.terminated, staffId: e.staffId || undefined, suggestedStaffId: e.suggestedStaffId || undefined, how: e.how })));
+      } finally { setGustoLoading(false); }
+  }, [tenantId, gusto.connected]);
+  useEffect(() => { void loadGusto(); }, [loadGusto]);
+  const matchGusto = async (staffId: string, gustoEmployeeId: string) => {
+      if (!tenantId) return; setGustoBusy(staffId);
+      try {
+          const r: any = await fetch('/api/gusto/employees', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, staffId, gustoEmployeeId }) }).then(x => x.json()).catch(() => null);
+          if (!r?.ok) toast({ variant: 'destructive', title: 'Not matched', description: r?.error || 'Nothing changed. Try again.' }); else await loadGusto();
+      } finally { setGustoBusy(null); }
+  };
+  const { data: runDocs } = useCollection<any>(useMemoFirebase(() => (firestore && tenantId && gusto.connected ? query(collection(firestore, `tenants/${tenantId}/payrollRuns`), orderBy('submittedAt', 'desc'), limit(6)) : null), [firestore, tenantId, gusto.connected]));
+  const gustoRuns: GustoRun[] = useMemo(() => (runDocs || []).filter((d: any) => d.kind !== 'payday').map((d: any) => ({ id: String(d.payrollId || d.id), from: String(d.fromDay || d.periodStart || '').slice(0, 10), to: String(d.toDay || d.periodEnd || '').slice(0, 10),
+      people: Number(d.people) || 0, gross: d.grossTotal == null ? null : Number(d.grossTotal), status: String(d.status || ''), checkDate: d.checkDate || null, sentAt: d.submittedAt || null })), [runDocs]);
+  // (Employees with pay for these dates who aren't matched to anyone in Gusto yet: payroll waits for them.)
+  // (Matched to someone who has left in Gusto counts as not matched.)
+  const gustoUnmatched = useMemo(() => (gustoPeople ? employees.filter((o) => o.earned > 0 && !gustoPeople.some((g) => g.staffId === o.id && !g.terminated)).map((o) => o.name) : []), [gustoPeople, employees]);
+  const checkRun = async (payrollId: string) => {
+      if (!tenantId) return; setGustoBusy(payrollId);
+      try {
+          const r: any = await fetch(`/api/gusto/payroll?tenantId=${encodeURIComponent(tenantId)}&payrollId=${encodeURIComponent(payrollId)}`).then(x => x.json()).catch(() => null);
+          if (!r || r.status === 'failed') toast({ variant: 'destructive', title: 'Couldn’t check Gusto', description: r?.error || 'Try again in a minute.' });
+      } finally { setGustoBusy(null); }
+  };
   const employerTaxes = estimateEmployerPayrollTax(employeeWages, stateProfile);
   const payrollCashNeeded = staffTotalOwed + employerTaxes;
 
@@ -804,14 +841,14 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
   const handleApprovePayroll = async () => {
     // (Employees with pay for these dates only: contractors aren't on the employee payroll.)
     const payees = employees.filter(o => o.earned > 0);
-    if (payees.length === 0 || !tenantId || adjustmentsError) return;
+    if (payees.length === 0 || !tenantId || adjustmentsError || gustoUnmatched.length) return;
     setIsSubmittingPayroll(true);
     try {
-        const draft: GustoPayrollDraft & { periodEndDay: string } = {
+        const draft: GustoPayrollDraft & { periodEndDay: string; periodStartDay: string } = {
             tenantId,
             periodStart: dateRange.from.toISOString(),
             periodEnd: dateRange.to.toISOString(),
-            periodEndDay: dayTo,
+            periodStartDay: dayFrom, periodEndDay: dayTo,
             lines: payees.map(o => ({
                 staffId: o.id,
                 name: o.name,
@@ -853,6 +890,17 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
     }
   };
 
+  // The pay period for another payroll company (lib/payroll-export): each employee's hours and pay as Gusto is sent it,
+  // then the contractors.
+  const handleExport = () => {
+      if (adjustmentsError) return;
+      const emailOf = (id: string) => String((staff || []).find((m: any) => m.id === id)?.email || '');
+      const rows = payrollExportRows(staffObligations.map((o: any) => ({ name: o.name, email: emailOf(o.id), contractor: !!o.contractor, payStructure: o.payStructure,
+          regularHours: o.regularHours, overtimeHours: o.overtimeHours, doubleOvertimeHours: o.doubleOvertimeHours, commission: o.commissionPay, bonus: o.bonus,
+          salary: o.line?.salaryPay, tips: o.tips, cashTips: o.cashTips, adjustments: o.adjustments, amount: o.amount, hours: o.hours, earned: o.earned })), { from: dayFrom, to: dayTo, payday: !custom && period ? period.payday : null });
+      downloadCsv(csvName(String((selectedTenant as any)?.name || ''), 'payroll', `${dayFrom} to ${dayTo}`), rows);
+  };
+
   if (isLoading) {
       return (
           <div className="p-4 md:p-8 flex items-center justify-center min-h-[50vh]">
@@ -885,7 +933,10 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
         }}
         gusto={{ connected: !!gusto.connected, companyName: gusto.companyName }}
         onConnectGusto={() => { if (tenantId) beginGustoConnect(tenantId); }}
-        onSendToGusto={handleApprovePayroll} sendingToGusto={isSubmittingPayroll}
+        onSendToGusto={handleApprovePayroll} sendingToGusto={isSubmittingPayroll} gustoUnmatched={gustoUnmatched} onExport={staffObligations.length ? handleExport : undefined}
+        gustoSlot={gusto.connected ? <GustoMatchCard companyName={gusto.companyName} loading={gustoLoading} error={gustoError} busy={gustoBusy} gusto={gustoPeople}
+          team={(staff || []).filter((m: any) => m.isRenter !== true && m.archived !== true).map((m: any) => ({ id: m.id, name: String(m.name || 'Team member'), contractor: m.employmentType === 'contractor', hasPay: staffObligations.some((o) => o.id === m.id && o.earned > 0) }))}
+          onMatch={matchGusto} onLookAgain={() => { void loadGusto(); }} runs={gustoRuns} onCheckRun={checkRun} /> : null}
         autoDraft={autoDraftEnabled} onAutoDraft={handleAutoDraftToggle}
         draft={pendingDraft ? (() => { const dp = draftPeriod(pendingDraft); return { from: new Date(`${dp.from}T00:00:00`), to: new Date(`${dp.to}T00:00:00`), people: pendingDraft.lines?.length || 0, gross: Number(pendingDraft.grossTotal || 0), taxes: Number(pendingDraft.estimatedEmployerTaxes || 0) }; })() : null}
         onOpenDraft={() => {

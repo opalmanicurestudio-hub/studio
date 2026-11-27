@@ -95,6 +95,16 @@ export async function POST(req: NextRequest) {
       `/v1/companies/${auth.companyId}/payrolls/${payrollId}`);
 
     const byEmployee = new Map(lines.map((l: any) => [l.gustoEmployeeId, l]));
+    // (Everyone being paid must be on Gusto's open payroll: someone left off it, on another pay schedule, or matched to
+    // someone who has left in Gusto, would go unpaid while the payroll went through. Nothing is sent until they are.)
+    const onPayroll = new Set((payroll.employee_compensations || []).map((c: any) => String(c.employee_uuid)));
+    const offPayroll = lines.filter((l: any) => !onPayroll.has(String(l.gustoEmployeeId))).map((l: any) => l.name || l.staffId);
+    if (offPayroll.length) {
+      return NextResponse.json({
+        status: 'failed',
+        error: `${offPayroll.join(', ')} ${offPayroll.length === 1 ? 'isn’t' : 'aren’t'} on Gusto’s open payroll for these dates. Add them to it in Gusto (or check their pay schedule and that they’re matched to the right person), then send it again.`,
+      }, { status: 409 });
+    }
     const updatedComps = (payroll.employee_compensations || [])
       .map((comp: any) => {
         const line: any = byEmployee.get(comp.employee_uuid);
@@ -168,6 +178,8 @@ export async function POST(req: NextRequest) {
       payrollId, status,
       periodStart: draft.periodStart || payroll?.pay_period?.start_date || null,
       periodEnd: draft.periodEnd || payroll?.pay_period?.end_date || null,
+      // (The business's own first and last day, for Payday's list of payrolls sent.)
+      fromDay: String(draft.periodStartDay || payroll?.pay_period?.start_date || '').slice(0, 10) || null, toDay: endDay || null,
       checkDate: payroll?.check_date || null,
       grossTotal: draft.grossTotal ?? null,
       people: updatedComps.length,
@@ -195,20 +207,24 @@ export async function GET(req: NextRequest) {
   const tenantId = req.nextUrl.searchParams.get('tenantId');
   { const g = await requireCan(req, String(tenantId || ''), 'money.payroll'); if (g.deny) return g.deny; }
   const payrollId = req.nextUrl.searchParams.get('payrollId');
-  if (!tenantId || !payrollId) {
-    return NextResponse.json({ error: 'tenantId and payrollId are required' }, { status: 400 });
+  if (!tenantId || !payrollId || !/^[A-Za-z0-9_-]{1,128}$/.test(payrollId) || payrollId.startsWith('payday_')) {
+    return NextResponse.json({ status: 'failed', error: 'Which payroll?' }, { status: 400 });
   }
   try {
     const db = getAdminDb();
     const auth = await getGustoAuth(db, tenantId);
     const payroll: any = await gustoFetch(auth,
       `/v1/companies/${auth.companyId}/payrolls/${payrollId}`);
-    const status = payroll?.processed ? 'processed' : 'processing';
-    await db.doc(`tenants/${tenantId}/payrollRuns/${payrollId}`).set({
-      status, checkDate: payroll?.check_date || null, checkedAt: new Date().toISOString(),
-    }, { merge: true });
+    // (Only a payroll sent from here. Processed: paid. Submitted in Gusto since: being processed. Otherwise it stays where
+    // it was: sent and being processed, or in Gusto waiting to be submitted there.)
+    const ref = db.doc(`tenants/${tenantId}/payrollRuns/${payrollId}`); const snap: any = await ref.get();
+    if (!snap.exists) return NextResponse.json({ status: 'failed', error: 'That payroll wasn’t sent from here.' }, { status: 404 });
+    const was: any = snap.data() || {};
+    const submitted = payroll?.submitted === true || !!payroll?.submitted_at || !!payroll?.processed_date || payroll?.payroll_status_meta?.submitted === true;
+    const status = payroll?.processed ? 'processed' : (was.status === 'synced_not_submitted' && !submitted ? 'synced_not_submitted' : 'processing');
+    await ref.set({ status, checkDate: payroll?.check_date || null, checkedAt: new Date().toISOString() }, { merge: true });
     return NextResponse.json({ status, payrollId, checkDate: payroll?.check_date || null });
   } catch (e: any) {
-    return NextResponse.json({ status: 'failed', error: e?.message || 'Status check failed.' }, { status: 502 });
+    return NextResponse.json({ status: 'failed', error: e?.message || 'Gusto didn’t answer. Try again in a minute.' }, { status: 502 });
   }
 }
