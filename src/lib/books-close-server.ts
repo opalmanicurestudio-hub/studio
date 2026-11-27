@@ -3,7 +3,8 @@
 // owner reopening the last one closed, with a reason. Read and written through api/money/close.
 //   tenants/{t}.booksClose                — what's closed (lib/books-close; firestore.rules keeps lines in it as they are)
 //   tenants/{t}/private/booksClose        = { stack: [{ month, prev, at, by }], log: [{ kind, month, at, by, reason? }] }
-import { booksSummary } from './books-summary';
+import { booksSummary, isTeamPay } from './books-summary';
+import type { MonthStatement } from './report-builders';
 import { closeOf, closeThrough, monthAfter, monthDays, monthName } from './books-close';
 import { lineDay } from './sales-tax-report';
 import { filingOf, periodKeyFor, periodOf } from './sales-tax-filing';
@@ -125,4 +126,65 @@ export async function reopenMonth(db: any, tenantId: string, by: string, reason:
     tx.set(pRef, { stack, log: [...(Array.isArray(p.log) ? p.log : []), { kind: 'reopen', month: cur.through, at: nowIso, by, reason: why }].slice(-200) }, { merge: true });
     return { ok: true as const, reopened: cur.through, through: prev };
   });
+}
+
+/** A closed month's statement (the Reports tab's Closed months; lib/report-builders buildMonthStatementHtml): its
+ *  figures, its sales tax, how its bank lines were sorted (the owner's only), what's held, and every correction made
+ *  to one of its lines after it closed. */
+export async function monthStatement(db: any, tenantId: string, tenant: any, m: unknown, owner: boolean): Promise<({ ok: true } & MonthStatement) | Fail> {
+  if (typeof m !== 'string' || !MONTH.test(m)) return fail('Which month?', 400);
+  const c = closeOf(tenant); if (!c || c.through < m) return fail(`${monthName(m)} isn’t closed yet.`, 409);
+  const T = `tenants/${tenantId}`; const tz = tenantTimeZone(tenant); const { start, end } = monthDays(m);
+  const snap = await db.collection(`${T}/transactions`).where('date', '>=', addDays(start, -1)).where('date', '<', addDays(end, 2)).get();
+  const lines = snap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })).filter((t: any) => { const d = lineDay(t, tz); return d >= start && d <= end; });
+  const s = booksSummary(lines, { businessOnly: true });
+  const pay = s.byCategory.opex.filter(([k]) => isTeamPay(k)).reduce((n, [, v]) => n + v, 0);
+  const by = closedBy(((await db.doc(`${T}/private/booksClose`).get()).data() || {}).stack, m);
+  // Sales tax: the return its month ends, when it ends with this one.
+  let period: MonthStatement['tax']['period'] = null;
+  if (!posTaxOf(tenant).unset) {
+    const f = filingOf(tenant); const p = periodOf(periodKeyFor(end, f.every), f.dueDay);
+    if (p && p.end === end) { const paid: any = (await db.doc(`${T}/private/salesTaxPaid_${p.key}`).get()).data(); period = { label: p.label, due: p.dueLabel, paid: !!paid?.at }; }
+  }
+  // The bank (the owner's to see).
+  let bank: MonthStatement['bank'] = null;
+  if (owner) {
+    const b = ((await db.collection(`${T}/bankTransactions`).where('date', '>=', start).where('date', '<=', end).limit(5000).get().catch(() => ({ docs: [] as any[] }))).docs as any[]).map((d: any) => d.data() || {}).filter((x: any) => !['cleared'].includes(String(x.status)));
+    bank = { total: b.length, sorted: b.filter((x: any) => x.status !== 'unmatched').length, waiting: b.filter((x: any) => x.status === 'unmatched').length };
+  }
+  // Corrections made after it closed, to one of its lines (components/money/BooksScreen correctionFor).
+  const ids = new Set(lines.map((t: any) => String(t.id)));
+  // (One field asked for, so it needs no index of its own; corrections are few.)
+  const fixes = ((await db.collection(`${T}/transactions`).where('paymentMethod', '==', 'Correction').limit(2000).get().catch(() => ({ docs: [] as any[] }))).docs as any[])
+    .map((d: any) => d.data() || {}).filter((t: any) => t.correctionOf && ids.has(String(t.correctionOf)));
+  const corrections = fixes.map((t: any) => ({ date: String(t.date || ''), description: String(t.description || 'A correction'), amount: Math.round(Number(t.amount) * 100) / 100 * (t.type === 'reversal' ? -1 : 1), by: String(t.enteredBy || '') }))
+    .sort((a: any, b: any) => a.date.localeCompare(b.date));
+  const costs = s.cogs + s.netFees + s.operatingExpenses;
+  return { ok: true as const, month: m, label: monthName(m), start, end, closedAt: by?.at || c.at || null, closedBy: by?.by || c.by || null,
+    figures: { sales: s.sales, returns: s.returns, discounts: s.discounts, netSales: s.netSales, tips: s.tips, otherIncome: s.otherIncome, cogs: s.cogs, fees: s.netFees,
+      teamPay: Math.round(pay * 100) / 100, otherCosts: Math.round((s.operatingExpenses - pay) * 100) / 100, costs: Math.round(costs * 100) / 100, profit: s.net },
+    tax: { collected: s.taxCollected, givenBack: s.taxRefunded, owed: s.taxOwed, paid: s.taxPaid, period },
+    bank, held: { giftCards: s.giftCardsSold, renters: s.heldForRenters }, corrections };
+}
+
+/** Who closed a month and when: the close that covered it, from the closes still standing (each covers the months after
+ *  the one closed before it, up to its own; a reopened month's close is gone from the stack). */
+export function closedBy(stack: unknown, m: string): { at: string; by: string } | null {
+  const st: any[] = Array.isArray(stack) ? stack : [];
+  const e = st.find((x: any) => (!x.prev || String(x.prev) < m) && m <= String(x.month));
+  return e ? { at: String(e.at || ''), by: String(e.by || '') } : null;
+}
+
+/** The months that are closed, newest first, with who closed each and when: the last twelve, never before the business
+ *  began. */
+export async function closedMonths(db: any, tenantId: string, tenant: any) {
+  const c = closeOf(tenant); if (!c) return { ok: true as const, months: [] as any[] };
+  const stack = ((await db.doc(`tenants/${tenantId}/private/booksClose`).get()).data() || {}).stack;
+  const began = (() => { const v = tenant?.createdAt; const d = v?.toDate ? v.toDate() : v ? new Date(v) : null; return d && Number.isFinite(d.getTime()) ? d.toISOString().slice(0, 7) : ''; })();
+  const months: { month: string; label: string; at: string | null; by: string | null }[] = [];
+  for (let mm = c.through, i = 0; i < 12 && (!began || mm >= began); i++, mm = monthAfter(mm, -1)) {
+    const e = closedBy(stack, mm);
+    months.push({ month: mm, label: monthName(mm), at: e?.at || null, by: e?.by || null });
+  }
+  return { ok: true as const, months };
 }

@@ -11,7 +11,7 @@ import { useFirebase } from '@/firebase';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { readDatedRange, useTransactionsInRange } from '@/hooks/use-transactions';
-import { booksSummary, lookupOf, netSalesOf, normalizeLine } from '@/lib/books-summary';
+import { booksSummary, lookupOf, netSalesOf, normalizeLine, isTeamPay } from '@/lib/books-summary';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', GREEN = '#1f7a4d', AMBER = '#b45309';
@@ -106,7 +106,7 @@ export function MoneyOverview({ onNavigate, more, bankCount = null }: { onNaviga
   const maxDay = Math.max(1, ...days.map((d) => d.v));
 
   // Costs: what the team was paid on its own line, the rest together, biggest first.
-  const opex = s.byCategory.opex; const isPay = (c: string) => /^(payroll|contract labor|team pay|wages)/i.test(c);
+  const opex = s.byCategory.opex; const isPay = isTeamPay;
   const teamPay = opex.filter(([c]) => isPay(c)).reduce((a, [, v]) => a + v, 0);
   const others = opex.filter(([c]) => !isPay(c)); const otherTotal = others.reduce((a, [, v]) => a + v, 0);
   const otherWords = others.slice(0, 4).map(([c, v]) => `${c.toLowerCase()} ${usd(v)}`).join(', ') + (others.length > 4 ? ` and ${others.length - 4} more` : '');

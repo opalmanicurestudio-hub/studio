@@ -61,9 +61,8 @@ import { COUNTRY_OPTIONS, getCountryOption } from '@/lib/tax-jurisdictions';
 import { auditEntry } from '@/lib/audit';
 import { booksSummary, effectOf, lookupOf, netSalesOf, normalizeLine, type BooksSummary } from '@/lib/books-summary';
 import { esc, printLine, printMoney, printPage } from '@/lib/print-style';
-import {
-  buildPnlHtml, buildTaxSummaryHtml, buildPayrollRegisterHtml, buildAuditTrailHtml,
-} from '@/lib/report-builders';
+import { buildLedgerHtml, ledgerCsv } from '@/lib/report-builders';
+import { csvName, downloadCsv } from '@/lib/csv';
 import {
   getGustoConnection, beginGustoConnect, submitGustoPayroll,
   type GustoPayrollDraft,
@@ -84,6 +83,7 @@ import { useTenant } from '@/context/TenantContext';
 import { OwedToClients } from '@/components/money/OwedToClients';
 import { BankScreen } from '@/components/money/BankScreen';
 import { BooksScreen, wayOf, type BooksFilters } from '@/components/money/BooksScreen';
+import { ReportsScreen } from '@/components/money/ReportsScreen';
 import { bucketFor } from '@/lib/categories';
 import { useInventory } from '@/context/InventoryContext';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -140,138 +140,6 @@ const useAuditActor = () => {
     };
   }, [currentUser?.uid, currentUser?.displayName, currentUser?.email, staff]);
 };
-
-// ─── buildPrintHtml — the ledger report, in the app's print look (lib/print-style) ─────────────────────────────
-// The same figures as the screen (lib/books-summary), then every checkout and online order with its lines, the other
-// entries, and the receipt pictures at the back. Each line says what it is in the books (a sale, a refund, a tip, the
-// sales tax, a card fee…) in a quiet pill rather than a rainbow of colors.
-
-const SIDE_LABEL: Record<string, { label: string; tone?: 'ok' | 'warn' }> = {
-  sales: { label: 'Sale', tone: 'ok' }, returns: { label: 'Refund', tone: 'warn' }, discounts: { label: 'Discount' }, tax: { label: 'Sales tax' },
-  tips: { label: 'Tip' }, other: { label: 'Other income' }, held: { label: 'Held' }, transfer: { label: 'Transfer' }, cogs: { label: 'Cost of goods' },
-  fees: { label: 'Card fee' }, opex: { label: 'Expense' }, skip: { label: 'Note' },
-};
-const INCOME_SIDES = new Set(['sales', 'tips', 'other', 'tax', 'held']);
-const refOf = (id: string) => String(id || '').slice(-6).toUpperCase();
-
-function buildPrintHtml(
-  transactions: Transaction[],
-  staff: Staff[],
-  summary: BooksSummary,
-  dateRange: DateRange | undefined,
-  opts: { lookup?: any[]; shopName?: string } = {},
-) {
-  const byId = lookupOf(opts.lookup, transactions as any[]);
-  const fmtD = (d: any, f: string) => { try { return format(new Date(d), f); } catch { return '—'; } };
-  const period = dateRange?.from && dateRange?.to ? `${format(dateRange.from, 'MMM d, yyyy')} – ${format(dateRange.to, 'MMM d, yyyy')}` : 'All dates';
-  const staffName = (id?: string) => (id ? staff.find((m: Staff) => m.id === id)?.name : '') || '';
-  const shown = (t: any) => {
-    const e = effectOf(t, byId);
-    const value = e.side === 'transfer' || e.side === 'skip' ? Math.abs(Number(t.amount) || 0) : INCOME_SIDES.has(e.side) ? e.amount : -e.amount;
-    return { e, value, pill: SIDE_LABEL[e.side] || SIDE_LABEL.skip };
-  };
-  const pillHtml = (p: { label: string; tone?: string }) => `<span class="pill ${p.tone || ''}">${p.label}</span>`;
-
-  // Checkouts at the desk and online orders, each with its lines; everything else on its own.
-  const groups = new Map<string, any[]>(); const loose: any[] = [];
-  for (const t of transactions as any[]) {
-    const key = t.checkoutSessionId ? `cs:${t.checkoutSessionId}` : t.retailOrderId ? `ro:${t.retailOrderId}` : '';
-    if (key) { if (!groups.has(key)) groups.set(key, []); groups.get(key)!.push(t); } else loose.push(t);
-  }
-  const sessions = [...groups.entries()].map(([key, lines]) => {
-    const first = lines[0];
-    const sum = (side: string) => lines.reduce((a, t) => { const x = shown(t); return x.e.side === side ? a + x.value : a; }, 0);
-    const fees = sum('fees');
-    const total = lines.reduce((a, t) => { const x = shown(t); return x.e.side === 'fees' || x.e.side === 'transfer' || x.e.side === 'skip' ? a : a + x.value; }, 0);
-    return { key, first, lines, items: sum('sales'), tax: sum('tax'), tips: sum('tips'), off: sum('discounts') + sum('returns'), fees, total };
-  }).sort((a, b) => new Date(b.first.date).getTime() - new Date(a.first.date).getTime());
-
-  const appendix: { n: number; ref: string; desc: string; when: string; who: string; url: string }[] = [];
-  const picOf = new Map<string, number>();
-  for (const t of [...sessions.flatMap((x) => x.lines), ...loose]) {
-    if (!t.receiptUrl || picOf.has(t.id)) continue;
-    picOf.set(t.id, appendix.length + 1);
-    appendix.push({ n: appendix.length + 1, ref: refOf(t.checkoutSessionId || t.retailOrderId || t.id), desc: String(t.description || ''), when: fmtD(t.date, 'MMM d, yyyy · h:mm a'), who: String(t.clientOrVendor || ''), url: String(t.receiptUrl) });
-  }
-  const picTag = (t: any) => (picOf.get(t.id) ? ` <span class="pill">Receipt ${picOf.get(t.id)}</span>` : '');
-
-  const sessionHtml = sessions.map((x) => {
-    const lineRows = x.lines.map((t) => {
-      const v = shown(t); const who = staffName(t.staffId);
-      return `<tr><td>${pillHtml(v.pill)} ${esc(t.description || t.category || '')}${who ? ` <span class="muted">· ${esc(who.split(' ')[0])}</span>` : ''}${picTag(t)}</td>
-        <td class="muted nowrap">${fmtD(t.date, 'h:mm a')}</td><td class="r">${printMoney(v.value)}</td></tr>`;
-    }).join('');
-    const parts = [
-      x.items ? `Items ${printMoney(x.items)}` : '', x.tax ? `Tax ${printMoney(x.tax)}` : '', x.tips ? `Tip ${printMoney(x.tips)}` : '',
-      x.off ? `Off ${printMoney(x.off)}` : '', `<b>Total ${printMoney(x.total)}</b>`,
-    ].filter(Boolean).join(' · ');
-    return `<div class="box keep" style="margin-bottom:12px;padding:0;overflow:hidden">
-      <div style="display:flex;justify-content:space-between;gap:12px;padding:10px 14px;background:#f5f5f7">
-        <div><b>${esc(x.first.clientOrVendor || 'Guest')}</b><div class="muted">${fmtD(x.first.date, 'MMM d, yyyy · h:mm a')} · ${esc(x.first.paymentMethod || '')}</div></div>
-        <div class="r"><b>${printMoney(x.total)}</b><div class="faint">${x.key.startsWith('ro:') ? 'Online order' : 'Checkout'} ${refOf(x.key.slice(3))}</div></div>
-      </div>
-      <table><tbody>${lineRows}</tbody></table>
-      <div class="muted" style="padding:8px 14px">${parts}${x.fees ? ` <span class="faint">· Card fee ${printMoney(-x.fees)} (the shop’s cost, not the client’s)</span>` : ''}</div>
-    </div>`;
-  }).join('');
-
-  const looseHtml = loose.map((t) => {
-    const v = shown(t);
-    return `<tr><td class="faint">${refOf(t.id)}</td><td class="muted nowrap">${fmtD(t.date, 'MMM d, h:mm a')}</td>
-      <td>${esc(t.description || '')}${picTag(t)}<div class="muted">${esc(t.clientOrVendor || '')}</div></td>
-      <td>${pillHtml(v.pill)} <span class="muted">${esc(t.category || '')}</span></td><td class="muted">${esc(staffName(t.staffId))}</td>
-      <td class="muted">${esc(t.paymentMethod || '')}</td><td class="r">${printMoney(v.value)}</td></tr>`;
-  }).join('');
-
-  const cats = (list: [string, number][], none: string) => list.length ? list.map(([c, a]) => printLine(esc(c), a, 'sub')).join('') : `<p class="faint">${none}</p>`;
-  const body = `
-  <div class="grid2">
-    <div class="box">
-      <h3 style="margin-top:0">Summary</h3>
-      ${printLine('Sales', summary.sales)}
-      ${summary.returns ? printLine('Returns and refunds', -summary.returns, 'sub') : ''}
-      ${summary.discounts ? printLine('Discounts and deposits used', -summary.discounts, 'sub') : ''}
-      ${printLine('Net sales', summary.netSales, 'total')}
-      ${summary.tips ? printLine('Tips for the team', summary.tips) : ''}
-      ${summary.otherIncome ? printLine('Other income', summary.otherIncome) : ''}
-      ${printLine('Cost of goods', -summary.cogs)}
-      ${printLine('Card fees', -summary.netFees)}
-      ${printLine('Other expenses', -summary.operatingExpenses)}
-      ${printLine('Net income', summary.net, 'total', summary.net >= 0 ? 'ok' : 'bad')}
-    </div>
-    <div class="box">
-      <h3 style="margin-top:0">Held, not income</h3>
-      ${printLine('Sales tax collected', summary.taxCollected)}
-      ${summary.taxRefunded ? printLine('Given back on refunds and voids', -summary.taxRefunded, 'sub') : ''}
-      ${printLine('Sales tax owed', summary.taxOwed, 'total')}
-      ${summary.taxPaid ? printLine('Paid to the state', summary.taxPaid, 'sub') : ''}
-      ${summary.taxFreeSales ? printLine('Sold tax free to resellers', summary.taxFreeSales, 'sub') : ''}
-      ${summary.giftCardsSold ? printLine('Gift cards sold', summary.giftCardsSold) : ''}
-      ${summary.heldForRenters ? printLine('Taken for renters', summary.heldForRenters) : ''}
-      <h3>Card fees</h3>
-      ${printLine('Passed on to clients', summary.feesPassedOn)}
-      ${printLine('Paid to Stripe', -summary.feesPaid)}
-      ${summary.feesBack ? printLine('Returned by Stripe', summary.feesBack, 'sub') : ''}
-      ${printLine('Card fees, net', summary.feesPassedOn - summary.netFees, 'total')}
-    </div>
-  </div>
-  <div class="grid2" style="margin-top:12px">
-    <div class="box"><h3 style="margin-top:0">Sales by category</h3>${cats(summary.byCategory.sales, 'No sales this period.')}</div>
-    <div class="box"><h3 style="margin-top:0">Expenses by category</h3>${cats([...summary.byCategory.cogs, ...summary.byCategory.opex].sort((a, b) => b[1] - a[1]), 'No expenses this period.')}</div>
-  </div>
-  ${sessions.length ? `<h2>Checkouts and online orders · ${sessions.length}</h2>${sessionHtml}` : ''}
-  ${loose.length ? `<h2>Other entries · ${loose.length}</h2>
-  <table><thead><tr><th>Ref</th><th>Date</th><th>Description</th><th>In the books</th><th>Team</th><th>Paid by</th><th class="r">Amount</th></tr></thead><tbody>${looseHtml}</tbody></table>` : ''}
-  ${appendix.length ? `<div class="break"></div><h2>Receipts · ${appendix.length}</h2>
-  <div class="grid2">${appendix.map((a) => `<div class="box keep"><div style="display:flex;justify-content:space-between;gap:10px;margin-bottom:8px"><b>Receipt ${a.n}</b><span class="muted r">${esc(a.desc)}<br>${esc(a.who)} · ${a.when}</span></div>
-    <img src="${esc(a.url)}" alt="Receipt ${a.n}" style="width:100%;max-height:280px;object-fit:contain;display:block;border-radius:10px" /></div>`).join('')}</div>` : ''}`;
-
-  return printPage({
-    title: 'Ledger report', heading: 'Ledger <b>report</b>', subtitle: period, shopName: opts.shopName, body,
-    footNote: `${transactions.length} entries · ${sessions.length} checkouts and orders. Sales tax and gift cards sold are held, not income.`,
-    footRight: period,
-  });
-}
 
 // ─── ReceiptPreviewDialog (unchanged) ─────────────────────────────────────────
 
@@ -637,39 +505,15 @@ const LedgerTab = () => {
     win.focus();
   }, [toast]);
 
+  // The lines on screen, printed or downloaded as a spreadsheet; every other report is on the Reports tab.
+  const shopName = String((selectedTenant as any)?.name || '') || undefined;
   const handlePrint = useCallback(() => {
-    openPrintWindow(buildPrintHtml(filteredTransactions, staff || [], financialSummary, date, { lookup: transactions || [], shopName: String((selectedTenant as any)?.name || '') || undefined }));
-  }, [filteredTransactions, transactions, staff, financialSummary, date, openPrintWindow, selectedTenant]);
-
-  // v63 — the Reports menu: P&L, Schedule C tax summary, payroll register,
-  // and the printable audit trail, all over the currently filtered period.
-  const openReport = useCallback(async (kind: 'pnl' | 'tax' | 'payroll' | 'audit') => {
-    let html = '';
-    const reportOpts = { lookup: transactions || [], shopName: String((selectedTenant as any)?.name || '') || undefined };
-    if (kind === 'pnl') html = buildPnlHtml(filteredTransactions, date, 'USD', reportOpts);
-    if (kind === 'tax') html = buildTaxSummaryHtml(filteredTransactions, date, 'USD', reportOpts);
-    if (kind === 'payroll') {
-      const tState = (selectedTenant as any)?.taxState || null;
-      const profile = tState ? getStateProfile(tState) : GENERIC_US_PROFILE;
-      html = buildPayrollRegisterHtml(filteredTransactions, staff || [], profile, date, !!tState, 'USD', reportOpts);
-    }
-    if (kind === 'audit') {
-      if (!firestore || !tenantId) return;
-      const snap = await getDocs(query(
-        collection(firestore, `tenants/${tenantId}/auditLogs`),
-        orderBy('at', 'desc'), limit(500),
-      ));
-      const entries = snap.docs.map(d => d.data() as any).filter(e => {
-        if (!e.at) return true;
-        const t = new Date(e.at).getTime();
-        if (date?.from && t < startOfDay(date.from).getTime()) return false;
-        if (date?.to && t > endOfDay(date.to).getTime()) return false;
-        return true;
-      });
-      html = buildAuditTrailHtml(entries, date, 'USD', reportOpts);
-    }
-    if (html) openPrintWindow(html);
-  }, [filteredTransactions, transactions, date, staff, selectedTenant, firestore, tenantId, openPrintWindow]);
+    openPrintWindow(buildLedgerHtml(filteredTransactions, staff || [], financialSummary, date, { lookup: transactions || [], shopName }));
+  }, [filteredTransactions, transactions, staff, financialSummary, date, openPrintWindow, shopName]);
+  const handleDownload = useCallback(() => {
+    const d = date?.from && date?.to ? `${format(date.from, 'yyyy-MM-dd')} to ${format(date.to, 'yyyy-MM-dd')}` : '';
+    downloadCsv(csvName(shopName || '', 'books', d), ledgerCsv(filteredTransactions, staff || [], { lookup: transactions || [] }));
+  }, [filteredTransactions, transactions, staff, date, shopName]);
 
   const handleAddTransaction = (data: Omit<Transaction, 'id'>) => {
     if (!firestore || !tenantId) return;
@@ -855,18 +699,15 @@ const LedgerTab = () => {
   const reportsMenu = (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button type="button" className="inline-flex min-h-[44px] items-center justify-center rounded-full border border-[#ececee] bg-white px-4 text-[14px] font-semibold text-[#16171a] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2">Print or export</button>
+        <button type="button" className="inline-flex min-h-[44px] items-center justify-center rounded-full border border-[#ececee] bg-white px-4 text-[14px] font-semibold text-[#16171a] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2">Print or download</button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-80 rounded-2xl p-1">
+        <p className="px-3 pb-1 pt-2 text-[12px] text-muted-foreground">The lines shown here, for these dates:</p>
+        <DropdownMenuItem onClick={handlePrint} className="min-h-[44px] rounded-xl px-3 text-[14px] font-medium">Print these lines</DropdownMenuItem>
+        <DropdownMenuItem onClick={handleDownload} className="min-h-[44px] rounded-xl px-3 text-[14px] font-medium">Download them as a spreadsheet</DropdownMenuItem>
         <DropdownMenuItem asChild className="min-h-[44px] rounded-xl px-3 text-[14px] font-semibold">
-          <Link href="/records/pnl">Profit and loss, month by month</Link>
+          <Link href="/money?tab=reports">All reports: profit and loss, taxes, payroll, closed months</Link>
         </DropdownMenuItem>
-        <p className="px-3 pb-1 pt-2 text-[12px] text-muted-foreground">For the dates picked here, to print:</p>
-        <DropdownMenuItem onClick={handlePrint} className="min-h-[44px] rounded-xl px-3 text-[14px] font-medium">Every line, in full detail</DropdownMenuItem>
-        <DropdownMenuItem onClick={() => openReport('pnl')} className="min-h-[44px] rounded-xl px-3 text-[14px] font-medium">Profit and loss for these dates</DropdownMenuItem>
-        <DropdownMenuItem onClick={() => openReport('tax')} className="min-h-[44px] rounded-xl px-3 text-[14px] font-medium">Tax summary (Schedule C)</DropdownMenuItem>
-        <DropdownMenuItem onClick={() => openReport('payroll')} className="min-h-[44px] rounded-xl px-3 text-[14px] font-medium">Payroll register</DropdownMenuItem>
-        <DropdownMenuItem onClick={() => openReport('audit')} className="min-h-[44px] rounded-xl px-3 text-[14px] font-medium">Audit trail</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -911,6 +752,21 @@ const LedgerTab = () => {
 };
 
 // ─── PaydayTab (formerly PaydayPage) ──────────────────────────────────────────
+
+/** The Reports tab: every report in one place, to print or download (components/money/ReportsScreen). */
+const ReportsTab = () => {
+  const { firestore } = useFirebase();
+  const { selectedTenant, role } = useTenant() as any;
+  const { staff } = useInventory();
+  const tenantId = selectedTenant?.id;
+  const tState = (selectedTenant as any)?.taxState || null;
+  const payroll = useMemo(() => ({ profile: tState ? getStateProfile(tState) : GENERIC_US_PROFILE, hasState: !!tState }), [tState]);
+  return (
+    <div className="mx-auto w-full max-w-[1180px] px-4 py-5 md:px-6" style={{ color: '#16171a' }}>
+      {tenantId && firestore && <ReportsScreen tenantId={tenantId} firestore={firestore} tenant={selectedTenant} staff={staff || []} payroll={payroll} canManage={['owner', 'admin', 'manager'].includes(String(role || ''))} />}
+    </div>
+  );
+};
 
 /** The Bank tab: lines from the connected bank to sort, sorted for you, and matched (components/money/BankScreen). */
 const BankTab = () => {
@@ -1972,7 +1828,7 @@ const BillsTab = () => {
 
 // ─── OverviewTab (new) ────────────────────────────────────────────────────────
 
-type HubTab = 'overview' | 'ledger' | 'bank' | 'payday' | 'bills' | 'activity';
+type HubTab = 'overview' | 'ledger' | 'bank' | 'payday' | 'bills' | 'reports' | 'activity';
 
 // ─── ActivityTab — live audit feed for the whole business ────────────────────
 
@@ -2151,10 +2007,11 @@ const HUB_TABS: { key: HubTab; label: string }[] = [
   { key: 'bank',     label: 'Bank' },
   { key: 'payday',   label: 'Payday' },
   { key: 'bills',    label: 'Bills' },
+  { key: 'reports',  label: 'Reports' },
   { key: 'activity', label: 'Activity' },
 ];
 
-const VALID_TABS: HubTab[] = ['overview', 'ledger', 'bank', 'payday', 'bills', 'activity'];
+const VALID_TABS: HubTab[] = ['overview', 'ledger', 'bank', 'payday', 'bills', 'reports', 'activity'];
 
 function MoneyHubContent() {
   // Deep-linking: /money?tab=payday opens the Payday tab directly, so old
@@ -2248,6 +2105,7 @@ function MoneyHubContent() {
         {visitedTabs.has('bank')     && <div className={cn(activeTab !== 'bank'     && 'hidden')}><BankTab /></div>}
         {visitedTabs.has('payday')   && <div className={cn(activeTab !== 'payday'   && 'hidden')}><PaydayTab /></div>}
         {visitedTabs.has('bills')    && <div className={cn(activeTab !== 'bills'    && 'hidden')}><BillsTab /></div>}
+        {visitedTabs.has('reports')  && <div className={cn(activeTab !== 'reports'  && 'hidden')}><ReportsTab /></div>}
         {visitedTabs.has('activity') && <div className={cn(activeTab !== 'activity' && 'hidden')}><ActivityTab /></div>}
       </main>
     </div>

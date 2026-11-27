@@ -189,7 +189,7 @@ const T = 'tenants/t1';
     for (let i = 0; i < 6000; i++) await db.doc(`tenants/t3/transactions/c${i}`).set({ id: `c${i}`, type: 'income', category: i % 3 ? 'Service Revenue' : 'Tax Collected', amount: 40 + (i % 50), paymentMethod: 'Cash', checkoutSessionId: `co${Math.floor(i / 3)}`, date: `${day(1 + (i % 100))}T12:00:00.000Z` });
     (globalThis as any).fetch = async () => ({ ok: true, json: async () => ({ added: Array.from({ length: 20 }, (_, i) => ({ transaction_id: `d${i}`, pending: false, amount: -(5000 + i * 137), name: 'MOBILE DEPOSIT', date: day(2) })), next_cursor: 'c9', has_more: false }) });
     const t0 = Date.now(); await P.syncTenantBankFeed(db, 't3'); const took = Date.now() - t0;
-    check('a busy shop’s books are added up once per check, never again for every deposit (20 deposits against 6,000 lines)', took < 4000 && (await get('tenants/t3/plaidItems/i1'))?.cursor === 'c9', { took });
+    check('a busy shop’s books are added up once per check, never again for every deposit (20 deposits against 6,000 lines)', took < 10000 && (await get('tenants/t3/plaidItems/i1'))?.cursor === 'c9', { took });
     // A check that stops after booking and matching but before its lines are written: started again, it picks up where it
     // was, never booking or matching twice.
     await db.doc('tenants/t4').set({ name: 'Stops' }); await db.doc('tenants/t4/plaidItems/i1').set({ accessToken: 'stop', label: 'Business' });

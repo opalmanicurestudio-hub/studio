@@ -59,11 +59,13 @@ export async function taxReminder(db: any, tenantId: string, tenant: any, now = 
 /** For the Money page, cheaply: the reminder (while it shows) and what the last period that ended still owes (when it
  *  isn't recorded as paid). Nothing is added up when tax isn't set up or the period is paid; otherwise the figure is
  *  kept for a few hours (tenants/{t}/private/salesTaxOwed_{period}), so opening the page doesn't read months of books. */
-export async function taxStatus(db: any, tenantId: string, tenant: any, now = Date.now()): Promise<{ reminder: { text: string; period: string; cents: number; due: string } | null; owed: { period: string; label: string; due: string; cents: number } | null }> {
-  const none = { reminder: null, owed: null };
-  if (posTaxOf(tenant).unset) return none;
+export async function taxStatus(db: any, tenantId: string, tenant: any, now = Date.now()): Promise<{ reminder: { text: string; period: string; cents: number; due: string } | null; owed: { period: string; label: string; due: string; cents: number } | null;
+  unset?: boolean; last?: { period: string; label: string; due: string; paid: boolean } }> {
+  if (posTaxOf(tenant).unset) return { reminder: null, owed: null, unset: true };
   const f = filingOf(tenant); const today = todayIn(tenantTimeZone(tenant), new Date(now)); const p = lastEnded(today, f);
-  if (await paidOf(db, tenantId, p.key)) return none;
+  // (The last period that ended, and whether it's paid: the Reports tab's sales tax row.)
+  const last = { period: p.key, label: p.label, due: p.dueLabel, paid: false };
+  if (await paidOf(db, tenantId, p.key)) return { reminder: null, owed: null, last: { ...last, paid: true } };
   const cacheRef = db.doc(`tenants/${tenantId}/private/salesTaxOwed_${p.key}`);
   const kept: any = (await cacheRef.get().catch(() => null))?.data();
   let cents: number;
@@ -74,7 +76,7 @@ export async function taxStatus(db: any, tenantId: string, tenant: any, now = Da
   }
   const cur = posTaxOf(tenant); const charges = cur.productsPct > 0 || cur.servicesPct > 0 || Object.keys(tenant?.salesTax?.byLocation || {}).length > 0;
   const reminder = remindNow(today, p, f, false) && (cents > 0 || charges) ? { text: reminderText(today, p, cents), period: p.key, cents, due: p.due } : null;
-  return { reminder, owed: cents > 0 ? { period: p.key, label: p.label, due: p.dueLabel, cents } : null };
+  return { reminder, owed: cents > 0 ? { period: p.key, label: p.label, due: p.dueLabel, cents } : null, last };
 }
 
 /** Paid to the state: recorded once (its payment in the books as Sales Tax Paid). `cents`: what was paid. */

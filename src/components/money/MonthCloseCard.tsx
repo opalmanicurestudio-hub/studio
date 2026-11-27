@@ -61,6 +61,7 @@ export function MonthCloseCard({ tenantId }: { tenantId: string }) {
         </div>
         <div className="flex flex-wrap gap-2">
           {toClose && <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className={`min-h-[44px] rounded-full bg-[#fff] px-4 text-[14px] font-semibold ${RING}`} style={{ border: `1px solid ${LINE}` }}>{open ? 'Hide' : 'Review and close'}</button>}
+          {lastClosed && <a href="/money?tab=reports" className={`inline-flex min-h-[44px] items-center rounded-full bg-[#fff] px-4 text-[14px] font-semibold ${RING}`} style={{ border: `1px solid ${LINE}`, color: '#16171a' }}>See {lastClosed.label}’s statement</a>}
           {!toClose && d.canReopen && !reopening && <button type="button" onClick={() => setReopening(true)} className={`min-h-[44px] rounded-full bg-[#fff] px-4 text-[14px] font-semibold ${RING}`} style={{ border: `1px solid ${LINE}` }}>Reopen {lastClosed!.label}</button>}
         </div>
       </div>

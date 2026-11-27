@@ -275,6 +275,9 @@ export function netSalesOf(t: any, byId?: Map<string, any>): number {
   return 0;
 }
 
+/** Team pay, as the Overview and the printed statements read it: payroll, contract labor, wages. */
+export const isTeamPay = (category: string) => /^(payroll|contract labor|team pay|wages)/i.test(String(category || '').trim());
+
 /** A line as every screen and report reads it: dollars in `amount` (older lines kept cents), income when it never said,
  *  Business unless it says Personal, and a category to show. Its tax bucket is left as it is: without one, the category
  *  says where it goes (lib/categories), the same on the Money page and on paper. */

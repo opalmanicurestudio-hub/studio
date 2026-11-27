@@ -2,11 +2,13 @@
 //   view    { tenantId, month? }    → what's still open in a month (the next to close, without one), and the months around
 //   close   { tenantId, month }     → closed, with every month before it (a manager)
 //   reopen  { tenantId, reason }    → the last month closed, opened again (the owner only; kept on the record)
+//   closed  { tenantId }            → the months that are closed, with who closed each (the Reports tab)
+//   statement { tenantId, month }   → a closed month's statement, to print (its bank lines for the owner only)
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaffActor } from '@/lib/staff-auth';
 import { logAuditAdmin } from '@/lib/audit';
-import { closeMonth, closeOverview, reopenMonth } from '@/lib/books-close-server';
+import { closeMonth, closedMonths, closeOverview, monthStatement, reopenMonth } from '@/lib/books-close-server';
 import { monthName } from '@/lib/books-close';
 export const dynamic = 'force-dynamic';
 
@@ -23,6 +25,8 @@ export async function POST(req: NextRequest) {
     const by = String(auth.actor.name || 'A manager').slice(0, 60);
     const actor = { type: 'user', id: String(auth.actor.uid || 'manager'), name: by } as any;
     const action = String(b.action || 'view');
+    if (action === 'closed') return reply(await closedMonths(db, tenantId, tenant));
+    if (action === 'statement') { const r: any = await monthStatement(db, tenantId, tenant, b.month, !!auth.actor.isTenantOwner || auth.actor.role === 'admin'); return reply(r, r.ok ? 200 : r.status); }
     if (action === 'view') { const r: any = await closeOverview(db, tenantId, tenant, b.month); return reply({ ...r, canReopen: !!auth.actor.isTenantOwner }, r.ok ? 200 : r.status); }
     if (action === 'close') {
       const r: any = await closeMonth(db, tenantId, tenant, b.month, by);

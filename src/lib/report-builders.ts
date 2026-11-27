@@ -1,20 +1,23 @@
 // src/lib/report-builders.ts
 //
-// Printable reports for the Money page's Reports menu, each a whole HTML document to open in a print window, in the
-// app's print look (lib/print-style):
-//   buildPnlHtml             — Profit & Loss
-//   buildTaxSummaryHtml      — Schedule C summary (US)
-//   buildPayrollRegisterHtml — pay by person, with the employer tax estimate
-//   buildAuditTrailHtml      — the money audit log
-//   buildSalesTaxHtml        — the sales tax report, for filing (lib/sales-tax-report)
+// THE REPORTS, to print and to download (the Money page's Reports tab, components/money/ReportsScreen). Each report is
+// one list of lines, read once, that both the printed page (in the app's print look, lib/print-style) and the
+// spreadsheet download (lib/csv) are made from, so the paper and the spreadsheet always say the same:
+//   Profit and loss          — pnlRows / buildPnlHtml
+//   Tax summary              — taxSummaryRows / buildTaxSummaryHtml (US Schedule C)
+//   Payroll register         — payrollRows / buildPayrollRegisterHtml (pay by person, with the employer tax estimate)
+//   Audit trail              — auditRows / buildAuditTrailHtml (who did what with the money, in plain words)
+//   Sales tax return         — salesTaxCsv / buildSalesTaxHtml (lib/sales-tax-report)
+//   Every line               — ledgerCsv / buildLedgerHtml (each checkout and order with its lines, receipts at the back)
+//   A closed month           — statementCsv / buildMonthStatementHtml (lib/books-close-server monthStatement)
 //
-// The figures come from lib/books-summary, the same reading of the ledger the Money page shows, so the paper and the
-// screen always agree: refunds are returns (their sales tax comes off the tax owed), discounts and deposits applied
-// come off sales, gift cards sold and money taken for renters are held, owner draws and transfers are left out, and
-// sales tax is never income. Lines marked Personal are left out of the P&L and the tax summary.
+// The figures come from lib/books-summary, the same reading of the books as the Money page, so the paper and the screen
+// always agree: refunds are returns (their sales tax comes off the tax owed), discounts and deposits applied come off
+// sales, gift cards sold and money taken for renters are held, owner draws and transfers are left out, and sales tax is
+// never income. Lines marked Personal are left out of the profit and loss and the tax summary.
 
 import { scheduleCFor } from './categories';
-import { booksSummary, effectOf, lookupOf } from './books-summary';
+import { booksSummary, effectOf, lookupOf, type BooksSummary } from './books-summary';
 import { esc, printLine, printMoney, printPage } from './print-style';
 import { format } from 'date-fns';
 import type { TaxReport } from './sales-tax-report';
@@ -22,63 +25,79 @@ import type { TaxReport } from './sales-tax-report';
 type Txn = any;
 type Range = { from?: Date; to?: Date } | undefined;
 export type ReportOptions = { lookup?: Txn[]; shopName?: string; currency?: string };
+/** One line of a report: a heading, or a label and an amount. `kind` as printLine's. */
+export type ReportRow = { heading?: string; label?: string; amount?: number | string; kind?: '' | 'sub' | 'total' | 'memo'; tone?: '' | 'ok' | 'warn' | 'bad'; note?: string };
 
-const periodLabel = (range: Range) =>
+export const periodLabel = (range: Range) =>
   range?.from && range?.to
-    ? `${format(range.from, 'MMM d, yyyy')} – ${format(range.to, 'MMM d, yyyy')}`
+    ? (format(range.from, 'yyyy') === format(range.to, 'yyyy') ? `${format(range.from, 'MMMM d')} to ${format(range.to, 'MMMM d, yyyy')}` : `${format(range.from, 'MMMM d, yyyy')} to ${format(range.to, 'MMMM d, yyyy')}`)
     : 'All dates';
 
-const rows = (list: [string, number][], kind: '' | 'sub' = 'sub', none = 'None recorded') =>
-  list.length ? list.map(([c, a]) => printLine(esc(c), a, kind)).join('') : `<div class="line sub"><span class="faint">${none}</span><span></span></div>`;
+const H = (heading: string): ReportRow => ({ heading });
+const L = (label: string, amount: number | string, kind: ReportRow['kind'] = '', tone: ReportRow['tone'] = ''): ReportRow => ({ label, amount, kind, tone });
+const cats = (list: [string, number][], none = 'None recorded'): ReportRow[] => list.length ? list.map(([c, a]) => L(c, a, 'sub')) : [{ label: none, amount: '', kind: 'sub', note: 'none' }];
 
-// ─── Profit & Loss ────────────────────────────────────────────────────────────
+/** A report's lines as the printed page. */
+export function rowsHtml(rows: ReportRow[], currency = 'USD'): string {
+  return rows.map((r) => {
+    if (r.heading) return `<h2>${esc(r.heading)}</h2>`;
+    if (r.note === 'none') return `<div class="line sub"><span class="faint">${esc(r.label)}</span><span></span></div>`;
+    return printLine(esc(r.label), typeof r.amount === 'number' ? printMoney(r.amount, currency) : esc(r.amount ?? ''), r.kind || '', r.tone || '');
+  }).join('');
+}
+/** A report's lines as spreadsheet rows: section, line, amount. */
+export function rowsCsv(rows: ReportRow[]): (string | number)[][] {
+  const out: (string | number)[][] = [['Section', 'Line', 'Amount']]; let section = '';
+  for (const r of rows) {
+    if (r.heading) { section = r.heading; continue; }
+    if (r.note === 'none') continue;
+    out.push([section, String(r.label || ''), typeof r.amount === 'number' ? Math.round(r.amount * 100) / 100 : String(r.amount ?? '')]);
+  }
+  return out;
+}
+
+// ─── Profit and loss ──────────────────────────────────────────────────────────
+
+export function pnlRows(s: BooksSummary, currency = 'USD'): ReportRow[] {
+  const fees = [['Card processing fees', s.feesPaid], ...(s.feesBack ? [['Fees returned by Stripe', -s.feesBack]] : [])] as [string, number][];
+  return [
+    H('Income'), ...cats(s.byCategory.sales), L('Sales', s.sales),
+    ...(s.returns ? [L('Less returns and refunds', -s.returns, 'sub')] : []),
+    ...(s.discounts ? [L('Less discounts and deposits used', -s.discounts, 'sub')] : []),
+    L('Net sales', s.netSales, 'total'),
+    ...(s.tips ? [L('Tips collected for the team', s.tips)] : []),
+    ...(s.otherIncome ? [L('Other income', s.otherIncome)] : []),
+    L('Total income', s.income, 'total'),
+    H('Cost of goods'), ...cats(s.byCategory.cogs), L('Gross profit', s.grossProfit, 'total'),
+    H('Expenses'), ...cats(fees), ...cats(s.byCategory.opex),
+    L('Total expenses', s.netFees + s.operatingExpenses, 'total'),
+    L('Net income', s.net, 'total', s.net >= 0 ? 'ok' : 'bad'),
+    H('Not in the profit (for your records)'),
+    L('Sales tax collected', s.taxCollected, 'memo'),
+    ...(s.taxRefunded ? [L('Sales tax given back on refunds and voids', -s.taxRefunded, 'memo')] : []),
+    L('Sales tax owed to the state', s.taxOwed, 'memo'),
+    ...(s.taxPaid ? [L('Sales tax paid to the state', s.taxPaid, 'memo')] : []),
+    ...(s.unsorted.count ? [L(`In your books without a category (${s.unsorted.count})`, s.unsorted.amount, 'memo')] : []),
+    ...(s.giftCardsSold ? [L('Gift cards sold (counted as sales when used)', s.giftCardsSold, 'memo')] : []),
+    ...(s.heldForRenters ? [L('Taken for renters', s.heldForRenters, 'memo')] : []),
+    L('Owner draws and transfers', s.transfers, 'memo'),
+    ...(s.shippingCharged || s.shippingCost ? [L('Shipping charged, and what shipping cost', `${printMoney(s.shippingCharged, currency)}, ${printMoney(s.shippingCost, currency)}`, 'memo')] : []),
+  ];
+}
 
 export function buildPnlHtml(txns: Txn[], range: Range, currency = 'USD', opts: ReportOptions = {}) {
   const s = booksSummary(txns, { lookup: opts.lookup, businessOnly: true });
-  const fees = [['Card processing fees', s.feesPaid], ...(s.feesBack ? [['Fees returned by Stripe', -s.feesBack]] : [])] as [string, number][];
-  const body = `
-    <h2>Income</h2>
-    ${rows(s.byCategory.sales)}
-    ${printLine('Sales', s.sales)}
-    ${s.returns ? printLine('Less returns and refunds', -s.returns, 'sub') : ''}
-    ${s.discounts ? printLine('Less discounts and deposits used', -s.discounts, 'sub') : ''}
-    ${printLine('Net sales', s.netSales, 'total')}
-    ${s.tips ? printLine('Tips collected for the team', s.tips) : ''}
-    ${s.otherIncome ? printLine('Other income', s.otherIncome) : ''}
-    ${printLine('Total income', s.income, 'total')}
-
-    <h2>Cost of goods</h2>
-    ${rows(s.byCategory.cogs)}
-    ${printLine('Gross profit', s.grossProfit, 'total')}
-
-    <h2>Expenses</h2>
-    ${rows(fees)}
-    ${rows(s.byCategory.opex)}
-    ${printLine('Total expenses', s.netFees + s.operatingExpenses, 'total')}
-    ${printLine('Net income', s.net, 'total', s.net >= 0 ? 'ok' : 'bad')}
-
-    <h2>Not in the profit (for your records)</h2>
-    ${printLine('Sales tax collected', s.taxCollected, 'memo')}
-    ${s.taxRefunded ? printLine('Sales tax given back on refunds and voids', -s.taxRefunded, 'memo') : ''}
-    ${printLine('Sales tax owed to the state', s.taxOwed, 'memo')}
-    ${s.taxPaid ? printLine('Sales tax paid to the state', s.taxPaid, 'memo') : ''}
-    ${s.unsorted.count ? printLine(`In your books without a category (${s.unsorted.count})`, s.unsorted.amount, 'memo') : ''}
-    ${s.giftCardsSold ? printLine('Gift cards sold (counted as sales when used)', s.giftCardsSold, 'memo') : ''}
-    ${s.heldForRenters ? printLine('Taken for renters', s.heldForRenters, 'memo') : ''}
-    ${printLine('Owner draws and transfers', s.transfers, 'memo')}
-    ${s.shippingCharged || s.shippingCost ? printLine('Shipping charged / shipping cost', `${printMoney(s.shippingCharged, currency)} / ${printMoney(s.shippingCost, currency)}`, 'memo') : ''}
-  `;
   return printPage({
-    title: 'Profit and loss', heading: 'Profit and <b>loss</b>', subtitle: periodLabel(range), shopName: opts.shopName,
-    body,
+    title: 'Profit and loss', heading: 'Profit and <b>loss</b>', subtitle: esc(periodLabel(range)), shopName: opts.shopName,
+    body: rowsHtml(pnlRows(s, currency), currency),
     footNote: 'Tips are shown beside sales because the team’s pay, an expense, includes the tips paid out. Owner draws and transfers aren’t expenses. Sales tax is held for the state. Check with your accountant before filing.',
-    footRight: periodLabel(range),
+    footRight: esc(periodLabel(range)),
   });
 }
 
-// ─── Tax Summary (Schedule C map) ─────────────────────────────────────────────
+// ─── Tax summary (Schedule C map) ─────────────────────────────────────────────
 
-export function buildTaxSummaryHtml(txns: Txn[], range: Range, currency = 'USD', opts: ReportOptions = {}) {
+export function taxSummaryRows(txns: Txn[], opts: ReportOptions = {}): ReportRow[] {
   const s = booksSummary(txns, { lookup: opts.lookup, businessOnly: true });
   // Expenses by Schedule C line, each net of what came back on it (a reversal, a fee Stripe returned, a postage refund).
   const byId = lookupOf(opts.lookup, txns);
@@ -95,109 +114,142 @@ export function buildTaxSummaryHtml(txns: Txn[], range: Range, currency = 'USD',
   }
   const sortedLines = [...lines.entries()].filter(([, v]) => Math.abs(v) >= 0.005).sort((a, b) => a[0].localeCompare(b[0], 'en', { numeric: true }));
   const deductions = sortedLines.reduce((a, [, v]) => a + v, 0);
-  const line1 = s.sales + s.tips;
-  const line2 = s.returns + s.discounts;
-  const line5 = line1 - line2 - s.cogs;
-  const line7 = line5 + s.otherIncome;
-  const body = `
-    <h2>Income</h2>
-    ${printLine('Line 1 — Gross receipts', line1)}
-    ${s.tips ? printLine('Includes tips collected for the team', s.tips, 'sub') : ''}
-    ${printLine('Line 2 — Returns and allowances', -line2)}
-    ${s.returns ? printLine('Refunds and returns', -s.returns, 'sub') : ''}
-    ${s.discounts ? printLine('Discounts and deposits used', -s.discounts, 'sub') : ''}
-    ${printLine('Line 4 — Cost of goods sold', -s.cogs)}
-    ${printLine('Line 5 — Gross profit', line5, 'total')}
-    ${s.otherIncome ? printLine('Line 6 — Other income', s.otherIncome) : ''}
-    ${printLine('Line 7 — Gross income', line7, 'total')}
+  const line1 = s.sales + s.tips; const line2 = s.returns + s.discounts; const line5 = line1 - line2 - s.cogs; const line7 = line5 + s.otherIncome;
+  return [
+    H('Income'),
+    L('Line 1 — Gross receipts', line1), ...(s.tips ? [L('Includes tips collected for the team', s.tips, 'sub')] : []),
+    L('Line 2 — Returns and allowances', -line2),
+    ...(s.returns ? [L('Refunds and returns', -s.returns, 'sub')] : []), ...(s.discounts ? [L('Discounts and deposits used', -s.discounts, 'sub')] : []),
+    L('Line 4 — Cost of goods sold', -s.cogs), L('Line 5 — Gross profit', line5, 'total'),
+    ...(s.otherIncome ? [L('Line 6 — Other income', s.otherIncome)] : []), L('Line 7 — Gross income', line7, 'total'),
+    H('Expenses by Schedule C line'),
+    ...(sortedLines.length ? sortedLines.map(([line, amt]) => L(line, amt)) : [{ label: 'No expenses this period.', amount: '', note: 'none' } as ReportRow]),
+    L('Total expenses', deductions, 'total'),
+    L('Tentative profit (Line 7 less expenses)', line7 - deductions, 'total', line7 - deductions >= 0 ? 'ok' : 'bad'),
+    H('Not deductible or held (for your records)'),
+    ...[...notDeductible.entries()].map(([line, amt]) => L(line, amt, 'memo')),
+    L('Sales tax collected', s.taxCollected, 'memo'),
+    ...(s.taxRefunded ? [L('Sales tax given back on refunds and voids', -s.taxRefunded, 'memo')] : []),
+    L('Sales tax to pay the state', s.taxOwed, 'memo'),
+    ...(s.taxPaid ? [L('Sales tax paid to the state', s.taxPaid, 'memo')] : []),
+    ...(s.unsorted.count ? [L(`In your books without a category (${s.unsorted.count}), counted under Other expenses`, s.unsorted.amount, 'memo')] : []),
+    ...(s.giftCardsSold ? [L('Gift cards sold (income when they’re used)', s.giftCardsSold, 'memo')] : []),
+    ...(s.heldForRenters ? [L('Taken for renters', s.heldForRenters, 'memo')] : []),
+  ];
+}
 
-    <h2>Expenses by Schedule C line</h2>
-    <table><thead><tr><th>Line</th><th class="r">Amount</th></tr></thead><tbody>
-      ${sortedLines.map(([line, amt]) => `<tr><td>${esc(line)}</td><td class="r">${printMoney(amt, currency)}</td></tr>`).join('') || '<tr><td colspan="2" class="faint">No expenses this period.</td></tr>'}
-    </tbody></table>
-    ${printLine('Total expenses', deductions, 'total')}
-    ${printLine('Tentative profit (Line 7 less expenses)', line7 - deductions, 'total', line7 - deductions >= 0 ? 'ok' : 'bad')}
-
-    <h2>Not deductible or held (for your records)</h2>
-    ${[...notDeductible.entries()].map(([line, amt]) => printLine(esc(line), amt, 'memo')).join('')}
-    ${printLine('Sales tax collected', s.taxCollected, 'memo')}
-    ${s.taxRefunded ? printLine('Sales tax given back on refunds and voids', -s.taxRefunded, 'memo') : ''}
-    ${printLine('Sales tax to pay the state', s.taxOwed, 'memo')}
-    ${s.taxPaid ? printLine('Sales tax paid to the state', s.taxPaid, 'memo') : ''}
-    ${s.unsorted.count ? printLine(`In your books without a category (${s.unsorted.count}), counted under Other expenses`, s.unsorted.amount, 'memo') : ''}
-    ${s.giftCardsSold ? printLine('Gift cards sold (income when they’re used)', s.giftCardsSold, 'memo') : ''}
-    ${s.heldForRenters ? printLine('Taken for renters', s.heldForRenters, 'memo') : ''}
-  `;
+export function buildTaxSummaryHtml(txns: Txn[], range: Range, currency = 'USD', opts: ReportOptions = {}) {
   return printPage({
-    title: 'Tax summary', heading: 'Tax <b>summary</b>', subtitle: `Schedule C (US sole proprietor or single-member LLC) · ${periodLabel(range)}`, shopName: opts.shopName,
-    body,
+    title: 'Tax summary', heading: 'Tax <b>summary</b>', subtitle: `Schedule C, for a US sole proprietor or single-member LLC. ${esc(periodLabel(range))}`, shopName: opts.shopName,
+    body: rowsHtml(taxSummaryRows(txns, opts), currency),
     footNote: 'A planning aid, not tax advice. The lines are common defaults; your accountant may place some differently (equipment, meals, a home office). Self-employment tax, estimated payments and state filings aren’t worked out here.',
-    footRight: periodLabel(range),
+    footRight: esc(periodLabel(range)),
   });
 }
 
-// ─── Payroll Register ─────────────────────────────────────────────────────────
+// ─── Payroll register ─────────────────────────────────────────────────────────
+
+export function payrollRows(txns: Txn[], staff: any[]) {
+  const byStaff = new Map<string, { name: string; count: number; total: number }>();
+  for (const t of txns.filter((x) => x.category === 'Payroll' && (x.type === 'expense' || x.type === 'payment'))) {
+    const key = t.staffId || t.clientOrVendor || 'unassigned';
+    const name = staff.find((s: any) => s.id === t.staffId)?.name || t.clientOrVendor || 'Not assigned to anyone';
+    const cur = byStaff.get(key) || { name, count: 0, total: 0 };
+    cur.count += 1; cur.total += Number(t.amount) || 0; byStaff.set(key, cur);
+  }
+  return [...byStaff.values()].sort((a, b) => b.total - a.total);
+}
+export function payrollCsv(txns: Txn[], staff: any[], profile: { code: string; employerPayrollTaxPct: number }) {
+  const list = payrollRows(txns, staff); const gross = list.reduce((s, r) => s + r.total, 0);
+  return [['Person', 'Payouts', 'Paid'], ...list.map((r) => [r.name, r.count, Math.round(r.total * 100) / 100]), ['Total pay', '', Math.round(gross * 100) / 100],
+    [`Employer payroll taxes, estimated (${profile.employerPayrollTaxPct}%)`, '', Math.round(gross * profile.employerPayrollTaxPct) / 100]];
+}
 
 export function buildPayrollRegisterHtml(
   txns: Txn[], staff: any[], profile: { code: string; employerPayrollTaxPct: number },
   range: Range, hasStateSet: boolean, currency = 'USD', opts: ReportOptions = {},
 ) {
-  const payouts = txns.filter(t => t.category === 'Payroll' && (t.type === 'expense' || t.type === 'payment'));
-  const byStaff = new Map<string, { name: string; count: number; total: number }>();
-  payouts.forEach(t => {
-    const key = t.staffId || t.clientOrVendor || 'unassigned';
-    const name = staff.find((s: any) => s.id === t.staffId)?.name || t.clientOrVendor || 'Unassigned';
-    const cur = byStaff.get(key) || { name, count: 0, total: 0 };
-    cur.count += 1; cur.total += t.amount || 0;
-    byStaff.set(key, cur);
-  });
-  const list = [...byStaff.values()].sort((a, b) => b.total - a.total);
+  const list = payrollRows(txns, staff);
   const gross = list.reduce((s, r) => s + r.total, 0);
   const employerTaxes = gross * (profile.employerPayrollTaxPct / 100);
-
   const body = `
     <h2>Pay by person</h2>
     <table><thead><tr><th>Person</th><th>Payouts</th><th class="r">Paid</th></tr></thead><tbody>
       ${list.map(r => `<tr><td>${esc(r.name)}</td><td>${r.count}</td><td class="r">${printMoney(r.total, currency)}</td></tr>`).join('') || '<tr><td colspan="3" class="faint">No pay in this period.</td></tr>'}
     </tbody></table>
     ${printLine('Total pay', gross, 'total')}
-    ${printLine(`Employer payroll taxes, estimated (${hasStateSet ? esc(profile.code) : 'federal only'} · ${profile.employerPayrollTaxPct}%)`, employerTaxes, 'sub')}
+    ${printLine(`Employer payroll taxes, estimated (${hasStateSet ? `${esc(profile.code)}, ` : 'federal only, '}${profile.employerPayrollTaxPct}%)`, employerTaxes, 'sub')}
     ${printLine('Total cost of pay', gross + employerTaxes, 'total')}
   `;
   return printPage({
-    title: 'Payroll register', heading: 'Payroll <b>register</b>', subtitle: periodLabel(range), shopName: opts.shopName,
+    title: 'Payroll register', heading: 'Payroll <b>register</b>', subtitle: esc(periodLabel(range)), shopName: opts.shopName,
     body,
     footNote: `Employer taxes are estimates (FICA, FUTA and an approximate SUTA${hasStateSet ? '' : '; set your state in Payday for your state’s figures'}). When Gusto is connected, Gusto’s filings are the record.`,
-    footRight: periodLabel(range),
+    footRight: esc(periodLabel(range)),
   });
 }
 
-// ─── Audit Trail ──────────────────────────────────────────────────────────────
+// ─── Audit trail ──────────────────────────────────────────────────────────────
 
-export function buildAuditTrailHtml(entries: any[], range: Range, currency = 'USD', opts: ReportOptions = {}) {
+/** What an action in the audit log was, in plain words. */
+const ACTION_WORDS: Record<string, string> = {
+  'transaction.create': 'Added a line', 'transaction.revert': 'Undid a line', 'transaction.recategorize': 'Changed a category', 'transaction.correct': 'Added a correction',
+  'transaction.refund': 'Gave a refund', 'transaction.auto_book': 'Sorted a bank line', 'retail.refund': 'Refunded an order', 'rent.card_refund': 'Refunded rent',
+  'bank.match': 'Matched a bank line', 'bank.unmatch': 'Undid a bank match', 'bank.book': 'Booked a bank line', 'bank.ignore': 'Skipped a bank line',
+  'bank.accept_all': 'Booked bank lines as picked', 'bank.recategorize': 'Changed a bank line’s category', 'bill.pay': 'Paid a bill',
+  'rule.update': 'Changed a payee’s category', 'rule.delete': 'Forgot a payee', 'rule.money': 'Changed a money rule',
+  'salestax.paid': 'Recorded sales tax as paid', 'salestax.unpaid': 'Took back a sales tax payment',
+  'books.month_closed': 'Closed a month', 'books.month_reopened': 'Reopened a month',
+  'payroll.draft_created': 'Started a payroll', 'payroll.submit_gusto': 'Sent payroll to Gusto', 'payroll.distribute': 'Paid the team', 'gusto.connected': 'Connected Gusto',
+  'rent.payment_recorded': 'Recorded a rent payment', 'rent.paid_online': 'Rent paid online', 'rent.invoice': 'Sent a rent invoice', 'rent.marked_late': 'Marked rent late',
+  'deposit.paid': 'A deposit was paid', 'deposit.waived': 'Waived a deposit', 'deposit.moved': 'Moved a deposit', 'balance.paid': 'A balance was paid', 'balance.paid_online': 'A balance was paid online',
+  'fee.paid': 'A fee was paid', 'fee.waived': 'Waived a fee', 'fee.auto_refunded': 'Refunded a fee', 'night.close': 'Closed the night', 'tab.void': 'Voided a check', 'tab.comp': 'Comped an item',
+  'mileage.rate': 'Changed the mileage rate', 'inventory.order': 'Ordered stock', 'inventory.cost': 'Changed a cost', 'records.tips_declared': 'Declared tips', 'card.saved': 'Saved a card',
+};
+export const actionWords = (action: unknown): string => {
+  const a = String(action || '');
+  if (ACTION_WORDS[a]) return ACTION_WORDS[a];
+  const last = a.split('.').pop() || ''; const w = last.replace(/_+/g, ' ').trim();
+  return w ? w.charAt(0).toUpperCase() + w.slice(1) : 'Something changed';
+};
+const whoOf = (a: any) => (a?.type === 'system' ? 'Done for you' : String(a?.name || 'The owner'));
+/** What was written about it, with any dots between words (older entries) read as commas. */
+const plain = (v: unknown) => String(v || '').replace(/ · /g, ', ');
+
+export function auditCsv(entries: any[]) {
+  return [['When', 'Who', 'What happened', 'Detail', 'Amount'], ...entries.map((e) => [e.at ? format(new Date(e.at), 'yyyy-MM-dd HH:mm') : '', whoOf(e.actor), actionWords(e.action), plain(e.summary), typeof e.amount === 'number' ? Math.round(e.amount * 100) / 100 : ''])];
+}
+
+export function buildAuditTrailHtml(entries: any[], range: Range, currency = 'USD', opts: ReportOptions & { capped?: boolean } = {}) {
   const systemCount = entries.filter(e => e.actor?.type === 'system').length;
-  const who = (a: any) => a?.type === 'system' ? `<span class="pill">Automatic · ${esc(a.name || 'system')}</span>` : `<span class="pill">${esc(a?.name || 'Owner')}</span>`;
+  const who = (a: any) => a?.type === 'system' ? `<span class="pill">Done for you</span>` : esc(a?.name || 'The owner');
   const body = `
-    <p class="muted" style="margin-bottom:12px">${entries.length} actions · ${entries.length - systemCount} by people · ${systemCount} automatic</p>
-    <table><thead><tr><th>When</th><th>Who</th><th>Action</th><th>Detail</th><th class="r">Amount</th></tr></thead><tbody>
+    <p class="muted" style="margin-bottom:12px">${entries.length} action${entries.length === 1 ? '' : 's'}: ${entries.length - systemCount} by people, ${systemCount} done for you.${opts.capped ? ' These are the latest; pick fewer days to see the rest.' : ''}</p>
+    <table><thead><tr><th>When</th><th>Who</th><th>What happened</th><th>Detail</th><th class="r">Amount</th></tr></thead><tbody>
       ${entries.map(e => `<tr>
-        <td class="nowrap muted">${e.at ? format(new Date(e.at), 'MMM d, h:mm a') : '—'}</td>
+        <td class="nowrap muted">${e.at ? format(new Date(e.at), 'MMM d, h:mm a') : ''}</td>
         <td>${who(e.actor)}</td>
-        <td class="muted">${esc(e.action || '—')}</td>
-        <td>${esc(e.summary || '—')}</td>
+        <td>${esc(actionWords(e.action))}</td>
+        <td>${esc(plain(e.summary))}</td>
         <td class="r">${typeof e.amount === 'number' ? printMoney(e.amount, currency) : ''}</td>
-      </tr>`).join('') || '<tr><td colspan="5" class="faint">No entries in this period.</td></tr>'}
+      </tr>`).join('') || '<tr><td colspan="5" class="faint">Nothing in this period.</td></tr>'}
     </tbody></table>
   `;
   return printPage({
-    title: 'Audit trail', heading: 'Audit <b>trail</b>', subtitle: `Every money action · ${periodLabel(range)}`, shopName: opts.shopName,
+    title: 'Audit trail', heading: 'Audit <b>trail</b>', subtitle: `Every money action, ${esc(periodLabel(range))}`, shopName: opts.shopName,
     body,
-    footNote: 'Each entry is written when the action happens and is never edited or deleted; a correction is a new entry.',
-    footRight: periodLabel(range),
+    footNote: 'Each entry is written when it happens and never changed; a correction is a new entry.',
+    footRight: esc(periodLabel(range)),
   });
 }
 
 // ─── Sales tax, for filing ────────────────────────────────────────────────────
+
+export function salesTaxCsv(r: TaxReport) {
+  return [['Line', 'Amount'], ['All sales', r.allSales], ...(r.taxFree ? [['Sold tax free to resellers', -r.taxFree]] : []), ...(r.viaApps ? [['Sold through delivery apps that collect the tax themselves', -r.viaApps]] : []),
+    ['Not taxed', -r.notTaxed], ['Taxable sales', r.taxable], ['Sales tax collected', r.collected], ...(r.givenBack ? [['Given back on refunds and voids', -r.givenBack]] : []), ['Sales tax to pay', r.toPay],
+    [], ['Location', 'Rate', 'Taxable sales', 'Tax to pay'], ...r.places.map((p) => [p.name, p.rate, p.taxable, p.tax])] as (string | number)[][];
+}
 
 /** The sales tax report for a period (lib/sales-tax-report): what the return asks for, then by location. `paid`: when it
  *  was recorded as paid, and how much. */
@@ -227,5 +279,178 @@ export function buildSalesTaxHtml(r: TaxReport, opts: ReportOptions & { paid?: {
     shopName: opts.shopName, body,
     footNote: `${notes.join(' ')} Check it against your state’s return before you file.`,
     footRight: esc(r.period.label),
+  });
+}
+
+// ─── Every line ───────────────────────────────────────────────────────────────
+// The same figures as the screen, then every checkout and online order with its lines, the other entries, and the
+// receipt pictures at the back. Each line says what it is in the books (a sale, a refund, a tip, the sales tax, a card
+// fee) in a quiet pill rather than a rainbow of colors.
+
+const SIDE_LABEL: Record<string, { label: string; tone?: 'ok' | 'warn' }> = {
+  sales: { label: 'Sale', tone: 'ok' }, returns: { label: 'Refund', tone: 'warn' }, discounts: { label: 'Discount' }, tax: { label: 'Sales tax' },
+  tips: { label: 'Tip' }, other: { label: 'Other income' }, held: { label: 'Held' }, transfer: { label: 'Transfer' }, cogs: { label: 'Cost of goods' },
+  fees: { label: 'Card fee' }, opex: { label: 'Expense' }, taxpaid: { label: 'Sales tax paid' }, skip: { label: 'Note' },
+};
+const INCOME_SIDES = new Set(['sales', 'tips', 'other', 'tax', 'held']);
+const refOf = (id: string) => String(id || '').slice(-6).toUpperCase();
+const fmtD = (d: any, f: string) => { try { return format(d?.toDate ? d.toDate() : new Date(d), f); } catch { return ''; } };
+/** What a line comes to, the way the books read it: money in plus, money out minus. */
+function shownOf(t: any, byId: Map<string, any>) {
+  const e = effectOf(t, byId);
+  const value = e.side === 'transfer' || e.side === 'skip' ? Math.abs(Number(t.amount) || 0) : INCOME_SIDES.has(e.side) ? e.amount : -e.amount;
+  return { e, value, pill: SIDE_LABEL[e.side] || SIDE_LABEL.skip };
+}
+
+export function ledgerCsv(lines: Txn[], staff: any[], opts: { lookup?: Txn[] } = {}) {
+  const byId = lookupOf(opts.lookup, lines); const name = (id?: string) => (id ? staff.find((m: any) => m.id === id)?.name : '') || '';
+  return [['Date', 'Time', 'Description', 'Client or vendor', 'Category', 'In the books', 'Amount', 'Paid with', 'Books', 'Team member', 'Matched to the bank', 'Ref'],
+    ...[...lines].sort((a, b) => fmtD(a.date, 'yyyy-MM-dd HH:mm').localeCompare(fmtD(b.date, 'yyyy-MM-dd HH:mm'))).map((t) => { const v = shownOf(t, byId);
+      return [fmtD(t.date, 'yyyy-MM-dd'), fmtD(t.date, 'HH:mm'), String(t.description || ''), String(t.clientOrVendor || ''), String(t.category || ''), v.pill.label, Math.round(v.value * 100) / 100,
+        String(t.paymentMethod || ''), t.context === 'Personal' ? 'Personal' : 'Business', name(t.staffId), t.reconciled || t.bankTransactionId ? 'Yes' : '', refOf(t.checkoutSessionId || t.retailOrderId || t.id)]; })];
+}
+
+export function buildLedgerHtml(transactions: Txn[], staff: any[], summary: BooksSummary, range: Range, opts: { lookup?: any[]; shopName?: string } = {}) {
+  const byId = lookupOf(opts.lookup, transactions);
+  const period = periodLabel(range);
+  const staffName = (id?: string) => (id ? staff.find((m: any) => m.id === id)?.name : '') || '';
+  const pillHtml = (p: { label: string; tone?: string }) => `<span class="pill ${p.tone || ''}">${p.label}</span>`;
+
+  // Checkouts at the desk and online orders, each with its lines; everything else on its own.
+  const groups = new Map<string, any[]>(); const loose: any[] = [];
+  for (const t of transactions) {
+    const key = t.checkoutSessionId ? `cs:${t.checkoutSessionId}` : t.retailOrderId ? `ro:${t.retailOrderId}` : '';
+    if (key) { if (!groups.has(key)) groups.set(key, []); groups.get(key)!.push(t); } else loose.push(t);
+  }
+  const sessions = [...groups.entries()].map(([key, lines]) => {
+    const first = lines[0];
+    const sum = (side: string) => lines.reduce((a, t) => { const x = shownOf(t, byId); return x.e.side === side ? a + x.value : a; }, 0);
+    const total = lines.reduce((a, t) => { const x = shownOf(t, byId); return x.e.side === 'fees' || x.e.side === 'transfer' || x.e.side === 'skip' ? a : a + x.value; }, 0);
+    return { key, first, lines, items: sum('sales'), tax: sum('tax'), tips: sum('tips'), off: sum('discounts') + sum('returns'), fees: sum('fees'), total };
+  }).sort((a, b) => new Date(b.first.date).getTime() - new Date(a.first.date).getTime());
+
+  const appendix: { n: number; desc: string; when: string; who: string; url: string }[] = [];
+  const picOf = new Map<string, number>();
+  for (const t of [...sessions.flatMap((x) => x.lines), ...loose]) {
+    if (!t.receiptUrl || picOf.has(t.id)) continue;
+    picOf.set(t.id, appendix.length + 1);
+    appendix.push({ n: appendix.length + 1, desc: String(t.description || ''), when: fmtD(t.date, 'MMM d, yyyy, h:mm a'), who: String(t.clientOrVendor || ''), url: String(t.receiptUrl) });
+  }
+  const picTag = (t: any) => (picOf.get(t.id) ? ` <span class="pill">Receipt ${picOf.get(t.id)}</span>` : '');
+
+  const sessionHtml = sessions.map((x) => {
+    const lineRows = x.lines.map((t) => {
+      const v = shownOf(t, byId); const who = staffName(t.staffId);
+      return `<tr><td>${pillHtml(v.pill)} ${esc(t.description || t.category || '')}${who ? ` <span class="muted">(${esc(who.split(' ')[0])})</span>` : ''}${picTag(t)}</td>
+        <td class="muted nowrap">${fmtD(t.date, 'h:mm a')}</td><td class="r">${printMoney(v.value)}</td></tr>`;
+    }).join('');
+    const parts = [x.items ? `Items ${printMoney(x.items)}` : '', x.tax ? `tax ${printMoney(x.tax)}` : '', x.tips ? `tip ${printMoney(x.tips)}` : '', x.off ? `off ${printMoney(x.off)}` : ''].filter(Boolean).join(', ');
+    return `<div class="box keep" style="margin-bottom:12px;padding:0;overflow:hidden">
+      <div style="display:flex;justify-content:space-between;gap:12px;padding:10px 14px;background:#f5f5f7">
+        <div><b>${esc(x.first.clientOrVendor || 'Guest')}</b><div class="muted">${fmtD(x.first.date, 'MMM d, yyyy, h:mm a')}${x.first.paymentMethod ? `, ${esc(x.first.paymentMethod)}` : ''}</div></div>
+        <div class="r"><b>${printMoney(x.total)}</b><div class="faint">${x.key.startsWith('ro:') ? 'Online order' : 'Checkout'} ${refOf(x.key.slice(3))}</div></div>
+      </div>
+      <table><tbody>${lineRows}</tbody></table>
+      <div class="muted" style="padding:8px 14px">${parts}${parts ? '. ' : ''}<b>Total ${printMoney(x.total)}</b>${x.fees ? ` <span class="faint">Card fee ${printMoney(-x.fees)}, the business’s cost, not the client’s.</span>` : ''}</div>
+    </div>`;
+  }).join('');
+
+  const looseHtml = loose.map((t) => {
+    const v = shownOf(t, byId);
+    return `<tr><td class="muted nowrap">${fmtD(t.date, 'MMM d, h:mm a')}</td>
+      <td>${esc(t.description || '')}${picTag(t)}<div class="muted">${esc(t.clientOrVendor || '')}</div></td>
+      <td>${pillHtml(v.pill)} <span class="muted">${esc(t.category || '')}</span></td><td class="muted">${esc(staffName(t.staffId))}</td>
+      <td class="muted">${esc(t.paymentMethod || '')}</td><td class="r">${printMoney(v.value)}</td></tr>`;
+  }).join('');
+
+  const catRows = (list: [string, number][], none: string) => list.length ? list.map(([c, a]) => printLine(esc(c), a, 'sub')).join('') : `<p class="faint">${none}</p>`;
+  const body = `
+  <div class="grid2">
+    <div class="box">
+      <h3 style="margin-top:0">Summary</h3>
+      ${printLine('Sales', summary.sales)}
+      ${summary.returns ? printLine('Returns and refunds', -summary.returns, 'sub') : ''}
+      ${summary.discounts ? printLine('Discounts and deposits used', -summary.discounts, 'sub') : ''}
+      ${printLine('Net sales', summary.netSales, 'total')}
+      ${summary.tips ? printLine('Tips for the team', summary.tips) : ''}
+      ${summary.otherIncome ? printLine('Other income', summary.otherIncome) : ''}
+      ${printLine('Cost of goods', -summary.cogs)}
+      ${printLine('Card fees', -summary.netFees)}
+      ${printLine('Other expenses', -summary.operatingExpenses)}
+      ${printLine('Net income', summary.net, 'total', summary.net >= 0 ? 'ok' : 'bad')}
+    </div>
+    <div class="box">
+      <h3 style="margin-top:0">Held, not income</h3>
+      ${printLine('Sales tax collected', summary.taxCollected)}
+      ${summary.taxRefunded ? printLine('Given back on refunds and voids', -summary.taxRefunded, 'sub') : ''}
+      ${printLine('Sales tax owed', summary.taxOwed, 'total')}
+      ${summary.taxPaid ? printLine('Paid to the state', summary.taxPaid, 'sub') : ''}
+      ${summary.taxFreeSales ? printLine('Sold tax free to resellers', summary.taxFreeSales, 'sub') : ''}
+      ${summary.giftCardsSold ? printLine('Gift cards sold', summary.giftCardsSold) : ''}
+      ${summary.heldForRenters ? printLine('Taken for renters', summary.heldForRenters) : ''}
+      <h3>Card fees</h3>
+      ${printLine('Passed on to clients', summary.feesPassedOn)}
+      ${printLine('Paid to Stripe', -summary.feesPaid)}
+      ${summary.feesBack ? printLine('Returned by Stripe', summary.feesBack, 'sub') : ''}
+      ${printLine('Card fees, net', summary.feesPassedOn - summary.netFees, 'total')}
+    </div>
+  </div>
+  <div class="grid2" style="margin-top:12px">
+    <div class="box"><h3 style="margin-top:0">Sales by category</h3>${catRows(summary.byCategory.sales, 'No sales this period.')}</div>
+    <div class="box"><h3 style="margin-top:0">Expenses by category</h3>${catRows([...summary.byCategory.cogs, ...summary.byCategory.opex].sort((a, b) => b[1] - a[1]), 'No expenses this period.')}</div>
+  </div>
+  ${sessions.length ? `<h2>Checkouts and online orders (${sessions.length})</h2>${sessionHtml}` : ''}
+  ${loose.length ? `<h2>Everything else (${loose.length})</h2>
+  <table><thead><tr><th>Date</th><th>Description</th><th>In the books</th><th>Team</th><th>Paid with</th><th class="r">Amount</th></tr></thead><tbody>${looseHtml}</tbody></table>` : ''}
+  ${appendix.length ? `<div class="break"></div><h2>Receipts (${appendix.length})</h2>
+  <div class="grid2">${appendix.map((a) => `<div class="box keep"><div style="display:flex;justify-content:space-between;gap:10px;margin-bottom:8px"><b>Receipt ${a.n}</b><span class="muted r">${esc(a.desc)}<br>${esc([a.who, a.when].filter(Boolean).join(', '))}</span></div>
+    <img src="${esc(a.url)}" alt="Receipt ${a.n}" style="width:100%;max-height:280px;object-fit:contain;display:block;border-radius:10px" /></div>`).join('')}</div>` : ''}`;
+
+  return printPage({
+    title: 'Every line', heading: 'Every <b>line</b>', subtitle: esc(period), shopName: opts.shopName, body,
+    footNote: `${transactions.length} line${transactions.length === 1 ? '' : 's'}, ${sessions.length} checkout${sessions.length === 1 ? '' : 's'} and order${sessions.length === 1 ? '' : 's'}. Sales tax and gift cards sold are held, not income.`,
+    footRight: esc(period),
+  });
+}
+
+// ─── A closed month's statement ───────────────────────────────────────────────
+
+export type MonthStatement = {
+  month: string; label: string; start: string; end: string; closedAt: string | null; closedBy: string | null;
+  figures: { sales: number; returns: number; discounts: number; netSales: number; tips: number; otherIncome: number; cogs: number; fees: number; teamPay: number; otherCosts: number; costs: number; profit: number };
+  tax: { collected: number; givenBack: number; owed: number; paid: number; period?: { label: string; due: string; paid: boolean } | null };
+  bank: { total: number; sorted: number; waiting: number } | null;
+  held: { giftCards: number; renters: number };
+  corrections: { date: string; description: string; amount: number; by: string }[];
+};
+
+export function statementRows(st: MonthStatement): ReportRow[] {
+  const f = st.figures;
+  return [
+    H('Profit and loss'), L('Sales', f.sales), ...(f.returns ? [L('Refunds and returns', -f.returns, 'sub')] : []), ...(f.discounts ? [L('Discounts and deposits used', -f.discounts, 'sub')] : []),
+    L('Net sales', f.netSales, 'total'), ...(f.tips ? [L('Tips for the team', f.tips)] : []), ...(f.otherIncome ? [L('Other income', f.otherIncome)] : []),
+    L('Cost of goods', -f.cogs), L('Card fees', -f.fees), L('Team pay', -f.teamPay), L('Other costs', -f.otherCosts), L('Profit', f.profit, 'total', f.profit >= 0 ? 'ok' : 'bad'),
+    H('Sales tax'), L(`Collected in ${st.label}`, st.tax.collected), ...(st.tax.givenBack ? [L('Given back on refunds and voids', -st.tax.givenBack, 'sub')] : []),
+    L(`Owed for ${st.label}`, st.tax.owed, 'total'), ...(st.tax.paid ? [L('Paid to the state in the month', st.tax.paid, 'sub')] : []),
+    ...(st.tax.period ? [L(`Return for ${st.tax.period.label}`, st.tax.period.paid ? 'Recorded as paid' : `Due ${st.tax.period.due}`, 'memo')] : []),
+    ...(st.bank ? [H('Your bank'), L('Lines from the bank', String(st.bank.total)), L('Matched to your books or sorted', String(st.bank.sorted)), L('Waiting to be sorted', st.bank.waiting ? String(st.bank.waiting) : 'None', '', st.bank.waiting ? 'warn' : '')] : []),
+    ...(st.held.giftCards || st.held.renters ? [H('Held, never yours'), ...(st.held.giftCards ? [L('Gift cards sold', st.held.giftCards)] : []), ...(st.held.renters ? [L('Taken for renters', st.held.renters)] : [])] : []),
+    H('Corrected after it closed'),
+    ...(st.corrections.length ? st.corrections.map((c) => L(`${c.description}, added ${fmtD(`${c.date}`, 'MMM d')}${c.by ? ` by ${c.by}` : ''}`, c.amount)) : [{ label: 'Nothing has been corrected.', amount: '', note: 'none' } as ReportRow]),
+  ];
+}
+export const statementCsv = (st: MonthStatement) => rowsCsv(statementRows(st));
+
+export function buildMonthStatementHtml(st: MonthStatement, opts: ReportOptions = {}) {
+  const stat = (v: number, l: string, tone = '') => `<div class="panel stat"><div class="v ${tone}">${printMoney(v)}</div><div class="l">${l}</div></div>`;
+  // (The three add up: what came in, less costs, is the profit.)
+  const f = st.figures; const extra = f.tips + f.otherIncome; const inn = f.netSales + extra;
+  const closed = st.closedAt ? `Closed ${esc(fmtD(st.closedAt, 'MMMM d'))}${st.closedBy ? ` by ${esc(st.closedBy)}` : ''}.` : '';
+  return printPage({
+    title: `Statement, ${st.label}`, heading: `Statement, <b>${esc(st.label)}</b>`,
+    subtitle: `${esc(fmtD(`${st.start}T12:00:00`, 'MMMM d'))} to ${esc(fmtD(`${st.end}T12:00:00`, 'MMMM d, yyyy'))}. ${closed}`, shopName: opts.shopName,
+    body: `<div class="grid3" style="margin-bottom:6px">${stat(inn, !extra ? 'Net sales' : f.tips && f.otherIncome ? 'Net sales, tips and other income' : f.tips ? 'Net sales and tips' : 'Net sales and other income')}${stat(f.costs, 'Costs')}${stat(f.profit, 'Profit', f.profit >= 0 ? 'ok' : 'bad')}</div>${rowsHtml(statementRows(st))}`,
+    footNote: 'Corrections go in the day they’re made, so the month stays as it was closed. Check with your accountant before filing.',
+    footRight: esc(st.label),
   });
 }

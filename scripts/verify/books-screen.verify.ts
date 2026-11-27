@@ -63,7 +63,7 @@ import { booksSummary, lookupOf } from '../../src/lib/books-summary';
   const scr = fs.readFileSync('src/components/money/BooksScreen.tsx', 'utf8');
   const page = fs.readFileSync('src/app/(app)/money/page.tsx', 'utf8');
   check('lines by day, each day with what came in and went out; filters for dates, money in or out, the books and the category; Print or export and New entry',
-    /dayName\(d\.key\)/.test(scr) && /in, \{usd\(d\.out\)\} out/.test(scr) && /Money in and out/.test(scr) && /Business and personal/.test(scr) && /All categories/.test(scr) && /onClick=\{p\.onNew\}/.test(scr) && /Print or export/.test(page));
+    /dayName\(d\.key\)/.test(scr) && /in, \{usd\(d\.out\)\} out/.test(scr) && /Money in and out/.test(scr) && /Business and personal/.test(scr) && /All categories/.test(scr) && /onClick=\{p\.onNew\}/.test(scr) && /Print or download/.test(page));
   check('a line shows its category, its taxes line, how it was paid, its books, who, what it came from and the bank’s match',
     ['Category', 'On your taxes', 'Paid with', 'Books', 'Who', 'From'].every((k) => scr.includes(`row('${k}'`)) && /so it’s counted once/.test(scr));
   check('a closed month: it says so, offers a correction (never a change), and how the owner reopens it',
