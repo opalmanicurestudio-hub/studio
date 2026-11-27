@@ -401,6 +401,14 @@ const LedgerTab = () => {
   const changeCategory = async (t: any, category: string) => {
     if (!firestore || !tenantId || inClosedMonth(selectedTenant, t.date)) return false;
     const type = String(t.type) === 'income' ? 'income' : 'expense';
+    // (A line from the bank put under payroll goes through the bank's own change, so a payroll company's withdrawal after
+    // payday was recorded is matched to payday's pay, never counted twice: api/plaid recategorize.)
+    if (type === 'expense' && t.bankTransactionId && String(t.paymentMethod || '') === 'Bank feed' && /^payroll( taxes)?$/i.test(category) && !/^payroll( taxes)?$/i.test(String(t.category || ''))) {
+      const r = await fetch('/api/plaid', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, action: 'recategorize', bankTxnId: String(t.bankTransactionId), category }) }).then((x) => x.json()).catch(() => null);
+      if (r?.ok) { if (r.payday) toast({ title: 'Matched to payday', description: 'The team’s pay for these dates was in your books already, so it isn’t counted twice.' }); return true; }
+      if (r?.error) toast({ variant: 'destructive', title: 'Not changed', description: r.error });
+      if (r) return false;
+    }
     await setDoc(lineRef(t), { category, taxBucket: bucketFor(category, type), updatedAt: new Date().toISOString() }, { merge: true });
     writeAudit(firestore, tenantId, { action: 'transaction.recategorize', targetType: 'transaction', targetId: t.id, summary: `${t.description || t.category} moved from ${t.category} to ${category}`, amount: t.amount, actor: auditActor });
     return true;
@@ -758,75 +766,34 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
 
   const handleConfirmDistributions = async () => {
     if (!firestore || !tenantId || recorded || adjustmentsError) return;
+    // Recorded on the server (api/payroll/record, lib/payday-record): once per pay period, the team's pay as one line for
+    // employees, one for contractors and one for cash tips taken home (who was paid what is kept where only payroll
+    // reads it), and pay the bank already booked from a payroll company isn't booked again.
+    const people = staffObligations.filter(o => o.amount > 0 || cashLineOf(o) > 0)
+        .map(o => ({ staffId: o.id, name: o.name, amount: Math.round(o.amount * 100) / 100, cash: cashLineOf(o), contractor: !!o.contractor }));
+    const setAsides = suggestions.filter(b => b.amount > 0 && b.key !== 'opex').map(b => ({ key: b.key, label: b.label, amount: Number(b.amount.toFixed(2)) }));
+    if (!people.length && !setAsides.length) return;
     setIsSubmitting(true);
-
-    const now = new Date().toISOString();
-    const lines: { ref: any; data: any }[] = [];
-
-    staffObligations.forEach(obligation => {
-        // (An employee's pay is payroll; a contractor's is contract labor. Cash tips they took home are part of their pay,
-        // booked on their own line as cash that left the till, so the books still show everything they earned.)
-        const kind = obligation.contractor ? { taxBucket: 'operating_cost', category: 'Contract Labor' } : { taxBucket: 'payroll', category: 'Payroll' };
-        const mark = { paydayPeriod: periodKey, paydayFrom: payFromYmd, paydayTo: payToYmd };
-        if (obligation.amount > 0) {
-            const txnRef = doc(firestore, `tenants/${tenantId}/transactions`, `payday_${periodKey}_${obligation.id}`);
-            lines.push({ ref: txnRef, data: { id: txnRef.id, date: now, description: `Payday: ${obligation.name}`, clientOrVendor: obligation.name, type: 'expense', context: 'Business', ...kind,
-                amount: Number(obligation.amount.toFixed(2)), paymentMethod: 'Distribution', hasReceipt: false, staffId: obligation.id, ...mark } });
-        }
-        const cash = cashLineOf(obligation);
-        if (cash > 0) {
-            const cashRef = doc(firestore, `tenants/${tenantId}/transactions`, `paydaycash_${periodKey}_${obligation.id}`);
-            lines.push({ ref: cashRef, data: { id: cashRef.id, date: now, description: `Cash tips taken home: ${obligation.name}`, clientOrVendor: obligation.name, type: 'expense', context: 'Business', ...kind,
-                amount: cash, paymentMethod: 'Cash', hasReceipt: false, staffId: obligation.id, ...mark } });
-        }
-    });
-
-    suggestions.forEach(bucket => {
-        if (bucket.amount > 0 && bucket.key !== 'opex') {
-            const txnRef = doc(firestore, `tenants/${tenantId}/transactions`, `setaside_${periodKey}_${bucket.key}`);
-            const newTxn: any = {
-                date: now,
-                description: `Set aside: ${bucket.label}`,
-                clientOrVendor: 'Internal Distribution',
-                type: 'expense',
-                context: 'Business',
-                taxBucket: 'transfer',
-                category: 'Distribution',
-                amount: Number(bucket.amount.toFixed(2)),
-                paymentMethod: 'Internal Transfer',
-                hasReceipt: false,
-                paydayPeriod: periodKey, paydayFrom: payFromYmd, paydayTo: payToYmd,
-            };
-            lines.push({ ref: txnRef, data: { ...newTxn, id: txnRef.id } });
-        }
-    });
-
     try {
-        if (!lines.length) return;
-        const before = await recordedFor();
-        if (before) { setRecorded(before); throw new Error('already-recorded'); }
-        await runTransaction(firestore, async (tx) => {
-            const there = await Promise.all(lines.map(l => tx.get(l.ref)));
-            if (there.some(d => d.exists())) throw new Error('already-recorded');
-            lines.forEach(l => tx.set(l.ref, l.data));
-        });
-        setRecorded({ on: now, from: payFromYmd, to: payToYmd });
-        toast({ title: 'Payday recorded', description: 'Each person’s pay and the set-asides are in your books.' });
+        const res = await fetch('/api/payroll/record', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tenantId, periodKey, from: payFromYmd, to: payToYmd, people, setAsides }) });
+        const r: any = await res.json().catch(() => ({}));
+        if (res.status === 409) {
+            toast({ title: 'Payday for these dates is already in your books', description: 'Nothing was added twice.' });
+            if (r?.recorded) setRecorded(r.recorded); else recordedFor().then(x => setRecorded(x)).catch(() => {});
+            return;
+        }
+        if (!res.ok || !r?.ok) { toast({ variant: 'destructive', title: 'Payday wasn’t recorded', description: r?.error || 'Nothing was added to your books. Try again.' }); return; }
+        setRecorded({ on: String(r.recordedAt || new Date().toISOString()), from: payFromYmd, to: payToYmd });
+        const viaBank = Number(r.viaBankCents) || 0;
+        toast({ title: 'Payday recorded', description: viaBank > 0
+            ? `Your bank already shows ${fmtCurrency(viaBank / 100)} paid through your payroll company for these dates, so the team’s pay wasn’t added twice. Contractors, cash tips and the set-asides are in your books.`
+            : 'The team’s pay and the set-asides are in your books.' });
         setAllocationAmount(0);
         markDraftApproved();
-        writeAudit(firestore, tenantId, {
-            action: 'payroll.distribute', targetType: 'payroll',
-            summary: `Recorded payday: ${staffObligations.length} ${staffObligations.length === 1 ? 'person' : 'people'} paid ${fmtCurrency(staffTotalOwed)}, and ${fmtCurrency(allocationAmount)} split to set aside`,
-            amount: staffTotalOwed, actor: auditActor,
-        });
     } catch (e: any) {
-        if (e?.message === 'already-recorded') {
-            toast({ title: 'Payday for these dates is already in your books', description: 'Nothing was added twice.' });
-            recordedFor().then(r => setRecorded(r)).catch(() => {});
-        } else {
-            console.error("Distributions failed:", e);
-            toast({ variant: 'destructive', title: 'Payday wasn’t recorded', description: 'Nothing was added to your books. Try again.' });
-        }
+        console.error('Payday not recorded:', e);
+        toast({ variant: 'destructive', title: 'Payday wasn’t recorded', description: 'Nothing was added to your books. Try again.' });
     } finally {
         setIsSubmitting(false);
     }
@@ -932,7 +899,7 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
         recordedSpan={recorded && (recorded.from !== payFromYmd || recorded.to !== payToYmd) ? spanWords(new Date(`${recorded.from}T00:00:00`), new Date(`${recorded.to}T00:00:00`)) : null}
         statementFor={statementFor} onStatement={setStatementFor}
         statement={(o) => tenantId ? <PayStatement tenantId={tenantId} staffId={o.id} from={dateRange.from.toISOString()} to={dateRange.to.toISOString()} title={`${o.name}, pay statement`} /> : null}
-        onSeeBills={() => { onNavigate?.('bills'); if (typeof window !== 'undefined') window.scrollTo({ top: 0 }); }}
+        onSeeBills={onNavigate ? () => { onNavigate('bills'); if (typeof window !== 'undefined') window.scrollTo({ top: 0 }); } : undefined}
       />
     </div>
   );
@@ -1121,18 +1088,23 @@ function MoneyHubContent() {
   // dot on the Activity tab when something happens while you're on another
   // tab. First load counts as seen; only NEW entries during the session dot.
   const { firestore: hubFirestore } = useFirebase();
-  const { selectedTenant: hubTenant } = useTenant();
+  const { selectedTenant: hubTenant, role: hubRole, can } = useTenant();
   const hubTenantId = hubTenant?.id;
+  // Who sees what: the owner and anyone whose role includes the books see every tab; someone who only runs payroll (a
+  // manager, by default) sees Payday.
+  // (Payday only with payroll: it works out each person's pay, which the books alone don't show.)
+  const seesAll = can('money.view'); const pays = can('money.payroll'); const paysOnly = !seesAll && pays;
+  const tabs = seesAll ? HUB_TABS.filter((t) => t.key !== 'payday' || pays) : paysOnly ? HUB_TABS.filter((t) => t.key === 'payday') : [];
   const [latestAuditAt, setLatestAuditAt] = useState<string | null>(null);
   const [seenAuditAt, setSeenAuditAt] = useState<string | null>(null);
   useEffect(() => {
-    if (!hubFirestore || !hubTenantId) return;
+    if (!hubFirestore || !hubTenantId || !seesAll) return;
     const q = query(collection(hubFirestore, `tenants/${hubTenantId}/auditLogs`), orderBy('at', 'desc'), limit(1));
     const unsub = onSnapshot(q,
       snap => setLatestAuditAt((snap.docs[0]?.data() as any)?.at || null),
       () => { /* non-fatal */ });
     return () => unsub();
-  }, [hubFirestore, hubTenantId]);
+  }, [hubFirestore, hubTenantId, seesAll]);
   useEffect(() => {
     if (latestAuditAt && seenAuditAt === null) setSeenAuditAt(latestAuditAt);       // baseline on load
     if (activeTab === 'activity' && latestAuditAt) setSeenAuditAt(latestAuditAt);   // viewing clears it
@@ -1140,6 +1112,7 @@ function MoneyHubContent() {
   const hasNewActivity = !!latestAuditAt && !!seenAuditAt && latestAuditAt !== seenAuditAt && activeTab !== 'activity';
 
   const handleTabChange = (tab: HubTab) => {
+    if (tab === 'payday' && !pays) return;
     setActiveTab(tab);
     setVisitedTabs(prev => (prev.has(tab) ? prev : new Set(prev).add(tab)));
     // Keep the URL shareable without triggering a Next.js navigation
@@ -1155,22 +1128,30 @@ function MoneyHubContent() {
   // the tab changes or the page is looked at again. The owner's to read, so for anyone else it isn't shown.)
   const [bankWaiting, setBankWaiting] = useState<number | null>(null);
   useEffect(() => {
-    if (!hubFirestore || !hubTenantId) return; let on = true;
+    if (!hubFirestore || !hubTenantId || !seesAll) return; let on = true;
     const count = () => getCountFromServer(query(collection(hubFirestore, `tenants/${hubTenantId}/bankTransactions`), where('status', '==', 'unmatched')))
       .then((x: any) => { if (on) setBankWaiting(x.data().count); }).catch(() => {});
     count(); const vis = () => { if (document.visibilityState === 'visible') count(); };
     document.addEventListener('visibilitychange', vis);
     return () => { on = false; document.removeEventListener('visibilitychange', vis); };
-  }, [hubFirestore, hubTenantId, activeTab]);
+  }, [hubFirestore, hubTenantId, activeTab, seesAll]);
+  // (Someone who only runs payroll lands on Payday, whatever the address asked for.)
+  useEffect(() => { if (paysOnly && activeTab !== 'payday') handleTabChange('payday'); }, [paysOnly, activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const tenantId = hubTenantId;
+  if (hubRole && !seesAll && !paysOnly) return (
+    <div className="flex min-h-screen w-full flex-col" style={{ background: '#f5f5f7' }}>
+      <AppHeader title="Money" />
+      <main className="flex flex-1 items-center justify-center px-6"><p className="max-w-sm text-center text-[15px]" style={{ color: '#6d7075' }}>Money is for the owner and people whose role includes the books or payroll.</p></main>
+    </div>
+  );
   return (
     <div className="flex min-h-screen w-full flex-col overflow-x-hidden" style={{ background: '#f5f5f7' }}>
       <AppHeader title="Money" />
 
       <nav aria-label="Money" className="sticky top-0 z-30 border-b px-4 py-2.5 backdrop-blur" style={{ background: 'rgba(245,245,247,0.94)', borderColor: '#ececee' }}>
         <div className="mx-auto flex max-w-[1180px] gap-1.5 overflow-x-auto md:px-2">
-          {HUB_TABS.map(({ key, label }) => (
+          {tabs.map(({ key, label }) => (
             <button key={key} type="button" aria-current={activeTab === key ? 'page' : undefined} onClick={() => handleTabChange(key)}
               className="relative flex min-h-[44px] shrink-0 items-center gap-1.5 rounded-full px-4 text-[14px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2"
               style={activeTab === key ? { background: '#16171a', color: '#fff', fontWeight: 600 } : { background: '#fff', color: '#16171a', border: '1px solid #ececee' }}>
@@ -1183,7 +1164,7 @@ function MoneyHubContent() {
       </nav>
 
       <main className="flex-1 w-full">
-        {visitedTabs.has('overview') && <div className={cn(activeTab !== 'overview' && 'hidden')}>
+        {seesAll && visitedTabs.has('overview') && <div className={cn(activeTab !== 'overview' && 'hidden')}>
           <MoneyOverview bankCount={bankWaiting} onNavigate={(t) => handleTabChange(t as HubTab)} more={tenantId ? <>
             <MonthCloseCard tenantId={tenantId} />
             <AppPayoutsCard tenantId={tenantId} />
@@ -1192,12 +1173,12 @@ function MoneyHubContent() {
             <TipShareCard tenantId={tenantId} mode={String((hubTenant as any)?.tipSharing?.mode || 'direct')} period={(hubTenant as any)?.tipSharing?.period === 'week' ? 'week' : 'day'} />
           </> : null} />
         </div>}
-        {visitedTabs.has('ledger')   && <div className={cn(activeTab !== 'ledger'   && 'hidden')}><LedgerTab /></div>}
-        {visitedTabs.has('bank')     && <div className={cn(activeTab !== 'bank'     && 'hidden')}><BankTab /></div>}
-        {visitedTabs.has('payday')   && <div className={cn(activeTab !== 'payday'   && 'hidden')}><PaydayTab onNavigate={handleTabChange} /></div>}
-        {visitedTabs.has('bills')    && <div className={cn(activeTab !== 'bills'    && 'hidden')}><BillsTab /></div>}
-        {visitedTabs.has('reports')  && <div className={cn(activeTab !== 'reports'  && 'hidden')}><ReportsTab /></div>}
-        {visitedTabs.has('activity') && <div className={cn(activeTab !== 'activity' && 'hidden')}><ActivityTab onNavigate={handleTabChange} /></div>}
+        {seesAll && visitedTabs.has('ledger')   && <div className={cn(activeTab !== 'ledger'   && 'hidden')}><LedgerTab /></div>}
+        {seesAll && visitedTabs.has('bank')     && <div className={cn(activeTab !== 'bank'     && 'hidden')}><BankTab /></div>}
+        {pays && visitedTabs.has('payday')   && <div className={cn(activeTab !== 'payday'   && 'hidden')}><PaydayTab onNavigate={seesAll ? handleTabChange : undefined} /></div>}
+        {seesAll && visitedTabs.has('bills')    && <div className={cn(activeTab !== 'bills'    && 'hidden')}><BillsTab /></div>}
+        {seesAll && visitedTabs.has('reports')  && <div className={cn(activeTab !== 'reports'  && 'hidden')}><ReportsTab /></div>}
+        {seesAll && visitedTabs.has('activity') && <div className={cn(activeTab !== 'activity' && 'hidden')}><ActivityTab onNavigate={handleTabChange} /></div>}
       </main>
     </div>
   );

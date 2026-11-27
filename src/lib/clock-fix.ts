@@ -48,7 +48,8 @@ export async function submitFix(db: any, tenantId: string, me: RequestActor, inp
 }
 
 export async function decideFix(db: any, tenantId: string, me: RequestActor, fixId: string, approve: boolean, input: { outAt?: string; note?: string } = {}, nowMs = Date.now()): Promise<Out> {
-  if (!me.isManager) return { ok: false, error: 'Only a manager can approve this correction.' };
+  // (A manager, or anyone whose role fixes and approves time clock hours.)
+  if (!me.isManager && !(me.caps || []).includes('time.approve')) return { ok: false, error: 'Only a manager can approve this correction.' };
   const T = `tenants/${tenantId}`; const ref = db.doc(`${T}/clockFixes/${fixId}`); const f: any = (await ref.get()).data();
   if (!f) return { ok: false, error: 'This request is no longer available.' };
   if (f.status !== 'pending') return { ok: false, error: 'This request has already been decided.' };

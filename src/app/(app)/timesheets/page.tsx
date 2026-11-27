@@ -1,662 +1,229 @@
 'use client';
-
+// src/app/(app)/timesheets/page.tsx — HOURS (Team › Time, and /timesheets): the time clock's shifts for a week, worked
+// out by the shared engine (lib/timeclock: overnight shifts kept, breaks from the punches, forgotten clock-outs flagged,
+// rejected shifts not paid), against the schedule (lib/shift-check). What waits before payday covers the whole pay period
+// the week is in (lib/pay-periods). Laid out by components/staff/TimesheetsScreen. For the owner and anyone whose role
+// fixes and approves hours (time.approve: managers by default).
 import React, { useState, useMemo, useCallback } from 'react';
 import { AppHeader } from '@/components/shared/AppHeader';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Separator } from '@/components/ui/separator';
-import { Textarea } from '@/components/ui/textarea';
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter
-} from '@/components/ui/dialog';
-import {
-  Clock, CheckCircle2, XCircle, AlertTriangle, ChevronLeft, ChevronRight,
-  Loader, Users, Timer, TrendingUp, Shield, MapPin, Download, Edit, Coffee,
-  DollarSign, Info
-} from 'lucide-react';
-import {
-  format, startOfWeek, endOfWeek, addWeeks, subWeeks, addDays,
-  parseISO, differenceInMinutes, isSameDay, eachDayOfInterval, startOfDay, endOfDay
-} from 'date-fns';
-import { cn, safeNumber } from '@/lib/utils';
-import { useFirebase, useCollection, useMemoFirebase, updateDocumentNonBlocking, setDocumentNonBlocking } from '@/firebase';
-import { collection, doc, writeBatch, query, where } from 'firebase/firestore';
+import { Loader } from 'lucide-react';
+import { useFirebase, useCollection, useMemoFirebase } from '@/firebase';
+import { collection, doc, writeBatch, query, where, updateDoc } from 'firebase/firestore';
 import { useTenant } from '@/context/TenantContext';
 import { useInventory } from '@/context/InventoryContext';
 import { useToast } from '@/hooks/use-toast';
-import { sessionsFrom, clockPolicy, localDay, zonedEpoch } from '@/lib/timeclock';
+import { sessionsFrom, clockPolicy, localDay, zonedEpoch, weekOf, type Session } from '@/lib/timeclock';
 import { usePunchesInRange } from '@/hooks/use-transactions';
-import { ClockFixReview } from '@/components/staff/ClockFixReview';
 import { dayCompare } from '@/lib/shift-check';
+import { payRules } from '@/lib/pay-period';
+import { periodOf } from '@/lib/pay-periods';
 import { logAuditClient } from '@/lib/audit-client';
+import { csvName, downloadCsv, type Cell } from '@/lib/csv';
 import { getAuth } from 'firebase/auth';
+import { TimesheetsScreen, ShiftDialog, type Shift, type PersonWeek, type Needs, type ClockFix } from '@/components/staff/TimesheetsScreen';
 
-const safeDate = (val: any): Date => {
-  if (!val) return new Date();
-  if (val instanceof Date) return val;
-  if (typeof val?.toDate === 'function') return val.toDate();
-  if (typeof val === 'string') { try { return parseISO(val); } catch { return new Date(val); } }
-  if (typeof val === 'object' && 'seconds' in val) return new Date(val.seconds * 1000);
-  return new Date(val);
-};
-
-const formatDuration = (minutes: number) => {
-  const h = Math.floor(Math.abs(minutes) / 60);
-  const m = Math.abs(minutes) % 60;
-  return `${h}h ${m}m`;
-};
+const DAY = 86400000;
+const addDays = (d: string, n: number) => new Date(Date.parse(`${d}T12:00:00Z`) + n * DAY).toISOString().slice(0, 10);
+const NOTE: Record<string, string> = { late: 'Clocked in late', early: 'Clocked in early', noshift: 'Not on the schedule', left_early: 'Left early', stayed: 'Stayed late' };
+/** A punch note ("late: 12 minutes after the shift") in words. */
+const noteWords = (n: string) => n.replace(/^(\w+):\s*/, (_m, k: string) => (NOTE[k] ? `${NOTE[k]}: ` : ''));
 
 export default function TimesheetsPage() {
   const { firestore } = useFirebase();
-  const { selectedTenant, role } = useTenant();
+  const { selectedTenant, can } = useTenant();
   const { staff, isLoading: ctxLoading } = useInventory();
   const tenantId = selectedTenant?.id;
   const { toast } = useToast();
+  const tenant: any = selectedTenant || {};
 
-  const wso = ((selectedTenant as any)?.workweekStartsOn === 0 ? 0 : 1) as 0 | 1;
-  // Times shown and edited in the BUSINESS's time zone, whatever device the manager is on.
-  const bizTz = (selectedTenant as any)?.timezone || 'America/New_York';
-  const tHM = (d: Date | null | undefined, h24 = false) => (d ? new Intl.DateTimeFormat(h24 ? 'en-GB' : 'en-US', { hour: h24 ? '2-digit' : 'numeric', minute: '2-digit', hour12: !h24, timeZone: bizTz }).format(d) : '');   // the business's workweek (Settings)
-  const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
-  React.useEffect(() => { setWeekStart((w) => startOfWeek(w, { weekStartsOn: wso })); }, [wso]);
-  const [selectedEntry, setSelectedEntry] = useState<any | null>(null);
-  const [reviewNote, setReviewNote] = useState('');
-  const [isReviewOpen, setIsReviewOpen] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
-  // Edit mode state
-  const [isEditing, setIsEditing] = useState(false);
-  const [editClockIn, setEditClockIn] = useState('');
-  const [editClockOut, setEditClockOut] = useState('');
-
-  const weekEnd = endOfWeek(weekStart, { weekStartsOn: wso });
-  const weekDays = eachDayOfInterval({ start: weekStart, end: weekEnd });
-  // Only this week's punches are read (a day wider each side, for overnight shifts).
-  const punchFrom = useMemo(() => new Date(weekStart.getTime()), [weekStart]);
-  const punchTo = useMemo(() => new Date(weekEnd.getTime() + 1), [weekEnd.getTime()]);
+  // The business's own days and workweek, whatever device the manager is on.
+  const bizTz = tenant.timezone || 'America/New_York';
+  const wso = tenant.workweekStartsOn === 0 ? 0 : 1;
+  const time = useCallback((d: Date) => new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: bizTz }).format(d), [bizTz]);
+  const hhmm = useCallback((d: Date) => new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: bizTz }).format(d), [bizTz]);
+  const today = localDay(Date.now(), bizTz);
+  const thisWeek = weekOf(today, wso);
+  const [weekFrom, setWeekFrom] = useState(thisWeek);
+  React.useEffect(() => { setWeekFrom((w) => weekOf(w, wso)); }, [wso]);
+  const weekTo = addDays(weekFrom, 6);
+  const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekFrom, i)), [weekFrom]);
+  // The pay period the week is in: what waits before its payday is looked at across all of it.
+  const period = useMemo(() => periodOf(tenant, weekFrom), [tenant, weekFrom]);
+  const spanFrom = period.from < weekFrom ? period.from : weekFrom, spanTo = period.to > weekTo ? period.to : weekTo;
+  const punchFrom = useMemo(() => new Date(zonedEpoch(spanFrom, '00:00', bizTz)), [spanFrom, bizTz]);
+  const punchTo = useMemo(() => new Date(zonedEpoch(addDays(spanTo, 1), '00:00', bizTz)), [spanTo, bizTz]);
   const { activityLogs, isLoading: punchLoading } = usePunchesInRange(punchFrom, punchTo);
   const isLoading = ctxLoading || punchLoading;
-  const overtimeThreshold = safeNumber(selectedTenant?.overtimeThresholdHours) || 40;
-  const paidBreakMinutes = safeNumber(selectedTenant?.paidBreakMinutes) || 0;
+  const rules = payRules(tenant);
 
-  // The published schedule for this week — compared with what was worked (lib/shift-check).
-  const wkFrom = format(weekStart, 'yyyy-MM-dd'), wkTo = format(weekEnd, 'yyyy-MM-dd');
-  const { data: weekShifts } = useCollection<any>(useMemoFirebase(() => (firestore && tenantId ? query(collection(firestore, `tenants/${tenantId}/shifts`), where('date', '>=', wkFrom), where('date', '<=', wkTo)) : null), [firestore, tenantId, wkFrom, wkTo]));
+  // The published schedule for the week, compared with what was worked.
+  const { data: weekShifts } = useCollection<any>(useMemoFirebase(() => (firestore && tenantId ? query(collection(firestore, `tenants/${tenantId}/shifts`), where('date', '>=', weekFrom), where('date', '<=', weekTo)) : null), [firestore, tenantId, weekFrom, weekTo]));
+  // Forgotten clock-outs the person has said when they left (lib/clock-fix).
+  const { data: fixList } = useCollection<any>(useMemoFirebase(() => (firestore && tenantId ? query(collection(firestore, `tenants/${tenantId}/clockFixes`), where('status', '==', 'pending')) : null), [firestore, tenantId]));
+  const fixesAll: ClockFix[] = useMemo(() => (fixList || []).slice().sort((a: any, b: any) => String(a.inAt).localeCompare(String(b.inAt))).map((f: any) => ({ id: f.id, staffId: String(f.staffId || ''), staffName: String(f.staffName || 'Someone'), inAt: f.inAt, outAt: f.outAt, note: f.note || undefined, dayKey: localDay(Date.parse(f.inAt), bizTz) })), [fixList, bizTz]);
+  const fixFor = useMemo(() => new Set(fixesAll.map((f) => `${f.id}`)), [fixesAll]);
 
-  const timesheets = useMemo(() => {
-    if (!staff || !activityLogs) return [];
-    // Sessions from the shared time clock engine (lib/timeclock): overnight shifts kept, forgotten clock-outs flagged,
-    // breaks worked out from the punches, rejected sessions not paid.
-    const all = sessionsFrom(activityLogs as any, clockPolicy(selectedTenant));
-    return staff.filter((m: any) => m.isRenter !== true && m.archived !== true).map(member => {
-      const mine = all.filter((x) => x.staffId === member.id);
-      const latestIn = mine.length ? mine[mine.length - 1].inAt : '';
-      // Past weeks don't see later shifts, so a clock-in after this one means it isn't their latest.
-      const clockedInAt = (member as any).clockInTime ? safeDate((member as any).clockInTime).getTime() : 0;
-      const laterShift = (inAt: string) => clockedInAt > Date.parse(inAt) + 60_000;
-      const days = weekDays.map(day => {
-        const key = format(day, 'yyyy-MM-dd');
-        const sessions = mine.filter((x) => x.localDate === key).map((x) => ({
-          clockIn: new Date(x.inAt), clockOut: x.outAt ? new Date(x.outAt) : null, breakMinutes: x.breakMinutes, paidBreakMins: x.paidBreakMinutes,
-          workedMinutes: x.workedMinutes, geoVerified: x.geoVerified, geoWarnOnly: x.geoWarnOnly, status: x.status, logId: x.outId || null, inId: x.inId || null,
-          missingOut: x.missingOut, isLatest: x.inAt === latestIn && !laterShift(x.inAt), localDate: x.localDate, shiftNoteIn: x.shiftNoteIn || null, shiftNoteOut: x.shiftNoteOut || null, managerNote: x.note || '', approvedBy: x.approvedBy || '', staffId: member.id, hourlyMinutes: x.hourlyMinutes || 0, splitTime: (member as any).splitTime === true,
-        }));
-        const totalMinutes = sessions.reduce((sum, s) => sum + s.workedMinutes, 0);
-        const cmp = dayCompare(key, (weekShifts || []).filter((x: any) => x.staffId === member.id), mine, selectedTenant);
-        return { date: day, sessions, totalMinutes, scheduledMinutes: cmp.scheduledMinutes, shiftLabel: cmp.shiftLabel, noShow: cmp.noShow };
-      });
+  const team = useMemo(() => (staff || []).filter((m: any) => m.isRenter !== true && m.archived !== true), [staff]);
+  // (Your own hours are fixed and approved by someone else, unless you're the owner: the rules and lib/clock-fix say so too.)
+  const uid = getAuth().currentUser?.uid || '';
+  const selfId = String((staff || []).find((m: any) => m.id === uid || m.authUid === uid)?.id || '');
+  const isOwner = !!uid && uid === tenant.userId;
+  const fixes = useMemo(() => fixesAll.filter((f) => isOwner || !selfId || f.staffId !== selfId), [fixesAll, isOwner, selfId]);
+  const all = useMemo(() => (activityLogs ? sessionsFrom(activityLogs as any, clockPolicy(selectedTenant)) : []), [activityLogs, selectedTenant]);
+  const latestIn = useMemo(() => { const m = new Map<string, string>(); for (const s of all) if (!m.get(s.staffId) || s.inAt > m.get(s.staffId)!) m.set(s.staffId, s.inAt); return m; }, [all]);
+  const toShift = useCallback((x: Session): Shift => ({
+    key: `${x.staffId}_${x.inAt}`, dayKey: x.localDate, inAt: new Date(x.inAt), outAt: x.outAt ? new Date(x.outAt) : null,
+    breakMinutes: x.breakMinutes, paidBreakMinutes: x.paidBreakMinutes, workedMinutes: x.workedMinutes, hourlyMinutes: x.hourlyMinutes || 0,
+    splitTime: !!(team.find((m: any) => m.id === x.staffId) as any)?.splitTime,
+    status: x.missingOut ? 'pending' : x.status === 'approved' ? 'approved' : x.status === 'rejected' ? 'rejected' : x.status === 'active' || x.open ? 'active' : 'pending',
+    missingOut: x.missingOut, outOfZone: !!x.geoWarnOnly, notes: [x.shiftNoteIn, x.shiftNoteOut].filter(Boolean).map((n) => noteWords(String(n))),
+    managerNote: x.note || '', approvedBy: x.approvedBy || '',
+    // (A shift the person asked to fix themselves waits in their request, above, not here.)
+    canReview: !!x.inId && !(x.missingOut && fixFor.has(String(x.inId))) && (x.missingOut || !!x.outId) && (isOwner || !selfId || x.staffId !== selfId),
+  }), [team, fixFor, isOwner, selfId]);
+  const raw = useMemo(() => new Map(all.map((x) => [`${x.staffId}_${x.inAt}`, x])), [all]);
 
-      const totalWeekMinutes = days.reduce((sum, d) => sum + d.totalMinutes, 0);
-      const scheduledWeekMinutes = days.reduce((sum, d: any) => sum + (d.scheduledMinutes || 0), 0);
-      // On track for overtime? What's been worked plus the shifts still to come this week.
-      const todayKey = format(new Date(), 'yyyy-MM-dd');
-      const projectedMinutes = totalWeekMinutes + days.filter((d: any) => format(d.date, 'yyyy-MM-dd') > todayKey).reduce((sum, d: any) => sum + (d.scheduledMinutes || 0), 0);
-      const projectedOvertime = Math.max(0, projectedMinutes - overtimeThreshold * 60);
-      const noShows = days.filter((d: any) => d.noShow).length;
-      const overtimeMinutes = Math.max(0, totalWeekMinutes - overtimeThreshold * 60);
-      const regularMinutes = totalWeekMinutes - overtimeMinutes;
-      const multiplier = safeNumber(selectedTenant?.overtimeMultiplier) || 1.5;
+  const people: PersonWeek[] = useMemo(() => team.map((m: any) => {
+    const contractor = m.employmentType === 'contractor';
+    const mine = all.filter((x) => x.staffId === m.id && x.localDate >= weekFrom && x.localDate <= weekTo);
+    const shiftsOf = (weekShifts || []).filter((x: any) => x.staffId === m.id);
+    const days = weekDays.map((k) => { const cmp = dayCompare(k, shiftsOf, mine, selectedTenant); return { dayKey: k, workedMinutes: mine.filter((x) => x.localDate === k).reduce((n, x) => n + x.workedMinutes, 0), scheduledMinutes: cmp.scheduledMinutes, noShow: cmp.noShow, later: k > today }; });
+    const worked = days.reduce((n, d) => n + d.workedMinutes, 0), scheduled = days.reduce((n, d) => n + d.scheduledMinutes, 0);
+    const toCome = days.filter((d) => d.later).reduce((n, d) => n + d.scheduledMinutes, 0);
+    const shifts = mine.map(toShift).sort((a, b) => a.inAt.getTime() - b.inAt.getTime());
+    return { id: m.id, name: String(m.name || 'Team member'), contractor, days, shifts, workedMinutes: worked, scheduledMinutes: scheduled,
+      overtimeMinutes: contractor ? 0 : Math.max(0, worked - rules.overtimeHours * 60), projectedOvertime: contractor ? 0 : Math.max(0, worked + toCome - rules.overtimeHours * 60),
+      waiting: shifts.filter((s) => s.status === 'pending' && !s.missingOut && !!s.outAt).length, missing: shifts.filter((s) => s.missingOut).length, noShows: days.filter((d) => d.noShow).length };
+  }).sort((a: PersonWeek, b: PersonWeek) => (b.missing + b.waiting) - (a.missing + a.waiting) || a.name.localeCompare(b.name)), [team, all, weekFrom, weekTo, weekDays, weekShifts, selectedTenant, today, rules.overtimeHours, toShift]);
 
-      let estimatedPay = 0;
-      if (member.payStructure === 'hourly' && member.hourlyRate) {
-        estimatedPay = (regularMinutes / 60) * member.hourlyRate
-          + (overtimeMinutes / 60) * member.hourlyRate * multiplier;
-      }
+  // What waits before payday, across the whole pay period.
+  const needs: Needs = useMemo(() => {
+    const inPeriod = all.filter((x) => x.localDate >= period.from && x.localDate <= period.to);
+    const nameOf = (id: string) => String(team.find((m: any) => m.id === id)?.name || 'Someone');
+    const onTeam = new Set(team.map((m: any) => m.id));
+    const missing = inPeriod.filter((x) => x.missingOut && onTeam.has(x.staffId)).map((x) => ({ staffId: x.staffId, name: nameOf(x.staffId), shift: toShift(x) })).filter((m) => m.shift.canReview);
+    const waitingBy = new Map<string, Shift[]>();
+    for (const x of inPeriod) { if (!onTeam.has(x.staffId)) continue; const s = toShift(x); if (s.status === 'pending' && !s.missingOut && s.outAt && s.canReview) (waitingBy.get(x.staffId) || waitingBy.set(x.staffId, []).get(x.staffId)!).push(s); }
+    const waiting = [...waitingBy.entries()].map(([staffId, shifts]) => ({ staffId, name: nameOf(staffId), shifts: shifts.sort((a, b) => a.inAt.getTime() - b.inAt.getTime()) }));
+    const overtime = weekFrom === thisWeek ? people.filter((x) => x.projectedOvertime > 0 && x.overtimeMinutes === 0).map((x) => ({ staffId: x.id, name: x.name, projected: x.projectedOvertime, worked: x.workedMinutes, scheduled: x.days.filter((d) => d.later).reduce((n, d) => n + d.scheduledMinutes, 0) })) : [];
+    return { missing, waiting, overtime };
+  }, [all, period, team, toShift, people, weekFrom, thisWeek]);
 
-      const pendingCount = days.reduce((sum, d) =>
-        sum + d.sessions.filter(s => s.status === 'pending' && s.clockOut).length, 0);
-      const missingCount = days.reduce((sum, d) => sum + d.sessions.filter((s: any) => s.missingOut).length, 0);
-
-      return {
-        member, days, totalWeekMinutes,
-        totalWeekHours: totalWeekMinutes / 60,
-        overtimeMinutes, regularMinutes, estimatedPay,
-        hasUnapproved: pendingCount > 0, pendingCount, missingCount, scheduledWeekMinutes, projectedOvertime, noShows
-      };
-    });
-  }, [staff, activityLogs, weekStart, weekEnd, overtimeThreshold, paidBreakMinutes, selectedTenant, weekShifts]);
-
-  // Send notification to staff member
-  const sendStaffNotification = useCallback(async (staffId: string, type: string, message: string, link: string) => {
-    if (!firestore || !tenantId) return;
-    const notifRef = doc(collection(firestore, `tenants/${tenantId}/notifications`));
-    await setDocumentNonBlocking(notifRef, {
-      id: notifRef.id,
-      userId: staffId,
-      type,
-      message,
-      link: link || '/timesheets',
-      createdAt: new Date().toISOString(),
-      read: false,
-    }, {});
+  // ── Taps ──
+  const [busy, setBusy] = useState(false);
+  const [openShift, setOpenShift] = useState<{ staffId: string; name: string; shift: Shift } | null>(null);
+  const [changing, setChanging] = useState(false); const [inTime, setInTime] = useState(''); const [outTime, setOutTime] = useState(''); const [note, setNote] = useState('');
+  // (Who did it, by their name on the team: never their sign-in email, which the team would see.)
+  const me = () => { const u = getAuth().currentUser; const m: any = (staff || []).find((x: any) => x.id === u?.uid || x.authUid === u?.uid);
+    return { id: u?.uid || null, name: String(m?.name || (u?.uid && u.uid === tenant.userId ? 'The owner' : 'A manager')) }; };
+  const tell = useCallback((staffId: string, type: string, message: string) => {
+    if (!firestore || !tenantId) return Promise.resolve();
+    const ref = doc(collection(firestore, `tenants/${tenantId}/notifications`));
+    return writeBatch(firestore).set(ref, { id: ref.id, userId: staffId, type, message, link: '/staff-portal?tab=me', createdAt: new Date().toISOString(), read: false }).commit().catch(() => {});
   }, [firestore, tenantId]);
+  const onOpen = (staffId: string, name: string, shift: Shift, change: boolean) => {
+    setOpenShift({ staffId, name, shift }); setChanging(change); setNote(shift.managerNote || '');
+    setInTime(hhmm(shift.inAt)); setOutTime(shift.outAt ? hhmm(shift.outAt) : '');
+  };
+  const dayWords = (k: string) => new Date(`${k}T12:00:00`).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
 
-  const handleApprove = async (session: any) => {
+  /** Approves shifts (each one's clock-out punch), saying who did and telling the person. */
+  const approve = async (staffId: string, shifts: Shift[], withNote = '') => {
     if (!firestore || !tenantId) return;
-    setIsProcessing(true);
+    const ids = shifts.map((s) => raw.get(s.key)?.outId).filter(Boolean) as string[]; if (!ids.length) return;
+    setBusy(true);
     try {
-      await updateDocumentNonBlocking(
-        doc(firestore, `tenants/${tenantId}/activityLogs`, session.logId),
-        {
-          timesheetStatus: 'approved',
-          approvedBy: 'manager',
-          approvedAt: new Date().toISOString(),
-          reviewNote,
-        }
-      );
-      // Notify staff
-      await sendStaffNotification(
-        session.staffId,
-        'timesheet_approved',
-        `Your timesheet session on ${format(session.clockIn, 'MMM d')} has been approved.`,
-        '/timesheets'
-      );
-      toast({ title: 'Session Approved' });
-      setIsReviewOpen(false);
-      setReviewNote('');
-      setIsEditing(false);
-    } finally {
-      setIsProcessing(false);
-    }
+      const b = writeBatch(firestore); const now = new Date().toISOString(); const who = me();
+      for (const id of ids) b.update(doc(firestore, `tenants/${tenantId}/activityLogs`, id), { timesheetStatus: 'approved', approvedBy: who.name, approvedById: who.id, approvedAt: now, ...(withNote ? { reviewNote: withNote } : {}) });
+      await b.commit();
+      const name = String(team.find((m: any) => m.id === staffId)?.name || 'Their');
+      await tell(staffId, 'timesheet_approved', ids.length === 1 ? `Your shift on ${dayWords(shifts[0].dayKey)} is approved.` : `${ids.length} of your shifts are approved.`);
+      toast({ title: ids.length === 1 ? 'Shift approved' : `${ids.length} shifts approved`, description: `${name.split(' ')[0]}’s hours count on payday.` });
+      return true;
+    } catch (e: any) { toast({ variant: 'destructive', title: 'Not approved', description: e?.code === 'permission-denied' ? 'Your role can’t approve hours.' : 'Nothing changed. Try again.' }); return false; }
+    finally { setBusy(false); }
   };
-
-  const handleReject = async (session: any) => {
-    if (!reviewNote.trim()) {
-      toast({ variant: 'destructive', title: 'Note Required', description: 'Explain the reason for rejection.' });
-      return;
-    }
-    if (!firestore || !tenantId) return;
-    setIsProcessing(true);
+  const reject = async () => {
+    if (!firestore || !tenantId || !openShift) return;
+    const outId = raw.get(openShift.shift.key)?.outId; if (!outId || !note.trim()) return;
+    setBusy(true);
     try {
-      await updateDocumentNonBlocking(
-        doc(firestore, `tenants/${tenantId}/activityLogs`, session.logId),
-        {
-          timesheetStatus: 'rejected',
-          rejectedBy: 'manager',
-          rejectedAt: new Date().toISOString(),
-          reviewNote,
-        }
-      );
-      // Notify staff
-      await sendStaffNotification(
-        session.staffId,
-        'timesheet_rejected',
-        `Your timesheet session on ${format(session.clockIn, 'MMM d')} was flagged for review: "${reviewNote}"`,
-        '/timesheets'
-      );
-      toast({ title: 'Session Rejected', variant: 'destructive' });
-      setIsReviewOpen(false);
-      setReviewNote('');
-      setIsEditing(false);
-    } finally {
-      setIsProcessing(false);
-    }
+      await updateDoc(doc(firestore, `tenants/${tenantId}/activityLogs`, outId), { timesheetStatus: 'rejected', rejectedBy: me().name, rejectedAt: new Date().toISOString(), reviewNote: note.trim() });
+      await tell(openShift.staffId, 'timesheet_rejected', `Your shift on ${dayWords(openShift.shift.dayKey)} wasn’t approved: “${note.trim()}”`);
+      toast({ title: 'Not approved', description: `${openShift.name.split(' ')[0]} is told why. That shift isn’t paid.` });
+      setOpenShift(null);
+    } catch (e: any) { toast({ variant: 'destructive', title: 'Not saved', description: 'Nothing changed. Try again.' }); }
+    finally { setBusy(false); }
   };
-
-  // Manager correction: moves the clock-in punch and the clock-out punch to the times given (adds the clock-out when it
-  // was forgotten), keeps the original times on each punch, and records who changed what in the audit log.
-  const handleSaveEdit = async (session: any) => {
-    if (!firestore || !tenantId || !session?.inId) return;
-    if (!editClockIn || !editClockOut) {
-      toast({ variant: 'destructive', title: 'Both times needed', description: 'Put in the clock-in and clock-out times.' });
-      return;
-    }
-    const baseDate = session.localDate || localDay(session.clockIn.getTime(), bizTz);
-    const newClockIn = new Date(zonedEpoch(baseDate, editClockIn, bizTz));
-    let newClockOut = new Date(zonedEpoch(baseDate, editClockOut, bizTz));
-    if (newClockOut <= newClockIn) newClockOut = new Date(newClockOut.getTime() + 86400000);   // past midnight: the next day
-    if (newClockOut.getTime() - newClockIn.getTime() > 18 * 3600000) {
-      toast({ variant: 'destructive', title: 'Check the times', description: 'That shift would be over 18 hours.' });
-      return;
-    }
-    setIsProcessing(true);
+  // A manager's correction: moves the clock-in and clock-out to the times given (adds the clock-out when it was
+  // forgotten), keeps the original times on each punch, and records who changed what. It waits for approval after.
+  const save = async () => {
+    if (!firestore || !tenantId || !openShift) return;
+    const x = raw.get(openShift.shift.key); if (!x?.inId || !inTime || !outTime) return;
+    const newIn = new Date(zonedEpoch(x.localDate, inTime, bizTz)); let newOut = new Date(zonedEpoch(x.localDate, outTime, bizTz));
+    if (newOut <= newIn) newOut = new Date(newOut.getTime() + DAY);   // past midnight: the next day
+    if (newOut.getTime() - newIn.getTime() > 18 * 3600000) { toast({ variant: 'destructive', title: 'Check the times', description: 'That shift would be over 18 hours.' }); return; }
+    setBusy(true);
     try {
-      const now = new Date().toISOString(); const note = reviewNote || 'Manager correction';
-      const batch = writeBatch(firestore);
-      batch.update(doc(firestore, `tenants/${tenantId}/activityLogs`, session.inId), {
-        timestamp: newClockIn.toISOString(), managerEdited: true, editedAt: now, editNote: note,
-        ...(session.clockIn ? { originalTimestamp: (session as any).originalIn || session.clockIn.toISOString() } : {}),
-      });
-      if (session.logId) {
-        batch.update(doc(firestore, `tenants/${tenantId}/activityLogs`, session.logId), {
-          timestamp: newClockOut.toISOString(), managerEdited: true, editedAt: now, editNote: note, timesheetStatus: 'pending',
-          ...(session.clockOut ? { originalTimestamp: session.clockOut.toISOString() } : {}),
-        });
-      } else {
-        const ref = doc(collection(firestore, `tenants/${tenantId}/activityLogs`));
-        batch.set(ref, { id: ref.id, staffId: session.staffId, type: 'clock_out', timestamp: newClockOut.toISOString(), addedByManager: true, editedAt: now, editNote: note, timesheetStatus: 'pending' });
-        // The person still shows as on the clock from the forgotten shift — clear it (only when it's their latest one).
-        if (session.isLatest) batch.update(doc(firestore, `tenants/${tenantId}/staff`, session.staffId), { active: false, onBreak: false, clockInTime: null, status: 'off' });
-      }
-      await batch.commit();
-      const hm = (d: Date | null) => (d ? tHM(d) : 'no clock-out');
-      void logAuditClient(firestore, tenantId, { action: 'timesheet.edited', targetType: 'staff', targetId: session.staffId, actor: { type: 'user', id: getAuth().currentUser?.uid },
-        summary: `${session.staffName || 'Team member'} ${format(session.clockIn, 'EEE MMM d')}: ${hm(session.clockIn)}–${hm(session.clockOut)} changed to ${hm(newClockIn)}–${hm(newClockOut)}${note ? ` (${note})` : ''}`,
-        before: { in: session.clockIn?.toISOString(), out: session.clockOut?.toISOString() || null }, after: { in: newClockIn.toISOString(), out: newClockOut.toISOString() } } as any);
-      toast({ title: 'Times corrected', description: 'Review and approve to finish.' });
-      setIsEditing(false); setIsReviewOpen(false);
-    } catch (e: any) {
-      toast({ variant: 'destructive', title: 'Couldn’t save', description: e?.message || 'Try again.' });
-    } finally {
-      setIsProcessing(false);
-    }
+      const now = new Date().toISOString(); const why = note.trim() || 'Changed by a manager'; const b = writeBatch(firestore);
+      b.update(doc(firestore, `tenants/${tenantId}/activityLogs`, x.inId), { timestamp: newIn.toISOString(), managerEdited: true, editedAt: now, editNote: why, originalTimestamp: x.inAt });
+      if (x.outId) b.update(doc(firestore, `tenants/${tenantId}/activityLogs`, x.outId), { timestamp: newOut.toISOString(), managerEdited: true, editedAt: now, editNote: why, timesheetStatus: 'pending', ...(x.outAt ? { originalTimestamp: x.outAt } : {}) });
+      else { const ref = doc(collection(firestore, `tenants/${tenantId}/activityLogs`)); b.set(ref, { id: ref.id, staffId: x.staffId, type: 'clock_out', timestamp: newOut.toISOString(), addedByManager: true, editedAt: now, editNote: why, timesheetStatus: 'pending' }); }
+      await b.commit();
+      // (Still shown on the clock from the forgotten shift: cleared, when it's their latest. A role that can't change the
+      // person's record leaves it; the time clock clears it at their next clock-in.)
+      if (!x.outId && latestIn.get(x.staffId) === x.inAt) await updateDoc(doc(firestore, `tenants/${tenantId}/staff`, x.staffId), { active: false, onBreak: false, clockInTime: null, status: 'off' }).catch(() => {});
+      void logAuditClient(firestore, tenantId, { action: 'timesheet.edited', targetType: 'staff', targetId: x.staffId, actor: { type: 'user', id: me().id || undefined },
+        summary: `${openShift.name} ${dayWords(x.localDate)}: ${time(new Date(x.inAt))} to ${x.outAt ? time(new Date(x.outAt)) : 'no clock-out'} changed to ${time(newIn)} to ${time(newOut)} (${why})`,
+        before: { in: x.inAt, out: x.outAt || null }, after: { in: newIn.toISOString(), out: newOut.toISOString() } } as any);
+      toast({ title: 'Times saved', description: 'Approve the shift to finish.' });
+      setOpenShift(null);
+    } catch (e: any) { toast({ variant: 'destructive', title: 'Not saved', description: e?.code === 'permission-denied' ? 'Your role can’t change hours.' : 'Nothing changed. Try again.' }); }
+    finally { setBusy(false); }
   };
-
-  const handleApproveAll = async (tsData: any) => {
-    if (!firestore || !tenantId) return;
-    setIsProcessing(true);
-    const batch = writeBatch(firestore);
-    const now = new Date().toISOString();
-    tsData.days.forEach((day: any) => {
-      day.sessions.forEach((session: any) => {
-        if (session.status === 'pending' && session.logId && session.clockOut) {
-          batch.update(
-            doc(firestore, `tenants/${tenantId}/activityLogs`, session.logId),
-            { timesheetStatus: 'approved', approvedBy: getAuth().currentUser?.displayName || getAuth().currentUser?.email || 'Manager', approvedById: getAuth().currentUser?.uid || null, approvedAt: now }
-          );
-        }
-      });
-    });
+  const decideFix = async (f: ClockFix, ok: boolean, out: string, why: string) => {
+    if (!tenantId) return;
+    let outAt = f.outAt;
+    if (ok && out) { const day = localDay(Date.parse(f.inAt), bizTz); let t = zonedEpoch(day, out, bizTz); if (t <= Date.parse(f.inAt)) t += DAY; outAt = new Date(t).toISOString(); }
+    setBusy(true);
     try {
-      await batch.commit();
-      // Notify staff member
-      await sendStaffNotification(
-        tsData.member.id,
-        'timesheet_approved',
-        `All timesheet sessions for the week of ${format(weekStart, 'MMM d')} have been approved.`,
-        '/timesheets'
-      );
-      toast({ title: 'All Sessions Approved', description: `${tsData.member.name}'s week approved.` });
-    } finally {
-      setIsProcessing(false);
-    }
+      const r = await fetch('/api/timeclock/fix', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tenantId, action: 'decide', id: f.id, approve: ok, outAt, note: why }) }).then((x) => x.json()).catch(() => ({ ok: false, error: 'No connection. Try again.' }));
+      toast(r.ok ? { title: ok ? 'Clock-out added' : 'Sent back', description: r.message } : { variant: 'destructive', title: 'Not saved', description: r.error });
+    } finally { setBusy(false); }
+  };
+  const download = () => {
+    const status: Record<string, string> = { pending: 'Waiting', approved: 'Approved', rejected: 'Not approved', active: 'On the clock' };
+    const rows: Cell[][] = [['Person', 'Day', 'Clocked in', 'Clocked out', 'Break (minutes)', 'Paid break (minutes)', 'Hours worked', 'Status', 'Where', 'Note']];
+    for (const x of people) for (const s of x.shifts) rows.push([x.name, s.dayKey, time(s.inAt), s.outAt ? time(s.outAt) : (s.missingOut ? 'No clock-out' : 'On the clock'), s.breakMinutes, s.paidBreakMinutes,
+      Math.round((s.workedMinutes / 60) * 100) / 100, s.missingOut ? 'No clock-out' : status[s.status], s.outOfZone ? 'Away from the business' : 'At the business', s.managerNote || '']);
+    downloadCsv(csvName(String(tenant.name || ''), 'hours', weekFrom), rows);
   };
 
-  const exportCSV = () => {
-    const rows = [['Staff', 'Date', 'Clock In', 'Clock Out', 'Break (min)', 'Paid Break (min)', 'Hours Worked', 'Overtime', 'Status', 'Geo Verified', 'Manager Note']];
-    timesheets.forEach(ts => {
-      ts.days.forEach(day => {
-        day.sessions.forEach((session: any) => {
-          rows.push([
-            ts.member.name,
-            format(day.date, 'yyyy-MM-dd'),
-            session.clockIn ? tHM(session.clockIn, true) : '',
-            session.clockOut ? tHM(session.clockOut, true) : 'Active',
-            String(session.breakMinutes),
-            String(session.paidBreakMins),
-            (session.workedMinutes / 60).toFixed(2),
-            session.overtimeMinutes ? (session.overtimeMinutes / 60).toFixed(2) : '0',
-            session.status,
-            session.geoVerified ? 'Yes' : (session.geoWarnOnly ? 'Warn' : 'No'),
-            session.managerNote || '',
-          ]);
-        });
-      });
-    });
-    const csv = rows.map(r => r.join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `timesheets_${format(weekStart, 'yyyy-MM-dd')}.csv`;
-    a.click();
-  };
-
-  const openReview = (session: any, staffId: string, staffName: string) => {
-    setSelectedEntry({ ...session, staffId, staffName });
-    setReviewNote(session.managerNote || '');
-    setIsEditing(false);
-    setEditClockIn(session.clockIn ? tHM(session.clockIn, true) : '');
-    setEditClockOut(session.clockOut ? tHM(session.clockOut, true) : '');
-    setIsReviewOpen(true);
-  };
-
-  if (role !== 'owner' && role !== 'admin') {
+  // (The owner, and anyone whose role fixes and approves time clock hours: managers by default.)
+  if (!can('time.approve')) {
     return (
       <div className="flex min-h-screen flex-col bg-background">
         <AppHeader title="Timesheets" />
-        <main className="flex-1 flex items-center justify-center">
-          <p className="font-black uppercase text-muted-foreground opacity-40">Access Restricted</p>
+        <main className="flex flex-1 items-center justify-center px-6">
+          <p className="max-w-sm text-center text-[15px] text-muted-foreground">Fixing and approving hours is for the owner and people whose role includes it.</p>
         </main>
       </div>
     );
   }
 
-  if (isLoading) return (
-    <div className="flex min-h-screen flex-col bg-background">
-      <AppHeader title="Timesheets" />
-      <main className="flex-1 flex items-center justify-center"><Loader className="h-8 w-8 animate-spin text-primary" /></main>
-    </div>
-  );
-
-  const totalUnapproved = timesheets.reduce((sum, ts) => sum + ts.pendingCount, 0);
-  const totalWeekHours = timesheets.reduce((sum, ts) => sum + ts.totalWeekHours, 0);
-  const totalOvertimeHours = timesheets.reduce((sum, ts) => sum + ts.overtimeMinutes / 60, 0);
-
   return (
-    <div className="flex min-h-screen flex-col bg-background">
+    <div className="flex min-h-screen w-full flex-col overflow-x-hidden" style={{ background: '#f5f5f7' }}>
       <AppHeader title="Timesheets" />
-      <main className="flex-1 p-4 md:p-10 w-full max-w-7xl mx-auto space-y-8">
-        <ClockFixReview firestore={firestore} tenantId={tenantId || ""} />
-
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-          <div className="space-y-1">
-            <h1 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-foreground leading-none">Timesheets</h1>
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-60">Weekly review & approval</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            {paidBreakMinutes > 0 && (
-              <Badge className="h-8 px-4 rounded-2xl font-black uppercase text-[9px] bg-green-100 text-green-700 border-none gap-1.5">
-                <Coffee className="w-3 h-3" /> First {paidBreakMinutes}min Break is Paid
-              </Badge>
-            )}
-            {totalUnapproved > 0 && (
-              <Badge variant="destructive" className="h-8 px-4 rounded-2xl font-black uppercase text-[10px] animate-pulse">
-                {totalUnapproved} Pending Review
-              </Badge>
-            )}
-            <Button variant="outline" onClick={exportCSV} className="h-12 px-6 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest">
-              <Download className="w-4 h-4 mr-2" /> Export CSV
-            </Button>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-4 p-4 bg-card rounded-[2rem] border-2 shadow-sm w-fit">
-          <Button variant="ghost" size="icon" onClick={() => setWeekStart(subWeeks(weekStart, 1))} className="h-10 w-10 rounded-xl"><ChevronLeft className="w-5 h-5" /></Button>
-          <div className="text-center min-w-[200px]">
-            <p className="text-[9px] font-black uppercase tracking-widest text-primary opacity-60">Pay Week</p>
-            <p className="font-black text-sm uppercase tracking-tight">{format(weekStart, 'MMM d')} -- {format(weekEnd, 'MMM d, yyyy')}</p>
-          </div>
-          <Button variant="ghost" size="icon" onClick={() => setWeekStart(addWeeks(weekStart, 1))} className="h-10 w-10 rounded-xl"><ChevronRight className="w-5 h-5" /></Button>
-          <Button variant="outline" size="sm" onClick={() => setWeekStart(startOfWeek(new Date(), { weekStartsOn: wso }))} className="h-9 px-4 rounded-xl font-black uppercase text-[9px] border-2">This Week</Button>
-        </div>
-
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {[
-            { label: 'Total Staff', value: String(timesheets.length), icon: Users, color: 'text-primary' },
-            { label: 'Total Hours', value: `${totalWeekHours.toFixed(1)}h`, icon: Clock, color: 'text-blue-600' },
-            { label: 'Overtime Hours', value: `${totalOvertimeHours.toFixed(1)}h`, icon: AlertTriangle, color: totalOvertimeHours > 0 ? 'text-amber-600' : 'text-muted-foreground' },
-            { label: 'Pending Approval', value: String(totalUnapproved), icon: Shield, color: totalUnapproved > 0 ? 'text-destructive' : 'text-green-600' },
-          ].map(kpi => (
-            <Card key={kpi.label} className="border-2 rounded-[2rem] shadow-sm bg-card">
-              <CardContent className="p-5 flex items-center gap-4">
-                <div className={cn("p-3 rounded-2xl bg-muted/20", kpi.color)}><kpi.icon className="w-5 h-5" /></div>
-                <div className="min-w-0">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground opacity-60">{kpi.label}</p>
-                  <p className={cn("text-2xl font-black tracking-tighter font-mono", kpi.color)}>{kpi.value}</p>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-
-        <div className="space-y-6">
-          {timesheets.map(ts => (
-            <Card key={ts.member.id} className={cn("border-2 rounded-[2rem] shadow-sm overflow-hidden bg-card", ts.hasUnapproved && "border-amber-300 shadow-amber-100")}>
-              <CardHeader className="p-5 md:p-6 border-b bg-muted/5">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div className="flex items-center gap-4">
-                    <Avatar className="w-12 h-12 rounded-2xl border-2 shadow-sm">
-                      <AvatarFallback className="font-black bg-primary/10 text-primary text-sm">{ts.member.name?.[0]}</AvatarFallback>
-                    </Avatar>
-                    <div>
-                      <p className="font-black uppercase tracking-tight text-foreground">{ts.member.name}</p>
-                      <div className="flex items-center gap-2 flex-wrap mt-0.5">
-                        <p className="text-[10px] font-bold text-muted-foreground uppercase opacity-60">{ts.member.role} -- {ts.member.payStructure || 'commission'}</p>
-                        {paidBreakMinutes > 0 && (
-                          <Badge className="bg-green-100 text-green-700 border-none font-black text-[8px] uppercase h-4 px-1.5">
-                            <Coffee className="w-2.5 h-2.5 mr-1" />{paidBreakMinutes}m paid break
-                          </Badge>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-3">
-                    <div className="text-right">
-                      <p className="text-[9px] font-black uppercase text-muted-foreground opacity-60">Week Total</p>
-                      <p className="font-black text-lg font-mono text-primary">{formatDuration(ts.totalWeekMinutes)}</p>
-                    </div>
-                    {(ts as any).scheduledWeekMinutes > 0 && (
-                      <div className="text-right">
-                        <p className="text-[9px] font-black uppercase text-muted-foreground opacity-60">Scheduled</p>
-                        <p className="font-black text-lg font-mono text-muted-foreground">{formatDuration((ts as any).scheduledWeekMinutes)}</p>
-                      </div>
-                    )}
-                    {(ts as any).projectedOvertime > 0 && ts.overtimeMinutes === 0 && (
-                      <Badge className="bg-amber-50 text-amber-800 border-none text-[11px] font-semibold normal-case">
-                        <AlertTriangle className="w-3 h-3 mr-1" /> On track for {formatDuration((ts as any).projectedOvertime)} overtime this week
-                      </Badge>
-                    )}
-                    {(ts as any).noShows > 0 && (
-                      <Badge className="bg-destructive/10 text-destructive border-none text-[11px] font-semibold normal-case">{(ts as any).noShows} shift{(ts as any).noShows === 1 ? '' : 's'} with no clock-in</Badge>
-                    )}
-                    {ts.overtimeMinutes > 0 && (
-                      <Badge className="bg-amber-100 text-amber-700 border-none font-black text-[9px] uppercase">
-                        <AlertTriangle className="w-3 h-3 mr-1" /> OT: {formatDuration(ts.overtimeMinutes)}
-                      </Badge>
-                    )}
-                    {ts.member.payStructure === 'hourly' && ts.estimatedPay > 0 && (
-                      <div className="text-right">
-                        <p className="text-[9px] font-black uppercase text-muted-foreground opacity-60">Est. Pay</p>
-                        <p className="font-black text-sm font-mono text-green-600">${ts.estimatedPay.toFixed(2)}</p>
-                      </div>
-                    )}
-                    {ts.hasUnapproved && (
-                      <Button size="sm" onClick={() => handleApproveAll(ts)} disabled={isProcessing} className="h-9 px-4 rounded-xl font-black uppercase text-[9px] tracking-widest shadow-lg shadow-primary/20">
-                        <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" /> Approve All
-                      </Button>
-                    )}
-                    {!ts.hasUnapproved && ts.totalWeekMinutes > 0 && (
-                      <Badge className="bg-green-100 text-green-700 border-none font-black text-[9px] uppercase h-7 px-3">
-                        <CheckCircle2 className="w-3 h-3 mr-1" /> All Approved
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="p-0">
-                <div className="grid grid-cols-7 divide-x border-b">
-                  {ts.days.map(day => (
-                    <div key={day.date.toISOString()} className={cn("p-3 text-center", isSameDay(day.date, new Date()) && "bg-primary/5")}>
-                      <p className="text-[9px] font-black uppercase text-muted-foreground opacity-60">{format(day.date, 'EEE')}</p>
-                      <p className={cn("font-black text-sm", isSameDay(day.date, new Date()) ? "text-primary" : "text-foreground")}>{format(day.date, 'd')}</p>
-                      <p className="text-[10px] font-black font-mono text-primary mt-1">{day.totalMinutes > 0 ? formatDuration(day.totalMinutes) : '--'}</p>
-                      {(day as any).scheduledMinutes > 0 && <p className={cn("text-[10px] font-mono", (day as any).noShow ? "font-black text-destructive" : "text-muted-foreground")}>{(day as any).noShow ? 'no-show' : `of ${formatDuration((day as any).scheduledMinutes)}`}</p>}
-                    </div>
-                  ))}
-                </div>
-
-                <div className="divide-y">
-                  {ts.days.map(day =>
-                    day.sessions.map((session: any, idx: number) => (
-                      <div key={`${day.date.toISOString()}-${idx}`} className="flex items-center justify-between px-5 py-3 hover:bg-muted/10 transition-colors gap-3">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div className={cn("w-2 h-2 rounded-full shrink-0",
-                            session.status === 'approved' ? "bg-green-500"
-                            : session.status === 'rejected' ? "bg-destructive"
-                            : session.status === 'active' ? "bg-primary animate-pulse"
-                            : session.missingOut ? "bg-destructive"
-                            : "bg-amber-400"
-                          )} />
-                          <div className="min-w-0">
-                            <p className="text-[11px] font-black uppercase text-foreground">{format(day.date, 'EEE, MMM d')}</p>
-                            <p className="text-[9px] font-bold text-muted-foreground uppercase opacity-60">
-                              {tHM(session.clockIn)} -- {session.clockOut ? tHM(session.clockOut) : session.missingOut ? 'no clock-out' : 'Active'}
-                              {session.breakMinutes > 0 && ` (${session.breakMinutes}m break`}
-                              {session.paidBreakMins > 0 && `, ${session.paidBreakMins}m paid`}
-                              {session.breakMinutes > 0 && ')'}
-                            </p>
-                            {session.splitTime && session.workedMinutes > 0 && (
-                              <p className="text-[11px] font-semibold text-muted-foreground">Hourly work {Math.floor(session.hourlyMinutes / 60)}h {session.hourlyMinutes % 60}m · Services {Math.floor((session.workedMinutes - session.hourlyMinutes) / 60)}h {(session.workedMinutes - session.hourlyMinutes) % 60}m</p>
-                            )}
-                            {(session.shiftNoteIn || session.shiftNoteOut) && (
-                              <p className="text-[11px] font-semibold text-amber-700">{[session.shiftNoteIn, session.shiftNoteOut].filter(Boolean).map((n: string) => n.replace(/^(\w+):\s*/, (_m: string, k: string) => ({ late: 'Late — ', early: 'Early — ', noshift: '', left_early: 'Left early — ', stayed: 'Stayed — ' } as any)[k] ?? '')).join(' · ')}</p>
-                            )}
-                            {session.approvedBy && (
-                              <p className="text-[8px] font-black uppercase text-primary/60">Approved by {session.approvedBy}</p>
-                            )}
-                            {session.managerNote && (
-                              <p className="text-[8px] font-bold text-muted-foreground italic truncate max-w-[200px]">"{session.managerNote}"</p>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
-                          {session.geoVerified && <Badge className="bg-green-50 text-green-700 border-none font-black text-[8px] uppercase h-5 px-2"><MapPin className="w-2.5 h-2.5 mr-1" />Verified</Badge>}
-                          {session.geoWarnOnly && <Badge className="bg-amber-50 text-amber-700 border-none font-black text-[8px] uppercase h-5 px-2"><MapPin className="w-2.5 h-2.5 mr-1" />Out of Zone</Badge>}
-                          <p className="font-black text-sm font-mono text-primary">{formatDuration(session.workedMinutes)}</p>
-                          <Badge variant="outline" className={cn("font-black text-[8px] uppercase h-5 px-2 border-none",
-                            session.status === 'approved' ? "bg-green-100 text-green-700"
-                            : session.status === 'rejected' ? "bg-destructive/10 text-destructive"
-                            : session.status === 'active' ? "bg-primary/10 text-primary animate-pulse"
-                            : "bg-amber-100 text-amber-700"
-                          )}>
-                            {session.missingOut ? 'Needs clock-out' : session.status}
-                          </Badge>
-                          {session.missingOut && session.inId && (
-                            <Button size="sm" variant="ghost" onClick={() => { openReview(session, ts.member.id, ts.member.name); setIsEditing(true); }} className="h-7 px-3 text-[9px] font-black uppercase rounded-xl border border-destructive/30 text-destructive">
-                              Add clock-out
-                            </Button>
-                          )}
-                          {session.status === 'pending' && session.clockOut && session.logId && (
-                            <Button size="sm" variant="ghost" onClick={() => openReview(session, ts.member.id, ts.member.name)} className="h-7 px-3 text-[9px] font-black uppercase rounded-xl border border-muted hover:bg-primary/5 hover:text-primary hover:border-primary/20">
-                              Review
-                            </Button>
-                          )}
-                          {(session.status === 'approved' || session.status === 'rejected') && session.logId && (
-                            <Button size="sm" variant="ghost" onClick={() => openReview(session, ts.member.id, ts.member.name)} className="h-7 px-3 text-[9px] font-black uppercase rounded-xl border border-muted hover:bg-primary/5 hover:text-primary hover:border-primary/20">
-                              <Edit className="w-3 h-3 mr-1" /> Edit
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                    ))
-                  )}
-                  {ts.days.every(d => d.sessions.length === 0) && (
-                    <div className="py-8 text-center opacity-30">
-                      <p className="text-[10px] font-black uppercase tracking-widest">No clock entries this week</p>
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+      <main className="mx-auto w-full max-w-[1180px] flex-1 px-4 py-5 md:px-6">
+        {isLoading ? <div className="flex min-h-[40vh] items-center justify-center"><Loader className="h-7 w-7 animate-spin" style={{ color: '#6d7075' }} aria-label="Getting the hours" /></div> : (
+          <TimesheetsScreen weekFrom={weekFrom} weekTo={weekTo} isThisWeek={weekFrom === thisWeek} onWeek={(n) => setWeekFrom(addDays(weekFrom, n * 7))} onThisWeek={() => setWeekFrom(thisWeek)}
+            period={period} people={people} needs={needs} fixes={fixes} time={time} busy={busy}
+            onApprove={(id, shifts) => { void approve(id, shifts); }} onDecideFix={decideFix} onOpen={onOpen} onDownload={download} />
+        )}
       </main>
-
-      <Dialog open={isReviewOpen} onOpenChange={(v) => { setIsReviewOpen(v); if (!v) { setIsEditing(false); setReviewNote(''); } }}>
-        <DialogContent className="sm:max-w-md rounded-[3rem] border-4 shadow-3xl bg-background">
-          <DialogHeader className="p-6 pb-0 text-left">
-            <DialogTitle className="text-2xl font-black uppercase tracking-tighter text-foreground">
-              {isEditing ? 'Edit Session Times' : 'Review Session'}
-            </DialogTitle>
-            <DialogDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60 mt-1">
-              {selectedEntry?.staffName} -- {selectedEntry?.clockIn ? format(selectedEntry.clockIn, 'EEE MMM d') : ''}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="p-6 space-y-6">
-            <div className="grid grid-cols-3 gap-3 text-center">
-              <div className="p-4 rounded-2xl bg-primary/5 border-2 border-primary/10">
-                <p className="text-[9px] font-black uppercase text-primary/60">Duration</p>
-                <p className="font-black text-lg font-mono text-primary">{selectedEntry ? formatDuration(selectedEntry.workedMinutes) : '--'}</p>
-              </div>
-              <div className="p-4 rounded-2xl bg-muted/20 border-2">
-                <p className="text-[9px] font-black uppercase text-muted-foreground opacity-60">Break</p>
-                <p className="font-black text-lg font-mono text-foreground">{selectedEntry?.breakMinutes || 0}m</p>
-                {(selectedEntry?.paidBreakMins || 0) > 0 && (
-                  <p className="text-[8px] font-black text-green-600 uppercase">{selectedEntry.paidBreakMins}m paid</p>
-                )}
-              </div>
-              <div className={cn("p-4 rounded-2xl border-2", selectedEntry?.geoVerified ? "bg-green-50 border-green-200" : selectedEntry?.geoWarnOnly ? "bg-amber-50 border-amber-200" : "bg-muted/60 border-border")}>
-                <p className="text-[9px] font-black uppercase opacity-60">Geo</p>
-                <p className={cn("font-black text-[10px] uppercase", selectedEntry?.geoVerified ? "text-green-700" : selectedEntry?.geoWarnOnly ? "text-amber-700" : "text-muted-foreground")}>
-                  {selectedEntry?.geoVerified ? 'Verified' : selectedEntry?.geoWarnOnly ? 'Out of Zone' : 'N/A'}
-                </p>
-              </div>
-            </div>
-
-            {isEditing ? (
-              <div className="space-y-3 p-3 rounded-2xl bg-amber-50 border-2 border-amber-200">
-                <p className="text-[9px] font-black uppercase text-amber-700 flex items-center gap-1.5">
-                  <Edit className="w-3 h-3" /> Correcting Times
-                </p>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="space-y-1">
-                    <Label className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">In</Label>
-                    <input type="time" value={editClockIn} onChange={e => setEditClockIn(e.target.value)} className="w-full h-9 rounded-xl border-2 px-2 font-bold text-sm outline-none bg-card focus:border-amber-400 text-center" />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Out</Label>
-                    <input type="time" value={editClockOut} onChange={e => setEditClockOut(e.target.value)} className="w-full h-9 rounded-xl border-2 px-2 font-bold text-sm outline-none bg-card focus:border-amber-400 text-center" />
-                  </div>
-                </div>
-                <p className="text-[7px] font-bold text-amber-700/60 uppercase leading-relaxed">Times saved as same date. Returns to Pending.</p>
-              </div>
-            ) : (
-              <div className="p-4 rounded-2xl bg-muted/60 border-2 border-border">
-                <div className="flex justify-between items-center">
-                  <div>
-                    <p className="text-[9px] font-black uppercase text-muted-foreground opacity-60">Recorded Times</p>
-                    <p className="font-black text-sm text-foreground">
-                      {selectedEntry?.clockIn ? tHM(selectedEntry.clockIn) : '--'} to {selectedEntry?.clockOut ? tHM(selectedEntry.clockOut) : '--'}
-                    </p>
-                  </div>
-                  <Button variant="ghost" size="sm" onClick={() => setIsEditing(true)} className="h-8 px-3 text-[9px] font-black uppercase rounded-xl border border-muted hover:bg-amber-50 hover:text-amber-700 hover:border-amber-200">
-                    <Edit className="w-3 h-3 mr-1.5" /> Correct
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Manager Note {selectedEntry?.status !== 'approved' && '(required for rejection)'}</Label>
-              <Textarea value={reviewNote} onChange={e => setReviewNote(e.target.value)} placeholder="Add a note about this session..." className="rounded-2xl border-2 min-h-[80px]" />
-            </div>
-          </div>
-          <DialogFooter className="p-6 pt-0 flex flex-col gap-3">
-            {isEditing ? (
-              <>
-                <Button onClick={() => handleSaveEdit(selectedEntry)} disabled={isProcessing} className="w-full h-14 rounded-2xl font-black uppercase shadow-xl shadow-amber-500/20 bg-amber-600 hover:bg-amber-700">
-                  {isProcessing ? <Loader className="animate-spin" /> : <><Edit className="w-4 h-4 mr-2" />Save Corrected Times</>}
-                </Button>
-                <Button variant="ghost" onClick={() => setIsEditing(false)} className="font-bold uppercase text-[10px] tracking-widest">Cancel Edit</Button>
-              </>
-            ) : (
-              <>
-                <Button onClick={() => handleApprove(selectedEntry)} disabled={isProcessing} className="w-full h-14 rounded-2xl font-black uppercase shadow-xl shadow-primary/20">
-                  <CheckCircle2 className="w-4 h-4 mr-2" /> Approve Session
-                </Button>
-                <Button variant="destructive" onClick={() => handleReject(selectedEntry)} disabled={isProcessing || !reviewNote.trim()} className="w-full h-12 rounded-2xl font-black uppercase">
-                  <XCircle className="w-4 h-4 mr-2" /> Reject Session
-                </Button>
-                <Button variant="ghost" onClick={() => setIsReviewOpen(false)} className="font-bold uppercase text-[10px] tracking-widest">Cancel</Button>
-              </>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ShiftDialog open={!!openShift} onOpenChange={(o) => { if (!o) setOpenShift(null); }} name={openShift?.name || ''} shift={openShift?.shift || null}
+        changing={changing} onChanging={setChanging} inTime={inTime} outTime={outTime} onInTime={setInTime} onOutTime={setOutTime} note={note} onNote={setNote} busy={busy} time={time}
+        onApprove={async () => { if (openShift && await approve(openShift.staffId, [openShift.shift], note.trim())) setOpenShift(null); }} onReject={reject} onSave={save} />
     </div>
   );
 }

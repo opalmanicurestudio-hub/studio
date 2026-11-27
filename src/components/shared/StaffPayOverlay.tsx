@@ -1,5 +1,5 @@
 'use client';
-// src/components/shared/StaffPayOverlay.tsx — for managers only: listen to tenants/{t}/staffPay so pay screens get rates
+// src/components/shared/StaffPayOverlay.tsx — for managers and anyone whose role runs payroll: listen to tenants/{t}/staffPay so pay screens get rates
 // back on staff records (firebase/firestore/pay-overlay). Renders nothing.
 import * as React from 'react';
 import { collection, onSnapshot, type Firestore } from 'firebase/firestore';
@@ -8,8 +8,9 @@ import { useTenant } from '@/context/TenantContext';
 import { setPayOverlay, setPayLoading } from '@/firebase/firestore/pay-overlay';
 
 export function StaffPayOverlay() {
-  const { firestore } = useFirebase() as any; const { selectedTenant, role } = useTenant() as any; const tenantId = selectedTenant?.id || '';
-  const manager = ['owner', 'admin', 'manager'].includes(String(role || '').toLowerCase());
+  const { firestore } = useFirebase() as any; const { selectedTenant, role, can } = useTenant() as any; const tenantId = selectedTenant?.id || '';
+  // (Payday works out each person's pay from their rates: a role that runs payroll reads them too, as the rules allow.)
+  const manager = ['owner', 'admin', 'manager'].includes(String(role || '').toLowerCase()) || !!can?.('money.payroll');
   React.useEffect(() => {
     if (!firestore || !tenantId || !manager) { setPayOverlay(null, {}); return; }
     setPayLoading(tenantId);

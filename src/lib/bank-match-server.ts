@@ -99,9 +99,12 @@ export async function unmatchBankLine(db: any, tenantId: string, biz: any, bankT
     if (dl && inClosedMonth(biz, dl.date)) return fail(`The difference booked with it is in ${closedName(biz)}, which is closed. Add a correction dated today instead.`);
     let lines = 0;
     docs.forEach((d: any, i: number) => {
-      const t: any = d.data(); if (!t || t.bankTransactionId !== bankTxnId) return;
+      // (A payday line a payroll company's withdrawal was matched against, in part or in full: that part is taken off, so
+      // it's matched to the next one: lib/payroll-bank.)
+      const t: any = d.data(); const covered = t?.bankCover?.[bankTxnId] != null;
+      if (!t || (t.bankTransactionId !== bankTxnId && !covered)) return;
       lines++;
-      tx.set(refs[i], { reconciled: FieldValue.delete(), reconciledAt: FieldValue.delete(), bankTransactionId: FieldValue.delete(),
+      tx.set(refs[i], { ...(covered ? { bankCover: { [bankTxnId]: FieldValue.delete() } } : {}), reconciled: FieldValue.delete(), reconciledAt: FieldValue.delete(), bankTransactionId: FieldValue.delete(),
         ...(t.amountFromBank ? { amount: Number(t.amountWas) || 0, amountWas: FieldValue.delete(), amountFromBank: FieldValue.delete() } : {}), updatedAt: nowIso }, { merge: true });
     });
     if (dl && diffRef) tx.delete(diffRef);

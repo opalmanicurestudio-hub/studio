@@ -49,9 +49,10 @@ const src = (f: string) => fs.readFileSync(f, 'utf8');
   check('the Payday tab hands its own figures to the screen: the period’s income, the pay worked out per person, the payroll tax estimate, the bills due',
     /<PaydayScreen/.test(tab) && /cameIn=\{currentBalance\}/.test(tab) && /team=\{staffObligations\} teamTotal=\{staffTotalOwed\} employerTaxes=\{employerTaxes\}/.test(tab)
     && /\[\.\.\.upcomingBusiness, \.\.\.upcomingPersonal\]/.test(tab) && /onSendToGusto=\{handleApprovePayroll\}/.test(tab) && /onRecord=\{handleConfirmDistributions\}/.test(tab));
-  check('recording payday books each person’s pay and the set-asides (never what stays to run the business), audited',
-    /bucket\.amount > 0 && bucket\.key !== 'opex'/.test(tab) && /action: 'payroll\.distribute'/.test(tab) && /action: 'payroll\.submit_gusto'/.test(tab)
-    && /taxBucket: 'payroll'/.test(tab) && /taxBucket: 'transfer',\s+category: 'Distribution'/.test(tab));
+  const rec = src('src/lib/payday-record.ts'), recRoute = src('src/app/api/payroll/record/route.ts');
+  check('recording payday books the team’s pay and the set-asides (never what stays to run the business), audited',
+    /suggestions\.filter\(b => b\.amount > 0 && b\.key !== 'opex'\)/.test(tab) && /action: 'payroll\.distribute'/.test(recRoute) && /action: 'payroll\.submit_gusto'/.test(tab)
+    && /category: 'Payroll', taxBucket: 'payroll'/.test(rec) && /category: 'Distribution', taxBucket: 'transfer'/.test(rec));
 
   check('what came in is the books’ own reading (never the sales tax, gift cards sold or transfers; refunds come off), with pay already booked added back',
     /const s = booksSummary\(ls, \{ lookup: ls, businessOnly: true \}\);/.test(tab) && /e\.side === 'opex' && \(\(isTeamPay\(e\.category\) && !\/contract\/i\.test\(e\.category\)\) \|\| t\.paydayPeriod\)/.test(tab) && /return Math\.round\(\(s\.net \+ booked\) \* 100\) \/ 100;/.test(tab));
@@ -70,9 +71,9 @@ const src = (f: string) => fs.readFileSync(f, 'utf8');
     check('…so $1,000 of sales less $120 of supplies came in, whatever tax, gift cards, pay already booked or draws are there', Math.abs(came - 880) < 0.001, { came, s: s.net });
   }
   check('payday is recorded once for a pay period: fixed ids, written only when none is there, and the screen says when it was',
-    /`payday_\$\{periodKey\}_\$\{obligation\.id\}`/.test(tab) && /`setaside_\$\{periodKey\}_\$\{bucket\.key\}`/.test(tab) && /if \(there\.some\(d => d\.exists\(\)\)\) throw new Error\('already-recorded'\)/.test(tab)
-    && /where\('paydayTo', '>=', payFromYmd\)/.test(tab) && /String\(t\.paydayFrom \|\| ''\) <= payToYmd/.test(tab) && /paydayPeriod: periodKey, paydayFrom: payFromYmd, paydayTo: payToYmd/.test(tab)
-    && /const before = await recordedFor\(\);\s+if \(before\) \{ setRecorded\(before\); throw new Error\('already-recorded'\); \}/.test(tab)
+    /`payday_\$\{periodKey\}_team`/.test(rec) && /`setaside_\$\{periodKey\}_\$\{a\.key\}`/.test(rec) && /if \(exist\.some\(\(d: any\) => d\.exists\)\)/.test(rec)
+    && /where\('paydayTo', '>=', from\)/.test(rec) && /String\(t\.paydayFrom \|\| ''\) <= to/.test(rec) && /const mark = \{ paydayPeriod: periodKey, paydayFrom: from, paydayTo: to \};/.test(rec)
+    && /where\('paydayTo', '>=', payFromYmd\)/.test(tab) && /if \(res\.status === 409\)/.test(tab)
     && /Payday for these dates is in your books, recorded/.test(pay) && /These dates overlap it, so it can’t be recorded again/.test(pay) && /recordedOn=\{recorded \? safeDate\(recorded\.on\) : null\}/.test(tab));
   check('the team’s pay can be recorded with nothing to split', /disabled=\{\(p\.setAside <= 0 && !p\.team\.length\) \|\| p\.recording \|\| !!p\.blocked\}/.test(pay) && /Put in an amount to split to add the set-asides too/.test(pay));
 
@@ -111,7 +112,7 @@ const src = (f: string) => fs.readFileSync(f, 'utf8');
   console.log('the page');
   check('a link inside the page moves the tab (Books’ All reports), and Payday’s bills and Activity’s Reports switch tabs',
     /if \(urlTab && VALID_TABS\.includes\(urlTab\) && urlTab !== activeTab\) handleTabChange\(urlTab\); \}, \[urlTab\]\)/.test(page)
-    && /<PaydayTab onNavigate=\{handleTabChange\} \/>/.test(page) && /<ActivityTab onNavigate=\{handleTabChange\} \/>/.test(page) && /onNavigate\?\.\('bills'\)/.test(page));
+    && /<PaydayTab onNavigate=\{seesAll \? handleTabChange : undefined\} \/>/.test(page) && /<ActivityTab onNavigate=\{handleTabChange\} \/>/.test(page) && /onNavigate\('bills'\)/.test(page));
   {
     const rd = src('src/components/money/RefundDialog.tsx');
     const early = rd.indexOf('if (!transaction) return null;');

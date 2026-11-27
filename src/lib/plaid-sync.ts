@@ -17,6 +17,7 @@ import { datedFor, inClosedMonth } from './books-close';
 import { FieldValue } from 'firebase-admin/firestore';
 import { findCategory } from './categories';
 import { drawerCashCents, lineCents, nearOk, notBankMoney, saleOf } from './bank-match';
+import { coverWithPayday } from './payroll-bank';
 
 const PLAID_BASE: Record<string, string> = {
   sandbox: 'https://sandbox.plaid.com',
@@ -461,6 +462,13 @@ async function syncBody(db: any, tenantId: string): Promise<SyncResult> {
       || (outflow && t.type === 'expense' && t.category === 'Sales Tax Paid' && Math.abs(new Date(String(t.date).slice(0, 10) + 'T00:00:00Z').getTime() - btDate) <= 30 * DAY))
       && freeFor(t, btId) && lineCents(t) === cents));
 
+    // A payroll company's withdrawal after payday was recorded (the bank calls it payroll, or a payee rule says so): matched
+    // against the pay payday booked, and only what's beyond it booked (lib/payroll-bank, from payday's lines as they are
+    // now), so the team's pay is never in the books twice.
+    const ruleCat = String(vendorRules.get(`${(bt.__context || 'Business').toLowerCase()}:${vendorKey(bt.merchant || bt.name)}`)?.category || '');
+    const payrollOut = outflow && !bt.pending && !hit && !pairs.has(btId) && (bt.__context || 'Business') === 'Business' && (sugg.category === 'Payroll' || /^payroll( taxes)?$/i.test(ruleCat));
+    const payCover = payrollOut ? await coverWithPayday(db, tenantId, tenantDoc, { id: btId, amountCents: cents, date: bt.date, context: bt.__context, name: vendorName }, nowIso) : null;
+
     const record: any = {
       id: btId, tenantId,
       context: bt.__context || 'Business',
@@ -523,6 +531,12 @@ async function syncBody(db: any, tenantId: string): Promise<SyncResult> {
       // (Cash from a drawer, matched to its deposit: counted against what the drawers took, as a cash deposit is.)
       const cashC = outflow ? 0 : drawerCashCents(hit);
       if (cashC > 0) { record.cashCents = cashC; depositsMatched.push({ date: String(bt.date), cents: cashC }); }
+      matched++;
+    } else if (payCover && payCover !== 'sorted') {
+      const plan = payCover.plan;
+      record.status = 'matched'; record.matchedBy = 'payroll'; record.payrollPeriod = plan.period; record.payrollCoverCents = plan.covered;
+      record.matchedTxnId = plan.parts[0].id; if (plan.parts.length > 1) record.matchedTxnIds = plan.parts.map((x) => x.id);
+      if (payCover.diffId) record.diffTxnId = payCover.diffId;
       matched++;
     } else if (hit) {
       // (Matched to another bank line meanwhile, on the Bank screen: this one waits for her.)
@@ -608,6 +622,8 @@ async function syncBody(db: any, tenantId: string): Promise<SyncResult> {
         record.matchedTxnId = txnRef.id;
         record.appliedRule = sugg.category;
         autoBooked++;
+        // (Payroll booked from the bank is written down at once, so a payday recorded meanwhile sees it: lib/payday-record.)
+        if (/^payroll( taxes)?$/i.test(sugg.category)) await btRef.set(record);
         await logAuditAdmin(db, tenantId, {
           action: 'transaction.auto_book', targetType: 'transaction', targetId: txnRef.id,
           summary: `Sorted ${vendorName} as ${sugg.category} (the bank’s own category)`,
@@ -631,6 +647,7 @@ async function syncBody(db: any, tenantId: string): Promise<SyncResult> {
         record.matchedTxnId = txnRef.id;
         record.appliedRule = rule.category;
         autoBooked++;
+        if (/^payroll( taxes)?$/i.test(String(rule.category))) await btRef.set(record);
         await logAuditAdmin(db, tenantId, {
           action: 'transaction.auto_book', targetType: 'transaction', targetId: txnRef.id,
           summary: `Auto-booked ${bt.merchant_name || bt.name} as ${rule.category} (learned rule)`,

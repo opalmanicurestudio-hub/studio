@@ -71,12 +71,13 @@ function Alerts({ tenant }: { tenant: any }) {
 }
 
 function TeamHub() {
-  const { selectedTenant, role } = useTenant() as any; const tenantId = selectedTenant?.id || '';
+  const { selectedTenant, role, can } = useTenant() as any; const tenantId = selectedTenant?.id || '';
   const params = useSearchParams(); const router = useRouter();
   const isManager = ['owner', 'admin', 'manager'].includes(String(role || '').toLowerCase());
   const area: Area = ((params.get('area') as Area) in AREAS ? params.get('area') : 'people') as Area;
   const go = (a: Area) => router.replace(`/team?area=${a}`, { scroll: false });
-  const shown = (Object.keys(AREAS) as Area[]).filter((k) => isManager || ['people', 'schedule'].includes(k));
+  // (Time, for anyone whose role fixes and approves time clock hours.)
+  const shown = (Object.keys(AREAS) as Area[]).filter((k) => isManager || ['people', 'schedule'].includes(k) || (k === 'time' && !!can?.('time.approve')));
   const C: any = AREAS[area].C;
   return (
     <div className="min-h-screen bg-background">

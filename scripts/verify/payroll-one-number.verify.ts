@@ -116,16 +116,17 @@ const tip = (amount: number, method: string, d = '2026-11-18') => ({ id: `tip${a
   check('approved corrections dated in these dates are read and added to what’s paid', /collection\(firestore, 'tenants', tenantId, 'payAdjustments'\), where\('date', '>=', fromIso\), where\('date', '<=', toIso\)/.test(tab)
     && /amount: Math\.round\(\(paidOnPayday\(l\) \+ adj\) \* 100\) \/ 100/.test(tab) && /earned: Math\.round\(\(l\.total \+ adj\) \* 100\) \/ 100/.test(tab) && /bonus: Math\.round\(\(f\.bonus \+ adj\) \* 100\) \/ 100/.test(tab));
   check('employer taxes are on employees’ wages only', /const employerTaxes = estimateEmployerPayrollTax\(employeeWages, stateProfile\)/.test(tab) && /staffObligations\.filter\(\(o\) => !o\.contractor\)\.reduce\(\(sum, o\) => sum \+ o\.earned, 0\)/.test(tab));
-  check('recording payday books a contractor as contract labor, and cash tips taken home as the cash that left the till',
-    /obligation\.contractor \? \{ taxBucket: 'operating_cost', category: 'Contract Labor' \} : \{ taxBucket: 'payroll', category: 'Payroll' \}/.test(tab)
-    && /`paydaycash_\$\{periodKey\}_\$\{obligation\.id\}`/.test(tab) && /paymentMethod: 'Cash'/.test(tab));
+  const rec = src('src/lib/payday-record.ts');
+  check('recording payday books contractors as contract labor, and cash tips taken home as the cash that left the till',
+    /category: 'Contract Labor', taxBucket: 'operating_cost'/.test(rec) && /`paydaycash_\$\{periodKey\}`/.test(rec) && /paymentMethod: 'Cash'/.test(rec)
+    && /contractor: !!o\.contractor/.test(tab) && /cash: cashLineOf\(o\)/.test(tab));
   check('Gusto is sent employees with pay only, with the period’s last day and the cash tips', /const payees = employees\.filter\(o => o\.earned > 0\);/.test(tab) && /lines: payees\.map\(o => \(\{/.test(tab)
     && /periodEndDay: dayTo/.test(tab) && /cashTips: Number\(\(o\.cashTips \|\| 0\)\.toFixed\(2\)\)/.test(tab) && /result\.status === 'synced_not_submitted'/.test(tab));
   const screen = src('src/components/money/PaydayScreen.tsx');
   check('cash tips taken home come off what’s left after payday, and the books get them once, never more than the person earned',
     /const left = Math\.round\(\(p\.cameIn - payday - cashOut - billsTotal\) \* 100\) \/ 100;/.test(screen) && /label="Cash tips taken home"/.test(screen)
     && /const cashLineOf = \(o: \{ tipsInHand\?: number; earned: number \}\) => Math\.round\(Math\.min\(Number\(o\.tipsInHand\) \|\| 0, Math\.max\(0, o\.earned\)\) \* 100\) \/ 100;/.test(tab)
-    && /const cash = cashLineOf\(obligation\);\s+if \(cash > 0\)/.test(tab) && /cashTipsOut=\{cashTipsOut\}/.test(tab));
+    && /cash = \(p: PaydayPerson\) => r2\(Math\.min\(p\.cash, Math\.max\(0, p\.amount \+ p\.cash\)\)\)/.test(rec) && /cashTipsOut=\{cashTipsOut\}/.test(tab));
   check('when the approved corrections can’t be read, payday isn’t recorded or sent without them, and the screen says why',
     /error: adjustmentsError \} = useCollection/.test(tab) && /if \(!firestore \|\| !tenantId \|\| recorded \|\| adjustmentsError\) return;/.test(tab) && /if \(payees\.length === 0 \|\| !tenantId \|\| adjustmentsError\) return;/.test(tab)
     && /blocked=\{adjustmentsError \? 'Approved pay corrections couldn’t be read/.test(tab) && /disabled=\{\(p\.setAside <= 0 && !p\.team\.length\) \|\| p\.recording \|\| !!p\.blocked\}/.test(screen) && /p\.sendingToGusto \|\| !!p\.blocked\}/.test(screen));

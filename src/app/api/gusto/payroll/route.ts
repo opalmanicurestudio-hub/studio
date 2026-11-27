@@ -27,7 +27,7 @@
 //
 // GET — ?tenantId=&payrollId= → processing status, mirrored to payrollRuns.
 
-import { requireRole } from '@/lib/route-guard';
+import { requireCan } from '@/lib/route-guard';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { logAuditAdmin } from '@/lib/audit';
@@ -43,7 +43,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'There’s no pay to send.' }, { status: 400 });
   }
   const tenantId = String(draft.tenantId);
-  { const g = await requireRole(req, String(tenantId || ''), 'owner'); if (g.deny) return g.deny; }
+  // (The owner, and anyone whose role runs payroll.)
+  const guard = await requireCan(req, tenantId, 'money.payroll'); if (guard.deny) return guard.deny;
 
   try {
     const db = getAdminDb();
@@ -180,7 +181,7 @@ export async function POST(req: NextRequest) {
         ? `Sent payroll to Gusto: ${updatedComps.length} ${updatedComps.length === 1 ? 'person' : 'people'}, for the period ending ${endDay}`
         : `Put payroll in Gusto, to be submitted there: ${updatedComps.length} ${updatedComps.length === 1 ? 'person' : 'people'}, for the period ending ${endDay}`,
       amount: Number(draft.grossTotal) || undefined,
-      actor: { type: 'user', name: draft.actorName || 'Owner', via: 'payday-tab' },
+      actor: { type: 'user', id: guard.actor?.uid, name: guard.actor?.name || 'Team member', via: 'payday-tab' },
     });
 
     return NextResponse.json({ status, payrollId, checkDate: payroll?.check_date || null, message });
@@ -192,7 +193,7 @@ export async function POST(req: NextRequest) {
 
 export async function GET(req: NextRequest) {
   const tenantId = req.nextUrl.searchParams.get('tenantId');
-  { const g = await requireRole(req, String(tenantId || ''), 'owner'); if (g.deny) return g.deny; }
+  { const g = await requireCan(req, String(tenantId || ''), 'money.payroll'); if (g.deny) return g.deny; }
   const payrollId = req.nextUrl.searchParams.get('payrollId');
   if (!tenantId || !payrollId) {
     return NextResponse.json({ error: 'tenantId and payrollId are required' }, { status: 400 });

@@ -21,6 +21,10 @@ service cloud.firestore {
     function inDirectory(tenantId) {
       return exists(/databases/$(database)/documents/staffDirectory/$(request.auth.uid)) && dirEntry().data.tenantId == tenantId;
     }
+    // What the person's role allows (lib/permissions caps, copied to their directory entry by the server).
+    function hasCap(tenantId, cap) {
+      return inDirectory(tenantId) && cap in dirEntry().data.get('caps', []);
+    }
     function isSelf(tenantId, staffId) {
       return isSignedIn() && (request.auth.uid == staffId || (inDirectory(tenantId) && dirEntry().data.staffId == staffId));
     }
@@ -131,7 +135,8 @@ service cloud.firestore {
     }
     // PAY RATES (lib/staff-pay): managers read and change them; each person reads their own.
     match /tenants/{tenantId}/staffPay/{staffId} {
-      allow read: if isManager(tenantId) || isSelf(tenantId, staffId) || (isPortalMember(tenantId) && portalStaffId() == staffId);
+      // (Read by anyone whose role runs payroll too: Payday works out each person's pay from it.)
+      allow read: if isManager(tenantId) || hasCap(tenantId, 'money.payroll') || isSelf(tenantId, staffId) || (isPortalMember(tenantId) && portalStaffId() == staffId);
       allow write: if isManager(tenantId);
     }
     match /tenants/{tenantId}/consentForms/{formId} {
@@ -262,7 +267,7 @@ service cloud.firestore {
       allow write: if false;
     }
     match /tenants/{tenantId}/tipShareRuns/{runId} {
-      allow read: if isManager(tenantId) || (inDirectory(tenantId) && 'money.view' in dirEntry().data.get('caps', []));
+      allow read: if isManager(tenantId) || hasCap(tenantId, 'money.view') || hasCap(tenantId, 'money.payroll');
       allow write: if false;
     }
     // KITCHEN TICKETS (lib/kitchen): the team's screens read them; a table's tab or an event's course makes them in the
@@ -445,7 +450,7 @@ service cloud.firestore {
     // PAY STUBS (saved on payday), PAY QUESTIONS ("something's off") and the CORRECTIONS that settle them: each person
     // reads their own, managers read everyone's; only the server writes them (/api/pay/*).
     match /tenants/{tenantId}/payStubs/{stubId} {
-      allow read: if isManager(tenantId) || isSelf(tenantId, resource.data.staffId) || (isPortalMember(tenantId) && resource.data.staffId == portalStaffId());
+      allow read: if isManager(tenantId) || hasCap(tenantId, 'money.payroll') || isSelf(tenantId, resource.data.staffId) || (isPortalMember(tenantId) && resource.data.staffId == portalStaffId());
       allow write: if false;
     }
     match /tenants/{tenantId}/payQuestions/{qId} {
@@ -453,7 +458,7 @@ service cloud.firestore {
       allow write: if false;
     }
     match /tenants/{tenantId}/payAdjustments/{adjId} {
-      allow read: if isManager(tenantId) || isSelf(tenantId, resource.data.staffId) || (isPortalMember(tenantId) && resource.data.staffId == portalStaffId());
+      allow read: if isManager(tenantId) || hasCap(tenantId, 'money.payroll') || isSelf(tenantId, resource.data.staffId) || (isPortalMember(tenantId) && resource.data.staffId == portalStaffId());
       allow write: if false;
     }
     // MAKING IT RIGHT — complaint cases. The desk and managers read them all; a provider reads cases about their own
@@ -541,12 +546,14 @@ service cloud.firestore {
       allow write: if false;
     }
     // Finished payroll runs (from the payroll connection): managers only — never readable from a staff phone.
+    // Payroll runs: each one sent to Gusto, and each payday recorded (payday_{period}: who was paid what, kept out of the
+    // books the team reads; lib/payday-record). Written only by the server.
     match /tenants/{tenantId}/payrollRuns/{runId} {
-      allow read: if isManager(tenantId);
+      allow read: if isManager(tenantId) || hasCap(tenantId, 'money.payroll');
       allow write: if false;
     }
     match /tenants/{tenantId}/payrollDrafts/{draftId} {
-      allow read, update: if isManager(tenantId);
+      allow read, update: if isManager(tenantId) || hasCap(tenantId, 'money.payroll');
       allow create, delete: if false;
     }
     match /tenants/{tenantId}/lifestyleProfiles/{pId} {
@@ -637,7 +644,13 @@ service cloud.firestore {
     match /tenants/{tenantId}/activityLogs/{logId} {
       allow read: if isStaff(tenantId)
         || (isPortalMember(tenantId) && resource.data.staffId == request.auth.token.staffId);
-      allow create, update, delete: if isManager(tenantId);
+      // (Fixing and approving hours: managers, and anyone whose role includes it, for anyone's hours but their own.)
+      allow create: if isManager(tenantId)
+        || (hasCap(tenantId, 'time.approve') && request.resource.data.get('staffId', '') != dirEntry().data.get('staffId', ''));
+      allow update: if isManager(tenantId)
+        || (hasCap(tenantId, 'time.approve') && resource.data.get('staffId', '') != dirEntry().data.get('staffId', '')
+            && request.resource.data.get('staffId', '') == resource.data.get('staffId', ''));
+      allow delete: if isManager(tenantId);
     }
     // SHIFTS: the team reads and plans them as before. A staff-portal sign-in (not a renter) reads the team's schedule
     // so swaps and cover can be offered; changes go through the server (/api/shifts/request).

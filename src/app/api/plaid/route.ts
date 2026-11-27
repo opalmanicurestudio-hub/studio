@@ -39,6 +39,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { bucketFor, findCategory } from '@/lib/categories';
 import { matchBankLine, unmatchBankLine, PENDING } from '@/lib/bank-match-server';
+import { coverWithPayday, paydayPlanFor } from '@/lib/payroll-bank';
 // v62 — sync engine + helpers extracted to a shared lib so the nightly
 // cron (/api/cron/nightly) runs the exact same logic as the Sync button.
 import { plaid, vendorKey, syncTenantBankFeed } from '@/lib/plaid-sync';
@@ -190,6 +191,17 @@ export async function POST(req: NextRequest) {
         const billInstanceId = typeof body.billInstanceId === 'string' && /^[A-Za-z0-9_-]{1,160}$/.test(body.billInstanceId) ? body.billInstanceId : null;
         const ctx = body.contextOverride === 'Business' ? 'Business' : (bt.context || 'Business');
 
+        // (Payroll paid through a payroll company, after payday was recorded: matched to payday's pay, never booked twice;
+        // only what's beyond it is booked, as payroll taxes. lib/payroll-bank.)
+        if (finalType === 'expense' && ctx === 'Business' && /^payroll( taxes)?$/i.test(finalCategory) && !billInstanceId) {
+          const pc = await coverWithPayday(db, tenantId, biz, { id: bankTxnId, amountCents: Number(bt.amountCents) || 0, date: String(bt.date), context: 'Business', name: bt.merchant || bt.name }, nowIso, { write: true });
+          if (pc === 'sorted') return NextResponse.json(sortedAlready, { status: 409 });
+          if (pc) {
+            await logAuditAdmin(db, tenantId, { action: 'bank.match', targetType: 'bankTransaction', targetId: bankTxnId,
+              summary: `Matched bank line ${bt.merchant || bt.name} to payday’s pay already in the books${pc.plan.extra > 0 ? `, with $${(pc.plan.extra / 100).toFixed(2)} beyond it booked as payroll taxes` : ''}`, amount: bt.amountCents / 100, actor });
+            return NextResponse.json({ ok: true, payday: true, extraCents: pc.plan.extra });
+          }
+        }
         const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
         const billRef = billInstanceId ? db.doc(`tenants/${tenantId}/billInstances/${billInstanceId}`) : null;
         // (Claimed first, in one step with the booking: a line matched or booked meanwhile is never booked twice.)
@@ -268,7 +280,14 @@ export async function POST(req: NextRequest) {
       const nowIso = new Date().toISOString();
       let booked = 0;
       for (const d of snap.docs) {
-        if ((d.data() as any).pending) continue;
+        const w: any = d.data() || {};
+        if (w.pending) continue;
+        // (Payroll after payday was recorded: matched to payday's pay, as Book does.)
+        if (w.direction === 'out' && (w.context || 'Business') === 'Business' && /^payroll( taxes)?$/i.test(String(w.suggestedCategory || '')) && !w.suggestedBillInstanceId) {
+          const pc = await coverWithPayday(db, tenantId, biz, { id: d.id, amountCents: Number(w.amountCents) || 0, date: String(w.date), context: 'Business', name: w.merchant || w.name }, nowIso, { write: true });
+          if (pc === 'sorted') continue;
+          if (pc) { booked++; continue; }
+        }
         const txnRef = db.collection(`tenants/${tenantId}/transactions`).doc();
         // (Each line claimed as it's booked: one matched, booked or skipped since the list was read is left as it is.)
         const bt: any = await db.runTransaction(async (tx: any) => {
@@ -335,6 +354,34 @@ export async function POST(req: NextRequest) {
       if (type === 'expense' && def?.type === 'income' && def.taxBucket !== 'transfer') return NextResponse.json({ ok: false, error: `Money out can’t be ${def.name}. If you gave money back, pick Refunds.` }, { status: 400 });
       const bucket = bucketOfBooked(category, type);
       const nowIso = new Date().toISOString();
+      // (Into payroll, after payday was recorded: the line is handed back and matched to payday's pay instead, so it isn't
+      // counted twice; only what's beyond it is booked, as payroll taxes. lib/payroll-bank.)
+      const bAt = { id: bankTxnId, amountCents: Number(bt.amountCents) || 0, date: String(bt.date), context: 'Business', name: bt.merchant || bt.name };
+      if (type === 'expense' && String(t.context || 'Business') === 'Business' && /^payroll( taxes)?$/i.test(category) && !t.paydayPeriod && !t.bankCover && await paydayPlanFor(db, tenantId, biz, bAt)) {
+        const back = await db.runTransaction(async (tx: any) => {
+          const b: any = (await tx.get(btRef)).data(); const l: any = (await tx.get(tRef)).data();
+          if (!b || !l || String(b.matchedTxnId) !== String(bt.matchedTxnId) || !['auto_categorized', 'created'].includes(String(b.status))) return false;
+          tx.delete(tRef);
+          tx.set(btRef, { status: 'unmatched', matchedTxnId: null, appliedRule: null, changedAt: nowIso, changedBy: 'you' }, { merge: true });
+          return true;
+        });
+        if (!back) return NextResponse.json({ ok: false, error: 'That bank line changed meanwhile. Look at it again.' }, { status: 409 });
+        const pc = await coverWithPayday(db, tenantId, biz, bAt, nowIso, { write: true });
+        if (pc && pc !== 'sorted') {
+          await logAuditAdmin(db, tenantId, { action: 'bank.match', targetType: 'bankTransaction', targetId: bankTxnId,
+            summary: `${bt.merchant || bt.name} changed to ${category}, and matched to payday’s pay already in the books${pc.plan.extra > 0 ? `, with $${(pc.plan.extra / 100).toFixed(2)} beyond it booked as payroll taxes` : ''}`, amount: bt.amountCents / 100, actor });
+          return NextResponse.json({ ok: true, payday: true, extraCents: pc.plan.extra });
+        }
+        // (Payday's pay was matched meanwhile: booked as asked, as it was.)
+        const nRef = db.collection(`tenants/${tenantId}/transactions`).doc();
+        await db.runTransaction(async (tx: any) => {
+          const b: any = (await tx.get(btRef)).data(); if (!b || b.status !== 'unmatched') return;
+          const { id: _old, ...rest } = t;
+          tx.set(nRef, { ...rest, id: nRef.id, category, taxBucket: bucket, type, sortedBy: 'you', autoCategorized: false, updatedAt: nowIso });
+          tx.set(btRef, { status: String(bt.status), matchedTxnId: nRef.id, appliedRule: category }, { merge: true });
+        });
+        return NextResponse.json({ ok: true });
+      }
       await tRef.set({ category, taxBucket: bucket, type, sortedBy: 'you', autoCategorized: false, updatedAt: nowIso }, { merge: true });
       await btRef.set({ appliedRule: category, changedAt: nowIso, changedBy: 'you' }, { merge: true });
       const vk = vendorKey(bt.merchant || bt.name);

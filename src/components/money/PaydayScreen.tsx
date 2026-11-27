@@ -98,7 +98,8 @@ export type PaydayScreenProps = {
    *  quite these (a payday that overlaps them). */
   recordedOn: Date | null; recordedSpan?: string | null;
   statementFor: string | null; onStatement: (id: string | null) => void; statement: (p: PayPerson) => React.ReactNode;
-  onSeeBills: () => void;
+  /** All bills (the Bills tab); left out for someone who only runs payroll. */
+  onSeeBills?: () => void;
   now?: Date;
 };
 
@@ -205,7 +206,7 @@ export function PaydayScreen(p: PaydayScreenProps) {
           : <button type="button" onClick={p.onConnectGusto} className={btn} style={plain}>Connect Gusto</button>}
         <span className="text-[13px]" style={{ color: MUTED }}>{p.gusto.connected ? 'Gusto works out the exact taxes, sends the deposits and files.' : 'To pay your team and file payroll taxes from here. Until then, record payday in your books below.'}</span>
       </div>
-      {contractors > 0 && <Note>Contractors aren’t on payroll: nothing is withheld for them, and no employer taxes are owed. Pay them directly, then record payday.</Note>}
+      {contractors > 0 && <Note>Contractors aren’t on payroll: nothing is withheld for them, and no employer taxes are owed. Pay them directly, then record payday. If your payroll company pays them, book its withdrawal for them as Contract Labor.</Note>}
       <div className="mt-3 flex min-h-[56px] items-center justify-between gap-3 py-2" style={{ borderTop: `1px solid ${LINE}` }}>
         <span className="min-w-0"><span className="block">A payroll draft each payday</span>
           <span className="block text-[13px]" style={{ color: MUTED }}>Put together when each pay period ends ({p.cadenceWords}), with a note to you. Nothing is paid until you approve it.</span></span>
@@ -281,7 +282,7 @@ export function PaydayScreen(p: PaydayScreenProps) {
           return <Row key={b.id} label={b.name} value={usd(b.amount)} sub={<span style={{ color: late ? AMBER : MUTED }}>{late ? `Overdue since ${when}` : `Due ${when}`}{b.personal ? ', personal' : ''}</span>} />;
         })}
       </div>
-      <div className="mt-2 pb-1"><button type="button" onClick={p.onSeeBills} className={btn} style={plain}>See all bills</button></div>
+      {p.onSeeBills && <div className="mt-2 pb-1"><button type="button" onClick={p.onSeeBills} className={btn} style={plain}>See all bills</button></div>}
     </section>
   );
 

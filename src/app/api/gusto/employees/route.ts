@@ -12,7 +12,7 @@
 // The response is what PaydayTab renders: every Gusto employee with either
 // a staffId (matched) or suggestedStaffId (one click to confirm in the UI).
 
-import { requireRole } from '@/lib/route-guard';
+import { requireCan } from '@/lib/route-guard';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { getGustoAuth, gustoFetch } from '@/lib/gusto-server';
@@ -21,7 +21,7 @@ const norm = (v: any) => String(v || '').trim().toLowerCase();
 
 export async function GET(req: NextRequest) {
   const tenantId = req.nextUrl.searchParams.get('tenantId');
-  { const g = await requireRole(req, String(tenantId || ''), 'owner'); if (g.deny) return g.deny; }
+  { const g = await requireCan(req, String(tenantId || ''), 'money.payroll'); if (g.deny) return g.deny; }
   if (!tenantId) {
     return NextResponse.json({ error: 'tenantId is required' }, { status: 400 });
   }
@@ -86,7 +86,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const { tenantId, staffId, gustoEmployeeId } = await req.json();
-    { const g = await requireRole(req, String(tenantId || ''), 'owner'); if (g.deny) return g.deny; }
+    { const g = await requireCan(req, String(tenantId || ''), 'money.payroll'); if (g.deny) return g.deny; }
     if (!tenantId || !staffId || !gustoEmployeeId) {
       return NextResponse.json({ error: 'tenantId, staffId and gustoEmployeeId are required' }, { status: 400 });
     }

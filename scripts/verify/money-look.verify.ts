@@ -31,7 +31,7 @@ check('the Bank tab has the bank’s lines, with how many wait counted once for 
   && /getCountFromServer\(query\(collection\(hubFirestore, `tenants\/\$\{hubTenantId\}\/bankTransactions`\)/.test(page) && /bankCount=\{bankWaiting\}/.test(page) && !/getCountFromServer/.test(ov));
 check('the overview carries the page’s own cards after it', /<MoneyOverview bankCount=\{bankWaiting\} onNavigate=/.test(page) && /<MonthCloseCard tenantId=\{tenantId\} \/>/.test(page) && /<AppPayoutsCard tenantId=\{tenantId\} \/>/.test(page) && /<MilesCard tenantId=\{tenantId\} \/>/.test(page));
 check('the old overview is gone', !/const OverviewTab = /.test(page) && !/Money Overview/.test(page) && /<AppHeader title="Money" \/>/.test(page));
-const shell = page.slice(page.indexOf('<nav aria-label="Money"'), page.indexOf('</main>'));
+const shell = page.slice(page.indexOf('<nav aria-label="Money"'), page.indexOf('</main>', page.indexOf('<nav aria-label="Money"')));
 check('the new screens keep the house style (no shouting labels, no dots between words, 44px targets)', !/\buppercase\b|font-black|\{\/\*| · |[Cc]all us|[Cc]ontact us|\b(salon|stylist|booth|chair|studio)\b/.test(ov + shell + page.slice(page.indexOf('const BankTab')))
   && /min-h-\[44px\]/.test(shell));
 

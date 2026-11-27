@@ -66,6 +66,13 @@ export function ReportsScreen({ tenantId, firestore, tenant, staff, payroll, can
     if (!range) throw new Error('dates');
     return (await readDatedRange(firestore, tenantId, 'transactions', 'date', range.from, new Date(range.to.getTime() + 1))).map((t: any) => normalizeLine(t));
   };
+  // (Who was paid what on each payday recorded in these dates, for the payroll register: lib/payday-record. Only the
+  // owner and anyone who runs payroll can read them; anyone else sees the team's pay as one line.)
+  const runs = async () => {
+    if (!range) throw new Error('dates');
+    const q = await getDocs(query(collection(firestore, `tenants/${tenantId}/payrollRuns`), where('to', '>=', ymd(new Date(range.from.getTime() - 62 * 86400000))), limit(200))).catch(() => null);
+    return (q?.docs || []).map((d) => d.data() as any).filter((r) => r?.kind === 'payday');
+  };
   // (The period's own actions, newest first; a period with more than a thousand says so.)
   const AUDIT_MAX = 1000;
   const audit = async () => {
@@ -160,8 +167,8 @@ export function ReportsScreen({ tenantId, firestore, tenant, staff, payroll, can
           </Group>
           <Group title="Your team">
             <Row id="pay" name="Payroll register" what="Pay by person, with the employer tax estimate."
-              onPrint={() => print('p:pay', async () => buildPayrollRegisterHtml(await lines(), staff, payroll.profile, range!, payroll.hasState, 'USD', { shopName: shop }))}
-              onCsv={() => download('d:pay', 'payroll register', async () => payrollCsv(await lines(), staff, payroll.profile))} />
+              onPrint={() => print('p:pay', async () => buildPayrollRegisterHtml(await lines(), staff, payroll.profile, range!, payroll.hasState, 'USD', { shopName: shop, payrollRuns: await runs() }))}
+              onCsv={() => download('d:pay', 'payroll register', async () => payrollCsv(await lines(), staff, payroll.profile, await runs()))} />
           </Group>
         </div>
         <div className="space-y-4">

@@ -24,7 +24,7 @@ import type { TaxReport } from './sales-tax-report';
 
 type Txn = any;
 type Range = { from?: Date; to?: Date } | undefined;
-export type ReportOptions = { lookup?: Txn[]; shopName?: string; currency?: string };
+export type ReportOptions = { lookup?: Txn[]; shopName?: string; currency?: string; payrollRuns?: any[] };
 /** One line of a report: a heading, or a label and an amount. `kind` as printLine's. */
 export type ReportRow = { heading?: string; label?: string; amount?: number | string; kind?: '' | 'sub' | 'total' | 'memo'; tone?: '' | 'ok' | 'warn' | 'bad'; note?: string };
 
@@ -149,9 +149,23 @@ export function buildTaxSummaryHtml(txns: Txn[], range: Range, currency = 'USD',
 
 // ─── Payroll register ─────────────────────────────────────────────────────────
 
-export function payrollRows(txns: Txn[], staff: any[]) {
+/** Pay by person. A payday recorded as one line for the team (lib/payday-record) is shown person by person from its
+ *  payroll run (tenants/{t}/payrollRuns/payday_{period}), when it could be read; else as the team's one line. */
+export function payrollRows(txns: Txn[], staff: any[], runs: any[] = []) {
   const byStaff = new Map<string, { name: string; count: number; total: number }>();
+  const byRun = new Map<string, any>(runs.filter((r) => r?.kind === 'payday' && r.periodKey && Array.isArray(r.people)).map((r) => [String(r.periodKey), r]));
+  const shown = new Set<string>();
   for (const t of txns.filter((x) => x.category === 'Payroll' && (x.type === 'expense' || x.type === 'payment'))) {
+    const run = (t as any).paydayPeriod && !t.staffId ? byRun.get(String((t as any).paydayPeriod)) : null;
+    if (run) {
+      if (shown.has(run.periodKey)) continue; shown.add(run.periodKey);
+      for (const p of run.people.filter((x: any) => !x.contractor)) {
+        const total = (Number(p.paid) || 0) + (Number(p.cashTips) || 0); if (total <= 0) continue;
+        const cur = byStaff.get(String(p.staffId)) || { name: staff.find((s: any) => s.id === p.staffId)?.name || String(p.name || 'Team member'), count: 0, total: 0 };
+        cur.count += 1; cur.total += total; byStaff.set(String(p.staffId), cur);
+      }
+      continue;
+    }
     const key = t.staffId || t.clientOrVendor || 'unassigned';
     const name = staff.find((s: any) => s.id === t.staffId)?.name || t.clientOrVendor || 'Not assigned to anyone';
     const cur = byStaff.get(key) || { name, count: 0, total: 0 };
@@ -159,8 +173,8 @@ export function payrollRows(txns: Txn[], staff: any[]) {
   }
   return [...byStaff.values()].sort((a, b) => b.total - a.total);
 }
-export function payrollCsv(txns: Txn[], staff: any[], profile: { code: string; employerPayrollTaxPct: number }) {
-  const list = payrollRows(txns, staff); const gross = list.reduce((s, r) => s + r.total, 0);
+export function payrollCsv(txns: Txn[], staff: any[], profile: { code: string; employerPayrollTaxPct: number }, runs: any[] = []) {
+  const list = payrollRows(txns, staff, runs); const gross = list.reduce((s, r) => s + r.total, 0);
   return [['Person', 'Payouts', 'Paid'], ...list.map((r) => [r.name, r.count, Math.round(r.total * 100) / 100]), ['Total pay', '', Math.round(gross * 100) / 100],
     [`Employer payroll taxes, estimated (${profile.employerPayrollTaxPct}%)`, '', Math.round(gross * profile.employerPayrollTaxPct) / 100]];
 }
@@ -169,7 +183,7 @@ export function buildPayrollRegisterHtml(
   txns: Txn[], staff: any[], profile: { code: string; employerPayrollTaxPct: number },
   range: Range, hasStateSet: boolean, currency = 'USD', opts: ReportOptions = {},
 ) {
-  const list = payrollRows(txns, staff);
+  const list = payrollRows(txns, staff, opts.payrollRuns || []);
   const gross = list.reduce((s, r) => s + r.total, 0);
   const employerTaxes = gross * (profile.employerPayrollTaxPct / 100);
   const body = `

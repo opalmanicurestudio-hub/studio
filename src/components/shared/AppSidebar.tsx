@@ -383,7 +383,7 @@ const SIDE_CSS = `
 :root{--cf-search-bg:hsl(var(--secondary))}
 `;
 export function AppSidebar() {
-  const { selectedTenant, role, viaPortal, screen } = useTenant();
+  const { selectedTenant, role, viaPortal, screen, can } = useTenant();
   const brandLogo = guestLogo(selectedTenant);
   const isHqAdmin = useIsHqAdmin();
   const tenantId = selectedTenant?.id;
@@ -586,11 +586,14 @@ export function AppSidebar() {
             <NavSection label="Team" items={sec('team')} />
             <NavSection label="Money" items={sec('money')} badges={financialBadges} />
           </>}
-          {isAdmin && !isOwner && !viaPortal && (
+          {!isOwner && !viaPortal && (isAdmin || can('time.approve') || can('team.manage')) && (
             <>
               <SidebarSeparator className="my-1 opacity-20" />
               <NavSection label="Team" items={TEAM_ADMIN} />
             </>
+          )}
+          {!isOwner && !viaPortal && (can('money.view') || can('money.payroll')) && (
+            <NavSection label="Money" items={[can('money.view') ? { href: '/money', icon: Wallet, label: 'Money' } : { href: '/money?tab=payday', icon: Wallet, label: 'Payday' }]} />
           )}
 
           {isOwner && tenantId && (
