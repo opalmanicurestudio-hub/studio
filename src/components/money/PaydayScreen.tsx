@@ -1,0 +1,293 @@
+'use client';
+// src/components/money/PaydayScreen.tsx — PAYDAY, READ LIKE A STATEMENT (the Money page's Payday tab; design board "A.
+// Payday, read like a statement"). What came in this pay period, what goes out on payday (the team's pay and the bills
+// due), what's left, and the split to set aside from it. Every figure is worked out by the Payday tab (money/page.tsx:
+// lib/pay-period for the pay, the business's own state for the taxes) and handed in; this screen lays it out and hands
+// the taps back.
+import * as React from 'react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
+
+const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', GREEN_TINT = '#eaf6ef', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
+const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
+const btn = `inline-flex min-h-[44px] items-center justify-center rounded-full px-4 text-[14px] font-semibold disabled:opacity-50 ${RING}`;
+const solid = { background: INK, color: '#fff' }; const plain = { background: '#fff', color: INK, border: `1px solid ${LINE}` };
+const card = 'rounded-3xl bg-[#fff] px-5 pb-3 pt-4';
+const field = `h-11 rounded-xl bg-[#fff] px-3 text-[14px] ${RING}`;
+export const usd = (n: number) => `$${Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+/** Whole dollars without the cents ("$480"), anything else with them ("$212.50"). */
+const short = (n: number) => (Math.round(n * 100) % 100 === 0 ? `$${Math.round(Math.abs(n)).toLocaleString('en-US')}` : usd(n));
+const ymd = (x: Date) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
+
+export type PayCadence = 'weekly' | 'bi-weekly' | 'monthly' | 'custom';
+export const CADENCES: [PayCadence, string][] = [['weekly', 'Every week'], ['bi-weekly', 'Every two weeks'], ['monthly', 'Every month'], ['custom', 'Pick dates']];
+const HOW_OFTEN: Record<string, string> = { weekly: 'every week', 'bi-weekly': 'every two weeks', monthly: 'every month' };
+
+export type PayPerson = {
+  id: string; name: string; avatarUrl?: string; amount: number; tips?: number; hours?: number; commissionPay?: number; bonus?: number;
+  overtimeHours?: number; doubleOvertimeHours?: number; missingClockOuts?: number; unapprovedSessions?: number; noHours?: boolean; payStructure?: string;
+};
+export type PayBill = { id: string; name: string; amount: number; due: Date; personal?: boolean };
+/** One part of the split: taxes, the owner's own pay, profit, and what stays to run the business. */
+export type SetAsidePart = { key: 'tax' | 'owner' | 'profit' | 'opex'; pct: number; amount: number };
+const PART_NAMES: Record<SetAsidePart['key'], string> = { tax: 'Taxes', owner: 'Your pay', profit: 'Profit', opex: 'Running the business' };
+const PART_ORDER: SetAsidePart['key'][] = ['tax', 'owner', 'profit', 'opex'];
+
+/** "November 16 to 29", "November 23 to December 6", with the year when it isn't this one. */
+export function spanWords(from: Date, to: Date, now = new Date()): string {
+  const M = (d: Date) => d.toLocaleDateString('en-US', { month: 'long' });
+  const yr = to.getFullYear() !== now.getFullYear() ? `, ${to.getFullYear()}` : '';
+  if (from.getFullYear() !== to.getFullYear()) return `${M(from)} ${from.getDate()}, ${from.getFullYear()} to ${M(to)} ${to.getDate()}, ${to.getFullYear()}`;
+  if (from.getMonth() !== to.getMonth()) return `${M(from)} ${from.getDate()} to ${M(to)} ${to.getDate()}${yr}`;
+  return from.getDate() === to.getDate() ? `${M(from)} ${from.getDate()}${yr}` : `${M(from)} ${from.getDate()} to ${to.getDate()}${yr}`;
+}
+
+/** What a person's pay is made of, in words: "52 hours, $480 in commission, $212 in tips". */
+export function payWords(p: PayPerson): string {
+  const parts: string[] = [];
+  if (p.payStructure === 'salary') parts.push('Salary');
+  const h = Math.round((Number(p.hours) || 0) * 100) / 100;
+  const ot = Math.round(((Number(p.overtimeHours) || 0) + (Number(p.doubleOvertimeHours) || 0)) * 100) / 100;
+  if (h > 0) parts.push(`${h} hour${h === 1 ? '' : 's'}${ot > 0 ? ` (${ot} overtime)` : ''}`);
+  const c = Number(p.commissionPay) || 0; if (c > 0) parts.push(`${short(c)} ${p.payStructure === 'per_service' ? 'for services' : 'in commission'}`);
+  const b = Number(p.bonus) || 0; if (b > 0) parts.push(`${short(b)} extra for overtime or minimum wage`);
+  const t = Number(p.tips) || 0; if (t > 0) parts.push(`${short(t)} in tips`);
+  return parts.join(', ') || 'Pay set for the period';
+}
+
+/** "Rent", "Rent and Phone", "3 bills" (a bill's own name can have a comma in it). */
+const namesOf = (names: string[]) => names.length <= 2 ? names.join(' and ') : `${names.length} bills`;
+
+const Row = ({ label, sub, value, tone }: { label: React.ReactNode; sub?: React.ReactNode; value: React.ReactNode; tone?: 'total' | 'good' | 'short' }) => (
+  <div className="flex min-h-[44px] items-center justify-between gap-3 py-2" style={{ borderTop: `1px solid ${tone ? INK : LINE}`, fontWeight: tone ? 600 : undefined }}>
+    <span className="min-w-0"><span className="block">{label}</span>{sub && <span className="block text-[13px] font-normal" style={{ color: tone === 'short' ? AMBER : MUTED }}>{sub}</span>}</span>
+    <span className="shrink-0 tabular-nums" style={{ color: tone === 'good' ? GREEN : tone === 'short' ? AMBER : INK }}>{value}</span>
+  </div>
+);
+const Note = ({ children, warn }: { children: React.ReactNode; warn?: boolean }) => (
+  <p className="mt-2 rounded-2xl px-4 py-3 text-[14px]" style={warn ? { background: AMBER_TINT, color: AMBER } : { background: SOFT, color: MUTED }}>{children}</p>
+);
+
+export type PaydayScreenProps = {
+  from: Date; to: Date; cadence: PayCadence;
+  onCadence: (c: PayCadence) => void; onEarlier: () => void; onLater: () => void;
+  /** Pick dates: the first or last day picked, as yyyy-mm-dd. */
+  onFirstDay: (v: string) => void; onLastDay: (v: string) => void;
+  /** Sales and other money in, less what was spent, for these dates. */
+  cameIn: number;
+  team: PayPerson[]; teamTotal: number; employerTaxes: number;
+  bills: PayBill[];
+  tax: {
+    hasState: boolean; stateName: string; employerPct: number; regionLabel: string; note?: string; stale?: string;
+    state: string | null; states: { code: string; label: string }[]; onState: (code: string) => void; canPickState: boolean;
+    country: string; countries: { code: string; name: string; enabled: boolean }[]; onCountry: (code: string) => void;
+  };
+  gusto: { connected: boolean; companyName?: string };
+  onConnectGusto: () => void; onSendToGusto: () => void; sendingToGusto: boolean;
+  autoDraft: boolean; onAutoDraft: (on: boolean) => void;
+  draft: { from: Date; to: Date; people: number; gross: number; taxes: number } | null; onOpenDraft: () => void;
+  setAside: number; onSetAside: (n: number) => void; parts: SetAsidePart[];
+  onRecord: () => void; recording: boolean;
+  /** When payday for these dates went into the books (it's recorded once), and the dates it was for when they're not
+   *  quite these (a payday that overlaps them). */
+  recordedOn: Date | null; recordedSpan?: string | null;
+  statementFor: string | null; onStatement: (id: string | null) => void; statement: (p: PayPerson) => React.ReactNode;
+  onSeeBills: () => void;
+  now?: Date;
+};
+
+export function PaydayScreen(p: PaydayScreenProps) {
+  const now = p.now || new Date();
+  const [datesOpen, setDatesOpen] = React.useState(false);
+  const teamRef = React.useRef<HTMLElement>(null);
+  const billsTotal = p.bills.reduce((n, b) => n + (Number(b.amount) || 0), 0);
+  const payday = p.teamTotal + p.employerTaxes;
+  const left = Math.round((p.cameIn - payday - billsTotal) * 100) / 100;
+  const custom = p.cadence === 'custom';
+  const words = spanWords(p.from, p.to, now);
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const parts = PART_ORDER.map((k) => p.parts.find((x) => x.key === k)).filter(Boolean) as SetAsidePart[];
+  const toTeam = () => { teamRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); teamRef.current?.focus({ preventScroll: true }); };
+
+  const period = (
+    <section aria-label="This pay period" className={card} style={{ border: `1px solid ${LINE}` }}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="text-[17px] font-semibold">This pay period</h3>
+          <p className="text-[14px]" style={{ color: MUTED }}>{words}.{!custom && ` You pay ${HOW_OFTEN[p.cadence]}.`}</p>
+        </div>
+        {!custom && <div className="flex shrink-0 gap-1">
+          <button type="button" onClick={p.onEarlier} aria-label="The pay period before" className={`flex h-11 w-11 items-center justify-center rounded-full ${RING}`} style={plain}><ChevronLeft className="h-5 w-5" /></button>
+          <button type="button" onClick={p.onLater} aria-label="The pay period after" className={`flex h-11 w-11 items-center justify-center rounded-full ${RING}`} style={plain}><ChevronRight className="h-5 w-5" /></button>
+        </div>}
+      </div>
+      {(datesOpen || custom) && (
+        <div className="mt-3 rounded-2xl p-3" style={{ background: SOFT }}>
+          <p className="mb-2 text-[14px]" style={{ color: MUTED }}>How often you pay</p>
+          <div className="flex flex-wrap gap-2" role="group" aria-label="How often you pay">
+            {CADENCES.map(([k, l]) => (
+              <button key={k} type="button" onClick={() => p.onCadence(k)} aria-pressed={p.cadence === k} className={`min-h-[44px] rounded-full px-4 text-[14px] ${RING}`}
+                style={p.cadence === k ? { background: INK, color: '#fff', fontWeight: 600 } : plain}>{l}</button>))}
+          </div>
+          {custom && <div className="mt-3 flex flex-wrap items-center gap-2">
+            <label className="inline-flex items-center gap-2 text-[14px]" style={{ color: MUTED }}>First day
+              <input type="date" value={ymd(p.from)} onChange={(e) => p.onFirstDay(e.target.value)} className={field} style={{ border: `1px solid ${LINE}`, color: INK }} /></label>
+            <label className="inline-flex items-center gap-2 text-[14px]" style={{ color: MUTED }}>Last day
+              <input type="date" value={ymd(p.to)} onChange={(e) => p.onLastDay(e.target.value)} className={field} style={{ border: `1px solid ${LINE}`, color: INK }} /></label>
+          </div>}
+        </div>
+      )}
+      <div className="mt-3">
+        <Row label="Came in, after costs" sub="Sales, tips and other income, less refunds and costs. Sales tax and money held for others aren’t in it." value={`${p.cameIn < 0 ? '−' : ''}${usd(p.cameIn)}`} />
+        <Row label="Your team’s pay" sub={p.team.length ? 'Hours, commission and tips, from the time clock and checkouts' : 'Nobody has pay for these dates yet'} value={p.teamTotal ? `−${usd(p.teamTotal)}` : usd(0)} />
+        {p.employerTaxes > 0 && <Row label="Payroll taxes you pay as the employer" sub={`An estimate, about ${p.tax.employerPct}% of pay${p.tax.hasState ? ` in ${p.tax.stateName}` : ''}`} value={`−${usd(p.employerTaxes)}`} />}
+        <Row label="Bills due these dates" sub={p.bills.length ? namesOf(p.bills.map((b) => b.name)) : 'None left to pay'} value={billsTotal ? `−${usd(billsTotal)}` : usd(0)} />
+        {left >= 0
+          ? <Row label="Left after payday" value={usd(left)} tone="good" />
+          : <Row label="Short after payday" sub="What came in these dates doesn’t cover payday and the bills." value={`−${usd(left)}`} tone="short" />}
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2 pb-1">
+        {p.team.length > 0 && <button type="button" onClick={toTeam} className={btn} style={solid}>Review and pay the team</button>}
+        {!custom && <button type="button" onClick={() => setDatesOpen((o) => !o)} aria-expanded={datesOpen} className={btn} style={plain}>{datesOpen ? 'Done with the dates' : 'Change the dates'}</button>}
+      </div>
+    </section>
+  );
+
+  const team = (
+    <section ref={teamRef} tabIndex={-1} id="payday-team" aria-label="Your team" className={`${card} scroll-mt-24 focus:outline-none`} style={{ border: `1px solid ${LINE}` }}>
+      <h3 className="text-[17px] font-semibold">Your team</h3>
+      <p className="text-[14px]" style={{ color: MUTED }}>What each person earned these dates.{p.gusto.connected ? ` Gusto is connected, so payday goes through ${p.gusto.companyName || 'Gusto'}.` : ''}</p>
+      <div className="mt-2">
+        {p.team.length === 0 && <p className="py-3 text-[14px]" style={{ color: MUTED, borderTop: `1px solid ${LINE}` }}>No pay for these dates yet. It shows here from the time clock and checkouts.</p>}
+        {p.team.map((o) => {
+          const open = p.statementFor === o.id;
+          const miss = Number(o.missingClockOuts) || 0, waiting = Number(o.unapprovedSessions) || 0;
+          return (
+            <div key={o.id} style={{ borderTop: `1px solid ${LINE}` }}>
+              <div className="flex min-h-[56px] items-start gap-3 pt-3">
+                {o.avatarUrl
+                  ? <img src={o.avatarUrl} alt="" className="h-9 w-9 shrink-0 rounded-full object-cover" />
+                  : <span aria-hidden className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full font-semibold" style={{ background: SOFT, color: MUTED }}>{(o.name || '?').charAt(0)}</span>}
+                <span className="min-w-0 flex-1">
+                  <span className="block">{o.name}</span>
+                  <span className="block text-[13px]" style={{ color: MUTED }}>{payWords(o)}</span>
+                  {miss > 0 && <a href="/timesheets" className="block text-[13px] font-semibold underline underline-offset-2" style={{ color: AMBER }}>{miss} forgotten clock-out{miss === 1 ? '' : 's'}, not paid until fixed on Timesheets</a>}
+                  {waiting > 0 && <a href="/timesheets" className="block text-[13px] font-semibold underline underline-offset-2" style={{ color: AMBER }}>{waiting} shift{waiting === 1 ? '' : 's'} waiting for approval, not paid yet</a>}
+                  {o.noHours && <span className="block text-[13px]" style={{ color: AMBER }}>No hours on the clock, so minimum wage and overtime can’t be checked</span>}
+                  <button type="button" onClick={() => p.onStatement(open ? null : o.id)} aria-expanded={open} className={`-my-1 min-h-[44px] text-left text-[13px] underline underline-offset-2 ${RING}`} style={{ color: INK }}>{open ? 'Hide how it’s worked out' : 'How it’s worked out'}</button>
+                </span>
+                <span className="shrink-0 self-start pt-0.5 font-semibold tabular-nums">{usd(o.amount)}</span>
+              </div>
+              {open && <div className="pb-3">{p.statement(o)}</div>}
+            </div>
+          );
+        })}
+      </div>
+      {p.team.length > 0 && <>
+        <Row label="Your team’s pay" value={usd(p.teamTotal)} />
+        {p.employerTaxes > 0 && <Row label="Payroll taxes you pay as the employer" sub={p.tax.hasState ? `An estimate for ${p.tax.stateName}` : `An estimate until your ${p.tax.regionLabel.toLowerCase()} is picked`} value={usd(p.employerTaxes)} />}
+        <Row label="Payday comes to" value={usd(payday)} tone="total" />
+        {p.cameIn < payday && <Note warn>What came in these dates is {usd(payday - p.cameIn)} less than payday needs. Check the account has enough before you pay.</Note>}
+      </>}
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        {p.gusto.connected
+          ? <button type="button" onClick={p.onSendToGusto} disabled={!p.team.length || p.sendingToGusto} className={btn} style={solid}>{p.sendingToGusto ? 'Sending to Gusto' : 'Send payroll to Gusto'}</button>
+          : <button type="button" onClick={p.onConnectGusto} className={btn} style={plain}>Connect Gusto</button>}
+        <span className="text-[13px]" style={{ color: MUTED }}>{p.gusto.connected ? 'Gusto works out the exact taxes, sends the deposits and files.' : 'To pay your team and file payroll taxes from here. Until then, record payday in your books below.'}</span>
+      </div>
+      <div className="mt-3 flex min-h-[56px] items-center justify-between gap-3 py-2" style={{ borderTop: `1px solid ${LINE}` }}>
+        <span className="min-w-0"><span className="block">A payroll draft each payday</span>
+          <span className="block text-[13px]" style={{ color: MUTED }}>Put together {custom ? 'every two weeks' : HOW_OFTEN[p.cadence]}, with a note to you. Nothing is paid until you approve it.</span></span>
+        <button type="button" role="switch" aria-checked={p.autoDraft} aria-label="A payroll draft each payday" onClick={() => p.onAutoDraft(!p.autoDraft)} className={`flex h-11 w-14 shrink-0 items-center justify-center rounded-full ${RING}`}>
+          <span className="relative block h-7 w-12 rounded-full transition-colors" style={{ background: p.autoDraft ? GREEN : '#d4d5d8' }}>
+            <span className="absolute top-0.5 block h-6 w-6 rounded-full bg-[#fff] shadow transition-all" style={{ left: p.autoDraft ? 22 : 2 }} />
+          </span>
+        </button>
+      </div>
+    </section>
+  );
+
+  const aside = (
+    <section aria-label="Set aside from what’s left" className={card} style={{ border: `1px solid ${LINE}` }}>
+      <h3 className="text-[17px] font-semibold">Set aside from what’s left</h3>
+      <p className="text-[14px]" style={{ color: MUTED }}>A split, so taxes and your own pay are there when you need them.</p>
+      <div className="mt-3 flex flex-wrap items-end gap-2">
+        <label className="min-w-[150px] flex-1 text-[14px]" style={{ color: MUTED }}>Amount to split
+          <span className="mt-1 flex h-11 items-center rounded-xl bg-[#fff] px-3 focus-within:ring-2 focus-within:ring-[#16171a]" style={{ border: `1px solid ${LINE}`, color: INK }}>
+            <span aria-hidden style={{ color: MUTED }}>$</span>
+            <input type="number" inputMode="decimal" min={0} step="0.01" placeholder="0.00" value={p.setAside || ''} onChange={(e) => p.onSetAside(Math.max(0, parseFloat(e.target.value) || 0))}
+              className="h-full w-full min-w-0 bg-transparent pl-1 text-[16px] tabular-nums focus:outline-none" />
+          </span>
+        </label>
+        <button type="button" onClick={() => p.onSetAside(Math.max(0, left))} disabled={left <= 0} className={btn} style={plain}>Use what’s left{left > 0 ? `, ${usd(left)}` : ''}</button>
+      </div>
+      <div className="mt-3">
+        {parts.map((x) => (
+          <Row key={x.key} label={PART_NAMES[x.key]} value={usd(x.amount)}
+            sub={x.key === 'tax' ? `${x.pct}%, ${p.tax.hasState ? `an estimate for ${p.tax.stateName}` : 'a federal estimate until your state is picked'}` : x.key === 'opex' ? `${x.pct}%, stays in the business account` : `${x.pct}%`} />
+        ))}
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2" style={{ borderTop: `1px solid ${LINE}` }}>
+        <label className="mt-3 inline-flex flex-wrap items-center gap-2 text-[14px]" style={{ color: MUTED }}>Taxes are estimated for
+          <select value={p.tax.state ?? ''} onChange={(e) => e.target.value && p.tax.onState(e.target.value)} disabled={!p.tax.canPickState} className={`${field} max-w-[260px]`} style={{ border: `1px solid ${LINE}`, color: INK }}>
+            <option value="" disabled>Pick your {p.tax.regionLabel.toLowerCase()}</option>
+            {p.tax.states.map((s) => <option key={s.code} value={s.code}>{s.label}</option>)}
+          </select></label>
+        {p.tax.country !== 'US' && <label className="mt-3 inline-flex items-center gap-2 text-[14px]" style={{ color: MUTED }}>Country
+          <select value={p.tax.country} onChange={(e) => p.tax.onCountry(e.target.value)} className={field} style={{ border: `1px solid ${LINE}`, color: INK }}>
+            {p.tax.countries.map((c) => <option key={c.code} value={c.code} disabled={!c.enabled}>{c.name}{c.enabled ? '' : ', coming later'}</option>)}
+          </select></label>}
+      </div>
+      {!p.tax.hasState && <Note warn>Pick your {p.tax.regionLabel.toLowerCase()} so the tax estimate and payroll taxes fit where you are. Until then, a federal-only estimate is used.</Note>}
+      {p.tax.hasState && p.tax.note && <p className="mt-2 text-[13px]" style={{ color: MUTED }}>{p.tax.note}</p>}
+      {p.tax.stale && <Note warn>{p.tax.stale}</Note>}
+      <p className="mt-2 text-[13px]" style={{ color: MUTED }}>Estimates only. Your accountant can confirm the right amounts.</p>
+      <div className="mt-3 pb-1" style={{ borderTop: `1px solid ${LINE}` }}>
+        {p.recordedOn
+          ? <p role="status" className="mt-3 rounded-2xl px-4 py-3 text-[14px] font-medium" style={{ background: GREEN_TINT, color: GREEN }}>{p.recordedSpan ? `Payday for ${p.recordedSpan} is in your books, recorded ${p.recordedOn.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}. These dates overlap it, so it can’t be recorded again.` : `Payday for these dates is in your books, recorded ${p.recordedOn.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}.`}</p>
+          : <>
+            <button type="button" onClick={p.onRecord} disabled={(p.setAside <= 0 && !p.team.length) || p.recording} className={`${btn} mt-3`} style={solid}>{p.recording ? 'Recording' : 'Record payday in your books'}</button>
+            <p className="mt-2 text-[13px]" style={{ color: MUTED }}>
+              {p.setAside > 0
+                ? `Adds ${p.team.length ? `each person’s pay (${usd(p.teamTotal)} in all) and ` : ''}these set-asides to your books, dated today. It’s recorded once for these dates.`
+                : p.team.length ? `Adds each person’s pay (${usd(p.teamTotal)} in all) to your books, dated today. Put in an amount to split to add the set-asides too.` : 'Put in an amount to split, and recording adds the set-asides to your books.'}
+            </p>
+          </>}
+      </div>
+    </section>
+  );
+
+  const bills = (
+    <section aria-label="Bills due these dates" className={card} style={{ border: `1px solid ${LINE}` }}>
+      <h3 className="text-[17px] font-semibold">Bills due these dates</h3>
+      <div className="mt-2">
+        {p.bills.length === 0 && <p className="py-3 text-[14px]" style={{ color: MUTED, borderTop: `1px solid ${LINE}` }}>No unpaid bills are due these dates.</p>}
+        {p.bills.map((b) => {
+          const late = b.due < today;
+          const when = b.due.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+          return <Row key={b.id} label={b.name} value={usd(b.amount)} sub={<span style={{ color: late ? AMBER : MUTED }}>{late ? `Overdue since ${when}` : `Due ${when}`}{b.personal ? ', personal' : ''}</span>} />;
+        })}
+      </div>
+      <div className="mt-2 pb-1"><button type="button" onClick={p.onSeeBills} className={btn} style={plain}>See all bills</button></div>
+    </section>
+  );
+
+  return (
+    <div style={{ color: INK }}>
+      <h2 className="text-[24px] font-semibold leading-tight">Payday</h2>
+      <p className="mb-4 text-[14px]" style={{ color: MUTED }}>What came in this pay period, what goes out on payday, and what’s left to set aside.</p>
+      {p.draft && (
+        <section aria-label="A payroll draft is ready" className={`${card} mb-4 flex flex-wrap items-center justify-between gap-3 pb-4 md:flex-nowrap`} style={{ border: `1px solid ${LINE}` }}>
+          <div className="min-w-0">
+            <h3 className="text-[17px] font-semibold">A payroll draft is ready</h3>
+            <p className="text-[14px]" style={{ color: MUTED }}>{spanWords(p.draft.from, p.draft.to, now)}: {p.draft.people} {p.draft.people === 1 ? 'person' : 'people'}, {usd(p.draft.gross)} in pay and about {usd(p.draft.taxes)} in payroll taxes. It’s worked out again from the time clock and checkouts when you open it.</p>
+          </div>
+          <button type="button" onClick={p.onOpenDraft} className={`${btn} shrink-0`} style={plain}>Open those dates</button>
+        </section>
+      )}
+      <div className="grid items-start gap-4 lg:grid-cols-[1.1fr_1fr]">
+        <div className="space-y-4">{period}{team}</div>
+        <div className="space-y-4">{aside}{bills}</div>
+      </div>
+    </div>
+  );
+}

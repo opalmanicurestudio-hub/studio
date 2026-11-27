@@ -59,7 +59,7 @@ import {
 } from '@/lib/state-tax-profiles';
 import { COUNTRY_OPTIONS, getCountryOption } from '@/lib/tax-jurisdictions';
 import { auditEntry } from '@/lib/audit';
-import { booksSummary, effectOf, lookupOf, netSalesOf, normalizeLine, type BooksSummary } from '@/lib/books-summary';
+import { booksSummary, effectOf, isTeamPay, lookupOf, netSalesOf, normalizeLine, type BooksSummary } from '@/lib/books-summary';
 import { esc, printLine, printMoney, printPage } from '@/lib/print-style';
 import { buildLedgerHtml, ledgerCsv } from '@/lib/report-builders';
 import { csvName, downloadCsv } from '@/lib/csv';
@@ -84,6 +84,9 @@ import { OwedToClients } from '@/components/money/OwedToClients';
 import { BankScreen } from '@/components/money/BankScreen';
 import { BooksScreen, wayOf, type BooksFilters } from '@/components/money/BooksScreen';
 import { ReportsScreen } from '@/components/money/ReportsScreen';
+import { PaydayScreen, spanWords } from '@/components/money/PaydayScreen';
+import { BillsScreen, PAY_WAYS } from '@/components/money/BillsScreen';
+import { ActivityScreen } from '@/components/money/ActivityScreen';
 import { bucketFor } from '@/lib/categories';
 import { useInventory } from '@/context/InventoryContext';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -307,6 +310,8 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
     setRefundAmount(Math.max(0, Number((transaction.amount - withheld).toFixed(2))));
   }, [withholdOverhead, withholdMaterials, withholdLabor, transaction, costsBreakdown]);
 
+  // (Every hook before the early return: the dialog is mounted with no line, then given one.)
+  const [verifying, setVerifying] = useState(false);
   if (!transaction) return null;
   const isCard = transaction.paymentMethod?.toLowerCase().includes('card') || transaction.paymentMethod?.toLowerCase().includes('visa');
   const tipToRefund = refundTip ? (transaction.tipAmount || 0) : 0;
@@ -315,7 +320,6 @@ const RefundProtocolDialog = ({ transaction, activeTill, staff, services, appoin
   // v79 — manager PIN verified server-side (rate-limited; works after
   // PINs move out of client-readable staff docs). Client compare remains
   // only as a pre-deploy fallback.
-  const [verifying, setVerifying] = useState(false);
   const handleAction = async () => {
     if (verifying) return;
     if (!reason.trim()) { toast({ variant: 'destructive', title: 'Reason Required' }); return; }
@@ -776,29 +780,16 @@ const BankTab = () => {
   const tenantId = selectedTenant?.id;
   return (
     <div className="mx-auto w-full max-w-[1180px] px-4 py-5 md:px-6" style={{ color: '#16171a' }}>
-      <h1 className="px-1 text-[30px] font-semibold leading-tight md:text-[34px]" style={{ letterSpacing: '-0.02em' }}>Bank</h1>
-      <p className="mt-1 px-1 text-[14px]" style={{ color: '#6d7075' }}>Each line from your connected bank: sorted for you when it’s plain what it is, matched when it’s money already in your books, and the rest waiting for you with a category picked.</p>
-      <div className="mt-5">{tenantId && firestore && <BankScreen tenantId={tenantId} firestore={firestore} actor={auditActor} />}</div>
+      <h2 className="text-[24px] font-semibold leading-tight">Bank</h2>
+      <p className="mb-4 text-[14px]" style={{ color: '#6d7075' }}>Each line from your connected bank: sorted for you when it’s plain what it is, matched when it’s money already in your books, and the rest waiting for you with a category picked.</p>
+      <div>{tenantId && firestore && <BankScreen tenantId={tenantId} firestore={firestore} actor={auditActor} />}</div>
     </div>
   );
 };
 
-const AllocationItem = ({ label, percentage, amount, color }: { label: string, percentage: number, amount: number, color: string }) => (
-    <div className="flex items-center justify-between p-3 rounded-xl bg-muted/30 border shadow-sm">
-        <div className="flex items-center gap-3">
-            <div className={cn("w-2 h-8 rounded-full", color)} />
-            <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">{label}</p>
-                <p className="text-[8px] font-bold text-muted-foreground opacity-60">{percentage}% Allocation</p>
-            </div>
-        </div>
-        <p className="text-base md:text-lg font-black font-mono tracking-tighter text-foreground">${amount.toFixed(2)}</p>
-    </div>
-);
-
 type Cadence = 'weekly' | 'bi-weekly' | 'monthly' | 'custom';
 
-const PaydayTab = () => {
+const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
   const { billDefinitions, billInstances, staff, isLoading: ctxLoading, services } = useInventory();
   const auditActor = useAuditActor();
   const { firestore } = useFirebase();
@@ -871,7 +862,7 @@ const PaydayTab = () => {
   // The schedule for the period — paid non-service time (training, meetings) for commission / per service people.
   const shFrom = format(subDays(dateRange.from, 1), 'yyyy-MM-dd'), shTo = format(addDays(dateRange.to, 1), 'yyyy-MM-dd');
   const { data: periodShifts } = useCollection<any>(useMemoFirebase(() => (firestore && tenantId ? query(collection(firestore, 'tenants', tenantId, 'shifts'), where('date', '>=', shFrom), where('date', '<=', shTo)) : null), [firestore, tenantId, shFrom, shTo]));
-  // Shared tips: pay each person's APPROVED share (the same as the payroll draft), not the tips taken at their chair.
+  // Shared tips: pay each person's APPROVED share (the same as the payroll draft), not the tips taken at their own visits.
   const tipMode = String((selectedTenant as any)?.tipSharing?.mode || 'direct');
   const { data: tipRuns } = useCollection<any>(useMemoFirebase(() => (firestore && tenantId && tipMode !== 'direct' ? query(collection(firestore, 'tenants', tenantId, 'tipShareRuns'), where('status', '==', 'approved')) : null), [firestore, tenantId, tipMode]));
   const sharedTips = useMemo(() => { if (tipMode === 'direct') return null; const m = new Map<string, number>(); const a = dateRange.from.toISOString(), b = dateRange.to.toISOString();
@@ -885,10 +876,15 @@ const PaydayTab = () => {
       });
   }, [transactions, dateRange]);
 
+  // What came in, after costs: the books' own reading of these dates (lib/books-summary: sales, tips and other income,
+  // less returns, discounts and costs), never the sales tax, money held for others or transfers. Team pay already booked
+  // in these dates is added back, since the team's pay is taken off on the screen.
   const currentBalance = useMemo(() => {
-      const income = filteredTransactions.filter(t => t.type === 'income').reduce((acc, t) => acc + t.amount, 0);
-      const expenses = filteredTransactions.filter(t => t.type === 'expense' || t.type === 'payment').reduce((acc, t) => acc + t.amount, 0);
-      return Math.max(0, income - expenses);
+      const ls = filteredTransactions.map((t: any) => normalizeLine(t));
+      const s = booksSummary(ls, { lookup: ls, businessOnly: true });
+      // (Payroll only: contract labor isn't in the team's pay worked out here, so it stays a cost.)
+      const booked = s.byCategory.opex.filter(([c]) => isTeamPay(c) && !/contract/i.test(c)).reduce((n, [, v]) => n + v, 0);
+      return Math.round((s.net + booked) * 100) / 100;
   }, [filteredTransactions]);
 
   // The visits this period's payments belong to, read by id (who did the work), not every visit ever.
@@ -901,7 +897,7 @@ const PaydayTab = () => {
     // workweek, minimum-wage top-ups, salary — the same one the payroll draft uses.
     const sessions = sessionsFrom(activityLogs as any, clockPolicy(selectedTenant));
 
-    // Booth renters are not on payroll — they rent the chair and keep their
+    // Renters are not on payroll — they rent their space and keep their
     // own takings. Excluded here for the same reason the server draft
     // excludes them; if the two disagreed, the screen would be the lie.
     return staff.filter((m: any) => m.isRenter !== true).map(member => {
@@ -1013,17 +1009,18 @@ const PaydayTab = () => {
 
   const totalHardObligations = staffTotalOwed + businessBillsTotal + personalBillsTotal;
 
-  // v60 — Tax bucket is no longer a flat 15%: it's driven by the studio's
+  // v60 — Tax bucket is no longer a flat 15%: it's driven by the business's
   // state profile (federal + SE base + state effective rate). Owner Comp
   // absorbs the difference so the split always totals 100%.
   const suggestions = useMemo(() => {
       const amt = allocationAmount || 0;
       const alloc = suggestedAllocation(stateProfile);
       return [
-          { label: 'Profit', pct: alloc.profit, amount: Number((amt * alloc.profit / 100).toFixed(2)), color: 'bg-green-500' },
-          { label: 'Owner Comp', pct: alloc.ownerComp, amount: Number((amt * alloc.ownerComp / 100).toFixed(2)), color: 'bg-primary' },
-          { label: `Tax (${stateProfile.code})`, pct: alloc.tax, amount: Number((amt * alloc.tax / 100).toFixed(2)), color: 'bg-orange-500' },
-          { label: 'OpEx / Bills', pct: alloc.opex, amount: Number((amt * alloc.opex / 100).toFixed(2)), color: 'bg-blue-500' },
+          { key: 'profit' as const, label: 'Profit', pct: alloc.profit, amount: Number((amt * alloc.profit / 100).toFixed(2)) },
+          { key: 'owner' as const, label: 'Your pay', pct: alloc.ownerComp, amount: Number((amt * alloc.ownerComp / 100).toFixed(2)) },
+          { key: 'tax' as const, label: `Taxes (${stateProfile.code})`, pct: alloc.tax, amount: Number((amt * alloc.tax / 100).toFixed(2)) },
+          // (What stays in the business account: nothing is booked for it.)
+          { key: 'opex' as const, label: 'Running the business', pct: alloc.opex, amount: Number((amt * alloc.opex / 100).toFixed(2)) },
       ];
   }, [allocationAmount, stateProfile]);
 
@@ -1031,18 +1028,35 @@ const PaydayTab = () => {
       setAllocationAmount(Number(currentBalance.toFixed(2)));
   };
 
+  // Payday is recorded once for a pay period: each line has a fixed id for the period, written only if none is there,
+  // and never for dates that overlap a payday already recorded (a custom period a day shorter is the same payday).
+  const payFromYmd = format(dateRange.from, 'yyyy-MM-dd'), payToYmd = format(dateRange.to, 'yyyy-MM-dd');
+  const periodKey = `${payFromYmd}_${payToYmd}`;
+  const [recorded, setRecorded] = useState<{ on: string; from: string; to: string } | null>(null);
+  const recordedFor = useCallback(async () => {
+      if (!firestore || !tenantId) return null;
+      const q = await getDocs(query(collection(firestore, `tenants/${tenantId}/transactions`), where('paydayTo', '>=', payFromYmd), limit(100)));
+      const hit: any = q.docs.map(d => d.data() as any).find(t => String(t.paydayFrom || '') <= payToYmd);
+      return hit ? { on: String(hit.date || new Date().toISOString()), from: String(hit.paydayFrom), to: String(hit.paydayTo) } : null;
+  }, [firestore, tenantId, payFromYmd, payToYmd]);
+  useEffect(() => {
+      let on = true; setRecorded(null);
+      recordedFor().then(r => { if (on) setRecorded(r); }).catch(() => {});
+      return () => { on = false; };
+  }, [recordedFor]);
+
   const handleConfirmDistributions = async () => {
-    if (!firestore || !tenantId) return;
+    if (!firestore || !tenantId || recorded) return;
     setIsSubmitting(true);
 
-    const batch = writeBatch(firestore);
     const now = new Date().toISOString();
+    const lines: { ref: any; data: any }[] = [];
 
     staffObligations.forEach(obligation => {
-        const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
-        const newTxn: Omit<Transaction, 'id'> = {
+        const txnRef = doc(firestore, `tenants/${tenantId}/transactions`, `payday_${periodKey}_${obligation.id}`);
+        const newTxn: any = {
             date: now,
-            description: `Payroll Payout: ${obligation.name}`,
+            description: `Payday: ${obligation.name}`,
             clientOrVendor: obligation.name,
             type: 'expense',
             context: 'Business',
@@ -1052,16 +1066,17 @@ const PaydayTab = () => {
             paymentMethod: 'Distribution',
             hasReceipt: false,
             staffId: obligation.id,
+            paydayPeriod: periodKey, paydayFrom: payFromYmd, paydayTo: payToYmd,
         };
-        batch.set(txnRef, { ...newTxn, id: txnRef.id });
+        lines.push({ ref: txnRef, data: { ...newTxn, id: txnRef.id } });
     });
 
     suggestions.forEach(bucket => {
-        if (bucket.amount > 0 && bucket.label !== 'OpEx / Bills') {
-            const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
-            const newTxn: Omit<Transaction, 'id'> = {
+        if (bucket.amount > 0 && bucket.key !== 'opex') {
+            const txnRef = doc(firestore, `tenants/${tenantId}/transactions`, `setaside_${periodKey}_${bucket.key}`);
+            const newTxn: any = {
                 date: now,
-                description: `Profit First Allocation: ${bucket.label}`,
+                description: `Set aside: ${bucket.label}`,
                 clientOrVendor: 'Internal Distribution',
                 type: 'expense',
                 context: 'Business',
@@ -1070,27 +1085,38 @@ const PaydayTab = () => {
                 amount: Number(bucket.amount.toFixed(2)),
                 paymentMethod: 'Internal Transfer',
                 hasReceipt: false,
+                paydayPeriod: periodKey, paydayFrom: payFromYmd, paydayTo: payToYmd,
             };
-            batch.set(txnRef, { ...newTxn, id: txnRef.id });
+            lines.push({ ref: txnRef, data: { ...newTxn, id: txnRef.id } });
         }
     });
 
     try {
-        await batch.commit();
-        toast({
-            title: "Distributions Confirmed",
-            description: `Logged distributions successfully.`
+        if (!lines.length) return;
+        const before = await recordedFor();
+        if (before) { setRecorded(before); throw new Error('already-recorded'); }
+        await runTransaction(firestore, async (tx) => {
+            const there = await Promise.all(lines.map(l => tx.get(l.ref)));
+            if (there.some(d => d.exists())) throw new Error('already-recorded');
+            lines.forEach(l => tx.set(l.ref, l.data));
         });
+        setRecorded({ on: now, from: payFromYmd, to: payToYmd });
+        toast({ title: 'Payday recorded', description: 'Each person’s pay and the set-asides are in your books.' });
         setAllocationAmount(0);
         markDraftApproved();
         writeAudit(firestore, tenantId, {
             action: 'payroll.distribute', targetType: 'payroll',
-            summary: `Confirmed payouts: ${staffObligations.length} staff ($${staffTotalOwed.toFixed(2)}) + Profit First allocations of $${allocationAmount.toFixed(2)}`,
+            summary: `Recorded payday: ${staffObligations.length} ${staffObligations.length === 1 ? 'person' : 'people'} paid ${fmtCurrency(staffTotalOwed)}, and ${fmtCurrency(allocationAmount)} split to set aside`,
             amount: staffTotalOwed, actor: auditActor,
         });
-    } catch (e) {
-        console.error("Distributions failed:", e);
-        toast({ variant: 'destructive', title: "Distribution Failed" });
+    } catch (e: any) {
+        if (e?.message === 'already-recorded') {
+            toast({ title: 'Payday for these dates is already in your books', description: 'Nothing was added twice.' });
+            recordedFor().then(r => setRecorded(r)).catch(() => {});
+        } else {
+            console.error("Distributions failed:", e);
+            toast({ variant: 'destructive', title: 'Payday wasn’t recorded', description: 'Nothing was added to your books. Try again.' });
+        }
     } finally {
         setIsSubmitting(false);
     }
@@ -1125,21 +1151,21 @@ const PaydayTab = () => {
         const result = await submitGustoPayroll(draft);
         if (result.status === 'submitted' || result.status === 'processing') {
             toast({
-                title: 'Payroll Submitted to Gusto',
-                description: `${staffObligations.length} employee${staffObligations.length === 1 ? '' : 's'} — Gusto is handling taxes, withholdings & direct deposits.`,
+                title: 'Payroll sent to Gusto',
+                description: `${staffObligations.length} ${staffObligations.length === 1 ? 'person' : 'people'}. Gusto works out the taxes and withholding and sends the deposits.`,
             });
             markDraftApproved();
             writeAudit(firestore, tenantId, {
                 action: 'payroll.submit_gusto', targetType: 'payroll',
-                summary: `Submitted payroll to Gusto: ${staffObligations.length} staff, gross $${staffTotalOwed.toFixed(2)}, est. employer taxes $${employerTaxes.toFixed(2)}`,
+                summary: `Sent payroll to Gusto: ${staffObligations.length} ${staffObligations.length === 1 ? 'person' : 'people'}, ${fmtCurrency(staffTotalOwed)} in pay, about ${fmtCurrency(employerTaxes)} in payroll taxes`,
                 amount: staffTotalOwed, actor: auditActor,
             });
         } else {
-            toast({ variant: 'destructive', title: 'Gusto Submission Issue', description: result.message || 'The payroll draft was not accepted.' });
+            toast({ variant: 'destructive', title: 'Gusto didn’t take the payroll', description: result.message || 'Nothing was sent. Check the details in Gusto and try again.' });
         }
     } catch (e) {
         console.error('Gusto submission failed:', e);
-        toast({ variant: 'destructive', title: 'Gusto Submission Failed' });
+        toast({ variant: 'destructive', title: 'Payroll wasn’t sent to Gusto', description: 'Nothing was sent. Try again in a moment.' });
     } finally {
         setIsSubmittingPayroll(false);
     }
@@ -1154,470 +1180,47 @@ const PaydayTab = () => {
   }
 
   return (
-    <div className="p-4 md:p-8">
-        <div className="max-w-2xl mx-auto px-2 md:px-0 space-y-8 md:space-y-10">
-            <div className="text-center space-y-1">
-                <h1 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-foreground">Run Payday</h1>
-                <p className="text-[10px] md:text-sm text-muted-foreground font-medium uppercase tracking-widest opacity-70">
-                    Reconcile Period & Allocate Revenue
-                </p>
-            </div>
-
-            <div className="space-y-6">
-                <div className="max-w-[340px] mx-auto flex gap-1.5 p-2 bg-muted border-2 border-muted rounded-2xl shadow-inner">
-                    {(['weekly', 'bi-weekly', 'monthly', 'custom'] as Cadence[]).map(c => (
-                        <Button key={c} variant="ghost" size="sm" onClick={() => handleCadenceChange(c)} className={cn("flex-1 text-[9px] font-black uppercase h-8 rounded-xl transition-all", cadence === c ? "bg-card shadow-sm border border-border/50" : "hover:bg-card/50")}>{c.replace('-', ' ')}</Button>
-                    ))}
-                </div>
-
-                {cadence === 'custom' ? (
-                    <div className="p-6 md:p-16 bg-muted/30 rounded-[2.5rem] md:rounded-[3rem] border-2 border-dashed border-muted-foreground/20 space-y-6 md:space-y-8 shadow-inner">
-                        <div className="flex items-center gap-3 justify-center text-[10px] md:text-[11px] font-black uppercase tracking-widest text-primary">
-                            <CalendarRange className="w-4 h-4" /> Select Custom Window
-                        </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-8 px-2 md:px-4">
-                            <div className="space-y-2 text-left">
-                                <Label className="text-[9px] uppercase font-black text-muted-foreground ml-2">Start Date</Label>
-                                <input
-                                    type="date"
-                                    value={format(dateRange.from, 'yyyy-MM-dd')}
-                                    onChange={(e) => {
-                                        const newDate = e.target.value ? startOfDay(new Date(e.target.value.replace(/-/g, '/'))) : dateRange.from;
-                                        setDateRange(prev => ({ ...prev, from: newDate }));
-                                    }}
-                                    className="w-full h-12 sm:h-16 rounded-2xl border-2 bg-background px-4 font-black text-sm sm:text-lg text-center focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all outline-none shadow-md"
-                                />
-                            </div>
-                            <div className="space-y-2 text-left">
-                                <Label className="text-[9px] uppercase font-black text-muted-foreground ml-2">End Date</Label>
-                                <input
-                                    type="date"
-                                    value={format(dateRange.to, 'yyyy-MM-dd')}
-                                    onChange={(e) => {
-                                        const newDate = e.target.value ? endOfDay(new Date(e.target.value.replace(/-/g, '/'))) : dateRange.to;
-                                        setDateRange(prev => ({ ...prev, to: newDate }));
-                                    }}
-                                    className="w-full h-12 sm:h-16 rounded-2xl border-2 bg-background px-4 font-black text-sm sm:text-lg text-center focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all outline-none shadow-md"
-                                />
-                            </div>
-                        </div>
-                    </div>
-                ) : (
-                    <div className="flex items-center justify-between p-4 md:p-6 bg-muted/30 rounded-2xl border-2 border-dashed border-muted-foreground/20 mx-1 md:mx-0 shadow-inner">
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={handlePrevPeriod}
-                            className="h-10 w-10 md:h-12 md:w-12 hover:bg-card rounded-full shadow-sm"
-                        >
-                            <ChevronLeft className="w-5 h-5 md:w-6 md:h-6"/>
-                        </Button>
-
-                        <div className="text-center px-2">
-                            <p className="text-[9px] md:text-[10px] font-black uppercase tracking-widest text-primary mb-1">Reconciling Period</p>
-                            <p className="text-sm md:text-xl font-black text-foreground leading-none">
-                                {format(dateRange.from, 'MMM d')} – {format(dateRange.to, 'MMM d, yyyy')}
-                            </p>
-                        </div>
-
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={handleNextPeriod}
-                            className="h-10 w-10 md:h-12 md:w-12 hover:bg-card rounded-full shadow-sm"
-                        >
-                            <ChevronRight className="w-5 h-5 md:w-6 md:h-6"/>
-                        </Button>
-                    </div>
-                )}
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <Card className="border-2 shadow-sm bg-primary/5 border-primary/10">
-                    <CardContent className="p-5 md:p-6 flex flex-col justify-center text-left">
-                        <p className="text-[9px] md:text-[10px] font-black uppercase text-primary tracking-widest mb-1">Period Net Income</p>
-                        <p className="text-2xl md:text-3xl font-black tracking-tighter text-primary font-mono">${currentBalance.toFixed(2)}</p>
-                    </CardContent>
-                </Card>
-                <Card className={cn("border-2 shadow-sm", totalHardObligations > currentBalance ? "bg-destructive/5 border-destructive/20" : "bg-muted/20")}>
-                    <CardContent className="p-5 md:p-6 flex flex-col justify-center text-left">
-                        <p className="text-[9px] md:text-[10px] font-black uppercase text-muted-foreground tracking-widest mb-1">Obligations Total</p>
-                        <div className="flex items-center justify-between">
-                            <p className={cn("text-2xl md:text-3xl font-black tracking-tighter font-mono", totalHardObligations > currentBalance && "text-destructive")}>
-                                ${totalHardObligations.toFixed(2)}
-                            </p>
-                            {totalHardObligations > currentBalance && (
-                                <TooltipProvider>
-                                    <Tooltip>
-                                        <TooltipTrigger><AlertCircle className="w-5 h-5 text-destructive animate-pulse" /></TooltipTrigger>
-                                        <TooltipContent className="border-2 rounded-xl font-black uppercase text-[9px]">Warning: Obligations exceed period income.</TooltipContent>
-                                    </Tooltip>
-                                </TooltipProvider>
-                            )}
-                        </div>
-                    </CardContent>
-                </Card>
-            </div>
-
-            {pendingDraft && (
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 md:p-5 rounded-2xl bg-primary/5 border-2 border-primary/20 shadow-sm animate-in fade-in slide-in-from-top-2 duration-300">
-                    <div className="text-left">
-                        <p className="text-[9px] font-black uppercase tracking-widest text-primary mb-1 flex items-center gap-1.5">
-                            <CalendarRange className="w-3.5 h-3.5" /> Payroll draft ready
-                        </p>
-                        <p className="text-xs md:text-sm font-black text-foreground">
-                            {format(safeDate(pendingDraft.periodStart), 'MMM d')} – {format(safeDate(pendingDraft.periodEnd), 'MMM d')} · {pendingDraft.lines?.length || 0} staff · gross ${Number(pendingDraft.grossTotal || 0).toFixed(2)} + est. taxes ${Number(pendingDraft.estimatedEmployerTaxes || 0).toFixed(2)}
-                        </p>
-                        <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground opacity-60 mt-0.5">
-                            Preview only — numbers recompute live when you approve below
-                        </p>
-                    </div>
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-10 px-4 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest shrink-0"
-                        onClick={() => {
-                            setCadence('custom');
-                            setDateRange({ from: startOfDay(safeDate(pendingDraft.periodStart)), to: endOfDay(safeDate(pendingDraft.periodEnd)) });
-                        }}
-                    >
-                        Load Period
-                    </Button>
-                </div>
-            )}
-
-            <Card className="border-2 shadow-xl overflow-hidden">
-                <CardHeader className="p-5 md:p-6 text-left border-b bg-muted/5">
-                    <div className="flex items-center justify-between gap-2">
-                        <CardTitle className="text-sm md:text-lg font-black uppercase tracking-tight flex items-center gap-2">
-                            <Users className="w-4 h-4 md:w-5 md:h-5 text-primary" />
-                            Payroll Ready
-                        </CardTitle>
-                        {gusto.connected ? (
-                            <Badge className="bg-green-100 text-green-800 border-none font-black text-[9px] uppercase tracking-widest h-6 px-3">Gusto Connected</Badge>
-                        ) : (
-                            <Badge variant="outline" className="border-2 font-black text-[9px] uppercase tracking-widest text-muted-foreground h-6 px-3">Not Connected</Badge>
-                        )}
-                    </div>
-                    <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">
-                        {gusto.connected
-                            ? `Submits to ${gusto.companyName || 'Gusto'} — taxes, filings & direct deposit handled there`
-                            : 'Connect Gusto to run compliant payroll from this screen'}
-                    </CardDescription>
-                </CardHeader>
-                <CardContent className="p-5 md:p-6 space-y-4">
-                    <div className="space-y-2">
-                        {[
-                            { label: `Employees with earnings: ${staffObligations.length}`, ok: staffObligations.length > 0 },
-                            { label: 'Hours & commissions calculated', ok: staffObligations.length > 0 },
-                            ...(() => { const n = staffObligations.reduce((x: number, o: any) => x + (o.missingClockOuts || 0), 0); return [{ label: n ? `${n} forgotten clock-out${n === 1 ? '' : 's'} — not paid until fixed on Timesheets` : 'No forgotten clock-outs', ok: n === 0 }]; })(),
-                            { label: 'Tips reconciled from ledger', ok: true },
-                            { label: `Payroll reserve funded (${fmtCurrency(payrollCashNeeded)} needed)`, ok: currentBalance >= payrollCashNeeded },
-                        ].map(item => (
-                            <div key={item.label} className="flex items-center justify-between p-3 rounded-xl bg-muted/30 border shadow-sm">
-                                <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground text-left">{item.label}</span>
-                                {item.ok
-                                    ? <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0" />
-                                    : <AlertCircle className="w-4 h-4 text-destructive shrink-0" />}
-                            </div>
-                        ))}
-                    </div>
-                    <div className="p-4 rounded-xl border-2 border-dashed bg-muted/10 space-y-2 text-left">
-                        <div className="flex justify-between text-[10px] font-black uppercase tracking-widest">
-                            <span className="text-muted-foreground opacity-70">Gross payroll</span>
-                            <span className="font-mono">{fmtCurrency(staffTotalOwed)}</span>
-                        </div>
-                        <div className="flex justify-between text-[10px] font-black uppercase tracking-widest">
-                            <span className="text-muted-foreground opacity-70">Est. employer taxes ({stateProfile.code} · {stateProfile.employerPayrollTaxPct}%)</span>
-                            <span className="font-mono text-orange-600">{fmtCurrency(employerTaxes)}</span>
-                        </div>
-                        <div className="flex justify-between text-xs font-black uppercase tracking-widest border-t pt-2">
-                            <span>Total cash needed</span>
-                            <span className="font-mono text-primary">{fmtCurrency(payrollCashNeeded)}</span>
-                        </div>
-                    </div>
-
-                    <div className="flex items-center justify-between gap-3 p-3.5 rounded-xl border-2 border-dashed bg-muted/5">
-                        <div className="text-left">
-                            <Label className="text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
-                                <CalendarRange className="w-3.5 h-3.5 text-primary" /> Auto-draft payroll
-                            </Label>
-                            <p className="text-[9px] text-muted-foreground uppercase font-bold opacity-60 mt-0.5">
-                                Drafts assemble {cadence === 'custom' ? 'bi-weekly' : cadence} & notify you — approval is always yours
-                            </p>
-                        </div>
-                        <Switch checked={autoDraftEnabled} onCheckedChange={handleAutoDraftToggle} />
-                    </div>
-                </CardContent>
-                <CardFooter className="p-5 md:p-6 pt-0 flex flex-col gap-2">
-                    {gusto.connected ? (
-                        <Button
-                            size="lg"
-                            className="w-full h-14 rounded-2xl text-base font-black uppercase tracking-tight shadow-xl shadow-primary/20 transition-all active:scale-95"
-                            disabled={staffObligations.length === 0 || isSubmittingPayroll}
-                            onClick={handleApprovePayroll}
-                        >
-                            {isSubmittingPayroll ? <Loader className="animate-spin h-6 w-6" /> : (
-                                <><CheckCircle2 className="mr-2 h-5 w-5" /> Approve Payroll → Gusto</>
-                            )}
-                        </Button>
-                    ) : (
-                        <>
-                            <Button
-                                size="lg"
-                                variant="outline"
-                                className="w-full h-14 rounded-2xl text-sm font-black uppercase tracking-tight border-2"
-                                onClick={() => tenantId && beginGustoConnect(tenantId)}
-                            >
-                                <Landmark className="mr-2 h-5 w-5 text-primary" /> Connect Gusto
-                            </Button>
-                            <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground opacity-60 text-center">
-                                Until connected, &quot;Confirm Payouts&quot; below logs payroll internally.
-                            </p>
-                        </>
-                    )}
-                </CardFooter>
-            </Card>
-
-            <Card className="border-2 shadow-xl overflow-hidden">
-                <CardHeader className="p-5 md:p-6 text-left border-b bg-muted/5">
-                    <CardTitle className="text-sm md:text-lg font-black uppercase tracking-tight flex items-center gap-2">
-                        <Calculator className="w-4 h-4 md:w-5 md:h-5 text-primary" />
-                        Allocation Engine
-                    </CardTitle>
-                    <CardDescription className="text-[10px] font-bold uppercase tracking-widest opacity-60">Profit First methodology suggestions</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6 md:space-y-8 p-5 md:p-6">
-                    <div className="space-y-2 text-left">
-                        <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Tax Location</Label>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            <Select value={taxCountry} onValueChange={handleCountryChange}>
-                                <SelectTrigger className="h-12 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-muted/5 shadow-sm"><SelectValue placeholder="COUNTRY" /></SelectTrigger>
-                                <SelectContent className="rounded-xl border-2 shadow-2xl">
-                                    {COUNTRY_OPTIONS.map(c => (
-                                        <SelectItem key={c.code} value={c.code} disabled={!c.enabled} className="font-bold">
-                                            {c.name}{c.enabled ? '' : ' — coming soon'}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                            <Select value={taxState ?? undefined} onValueChange={handleStateChange} disabled={!countryOption.enabled}>
-                                <SelectTrigger className="h-12 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-muted/5 shadow-sm"><SelectValue placeholder={`SELECT ${countryOption.regionLabel.toUpperCase()}`} /></SelectTrigger>
-                                <SelectContent className="rounded-xl border-2 shadow-2xl max-h-72">
-                                    {STATE_OPTIONS.map(s => (
-                                        <SelectItem key={s.code} value={s.code} className="font-bold">
-                                            {s.name} — {s.taxType === 'none' ? 'No income tax' : `${s.stateRate}% ${s.taxType === 'graduated' ? 'top' : 'flat'}`}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
-                        {!hasTaxLocation && (
-                            <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-50 border-2 border-amber-200">
-                                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                                <p className="text-[9px] font-black uppercase tracking-widest text-amber-700 leading-relaxed text-left">
-                                    Set your {countryOption.regionLabel.toLowerCase()} — until then, a federal-only baseline ({GENERIC_US_PROFILE.suggestedTaxPct}%) applies and payroll tax estimates are approximate.
-                                </p>
-                            </div>
-                        )}
-                        <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground opacity-60 leading-relaxed px-1">
-                            Suggested tax bucket: {stateProfile.suggestedTaxPct}% (federal + self-employment{stateProfile.taxType === 'none' ? (hasTaxLocation ? ', no state income tax' : '') : ` + ~${stateProfile.effectiveStateRate}% state`}). Estimates only — confirm with your accountant.
-                        </p>
-                        {stateProfile.note && (
-                            <p className="text-[9px] text-muted-foreground leading-relaxed font-bold px-1 opacity-70">{stateProfile.note}</p>
-                        )}
-                        {ratesAreStale() && (
-                            <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-50 border-2 border-amber-200">
-                                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                                <p className="text-[9px] font-black uppercase tracking-widest text-amber-700 leading-relaxed text-left">
-                                    These tax rates are from {RATES_VINTAGE} and may be out of date — refresh the state tax library before relying on this split.
-                                </p>
-                            </div>
-                        )}
-                    </div>
-
-                    <Separator className="border-dashed" />
-
-                    <div className="space-y-2 text-left">
-                        <div className="relative">
-                            <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 md:h-6 md:w-6 text-muted-foreground opacity-40" />
-                            <Input
-                                id="allocation-amount"
-                                type="number"
-                                placeholder="0.00"
-                                className="pl-12 text-2xl md:text-3xl font-black h-16 md:h-20 border-2 rounded-2xl tracking-tighter focus-visible:ring-primary/20 bg-muted/5 shadow-inner"
-                                value={allocationAmount || ''}
-                                onChange={(e) => setAllocationAmount(parseFloat(e.target.value) || 0)}
-                            />
-                        </div>
-                        <div className="flex justify-between items-center px-1">
-                            <p className="text-[9px] font-black uppercase text-muted-foreground">Amount to Distribute</p>
-                            <Button variant="link" className="h-auto p-0 text-[9px] font-black uppercase text-primary underline underline-offset-4" onClick={handleSetMaxBalance}>Use Period Income</Button>
-                        </div>
-                    </div>
-
-                    {allocationAmount > 0 && (
-                        <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-500">
-                            <Separator className="border-dashed" />
-                            <p className="text-[9px] font-black uppercase tracking-widest text-primary text-center">Suggested Distribution</p>
-                            <div className="grid gap-3">
-                                {suggestions.map(s => (
-                                    <AllocationItem key={s.label} label={s.label} percentage={s.pct} amount={s.amount} color={s.color} />
-                                ))}
-                            </div>
-                            <div className="p-4 rounded-xl border-2 border-dashed bg-muted/10 flex items-start gap-3 text-left">
-                                <Info className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5 opacity-40" />
-                                <p className="text-[10px] text-muted-foreground leading-relaxed font-bold uppercase tracking-tight">
-                                    The <strong>OpEx Allocation</strong> of ${suggestions[3].amount.toFixed(2)} stays in your studio account to cover the ${totalHardObligations.toFixed(2)} in period obligations.
-                                </p>
-                            </div>
-                        </div>
-                    )}
-
-                     <Accordion type="single" collapsible className="w-full border-t pt-6">
-                        <AccordionItem value="obligations-summary" className="border-none">
-                            <AccordionTrigger className="p-4 md:p-5 bg-muted/30 rounded-2xl border-2 hover:no-underline shadow-sm">
-                                <div className="flex items-center gap-2">
-                                    <Receipt className="w-4 h-4 text-primary" />
-                                    <span className="font-black uppercase text-[10px] md:text-xs tracking-widest">Unpaid Obligations Detail</span>
-                                </div>
-                            </AccordionTrigger>
-                            <AccordionContent className="pt-6 space-y-6 text-left">
-                                <div className='p-4 md:p-5 bg-muted/50 rounded-2xl border-2 space-y-4 shadow-inner'>
-                                    <h4 className='font-black text-[9px] md:text-[10px] uppercase tracking-widest flex items-center gap-2 text-primary'><Users className='w-3 h-3'/>Staff Earnings</h4>
-                                    <div className="space-y-2">
-                                        {staffObligations.length > 0 ? staffObligations.map((owed, idx) => (<React.Fragment key={idx}>
-                                            <div className='flex items-center justify-between bg-background p-2.5 rounded-xl border shadow-sm'>
-                                                <div className="flex items-center gap-2 min-w-0">
-                                                    <Avatar className="h-7 w-7 rounded-lg border">
-                                                        <AvatarImage src={owed.avatarUrl} className="object-cover" />
-                                                        <AvatarFallback className="text-[8px] font-black">{(owed.name || 'S').charAt(0)}</AvatarFallback>
-                                                    </Avatar>
-                                                    <div className="min-w-0">
-                                                        <p className="text-[10px] font-black uppercase tracking-tight truncate">{owed.name}</p>
-                                                        <p className="text-[8px] text-muted-foreground uppercase font-bold tracking-widest mt-0.5">{owed.details}</p>
-                                                        {(owed as any).missingClockOuts > 0 && <a href="/timesheets" className="text-[11px] font-semibold text-destructive">{(owed as any).missingClockOuts} forgotten clock-out{(owed as any).missingClockOuts === 1 ? '' : 's'} — fix on Timesheets</a>}
-                                                        {(owed as any).unapprovedSessions > 0 && <a href="/timesheets" className="block text-[11px] font-semibold text-amber-700">{(owed as any).unapprovedSessions} shift{(owed as any).unapprovedSessions === 1 ? '' : 's'} waiting for approval — not paid yet</a>}
-                                                        {(owed as any).noHours && <p className="text-[11px] font-semibold text-amber-700">No hours on the clock — minimum wage and overtime can’t be checked</p>}
-                                                        <button type="button" onClick={() => setStatementFor(statementFor === owed.id ? null : owed.id)} className="text-[11px] font-semibold underline underline-offset-2">{statementFor === owed.id ? 'Hide' : 'See how it’s worked out'}</button>
-                                                    </div>
-                                                </div>
-                                                <span className="font-mono font-black text-xs md:text-sm ml-2">${owed.amount.toFixed(2)}</span>
-                                            </div>
-                                            {statementFor === owed.id && tenantId && <PayStatement tenantId={tenantId} staffId={owed.id} from={dateRange.from.toISOString()} to={dateRange.to.toISOString()} title={`${owed.name} — pay statement`} />}
-                                        </React.Fragment>)) : <p className="text-[9px] text-muted-foreground uppercase font-bold text-center py-4 border-2 border-dashed rounded-xl opacity-40">No staff earnings</p>}
-                                    </div>
-                                    <div className='flex justify-between text-xs border-t border-primary/20 pt-3 font-black uppercase'>
-                                        <span className="tracking-widest opacity-60">Total Staff</span>
-                                        <span className="text-primary tracking-tighter">${staffTotalOwed.toFixed(2)}</span>
-                                    </div>
-                                </div>
-
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                    <div className='p-4 bg-muted/50 rounded-2xl border-2 space-y-4 shadow-inner'>
-                                        <h4 className='font-black text-[9px] uppercase tracking-widest flex items-center gap-2 text-blue-600'><Building className='w-3 h-3'/>Business Bills</h4>
-                                        <div className="space-y-1.5">
-                                            {upcomingBusiness.length > 0 ? upcomingBusiness.map((item, idx) => (
-                                                <div key={idx} className='flex justify-between text-[9px] font-black uppercase'>
-                                                    <span className="text-muted-foreground truncate mr-2">{item.definition?.name}</span>
-                                                    <span className="font-mono">${item.definition?.amount.toFixed(2)}</span>
-                                                </div>
-                                            )) : <p className="text-[8px] text-muted-foreground uppercase font-bold italic opacity-40">No entries</p>}
-                                        </div>
-                                        <div className='flex justify-between text-[10px] border-t border-blue-500/20 pt-2 font-black uppercase'>
-                                            <span className="tracking-widest opacity-60">Total</span>
-                                            <span className="text-blue-600">${businessBillsTotal.toFixed(2)}</span>
-                                        </div>
-                                    </div>
-
-                                    <div className='p-4 bg-muted/50 rounded-2xl border-2 space-y-4 shadow-inner'>
-                                        <h4 className='font-black text-[9px] uppercase tracking-widest flex items-center gap-2 text-purple-600'><User className='w-3 h-3'/>Personal Needs</h4>
-                                        <div className="space-y-1.5">
-                                            {upcomingPersonal.length > 0 ? upcomingPersonal.map((item, idx) => (
-                                                <div key={idx} className='flex justify-between text-[9px] font-black uppercase'>
-                                                    <span className="text-muted-foreground truncate mr-2">{item.definition?.name}</span>
-                                                    <span className="font-mono">${item.definition?.amount.toFixed(2)}</span>
-                                                </div>
-                                            )) : <p className="text-[8px] text-muted-foreground uppercase font-bold italic opacity-40">No entries</p>}
-                                        </div>
-                                        <div className='flex justify-between text-[10px] border-t border-purple-500/20 pt-2 font-black uppercase'>
-                                            <span className="tracking-widest opacity-60">Total</span>
-                                            <span className="text-purple-600">${personalBillsTotal.toFixed(2)}</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </AccordionContent>
-                        </AccordionItem>
-                    </Accordion>
-                </CardContent>
-                <CardFooter className="p-5 md:p-6 pt-0">
-                    <Button
-                        size="lg"
-                        className="w-full h-14 md:h-16 rounded-2xl text-base md:text-xl font-black uppercase tracking-tight shadow-xl shadow-primary/20 transition-all active:scale-95"
-                        disabled={allocationAmount <= 0 || isSubmitting}
-                        onClick={handleConfirmDistributions}
-                    >
-                        {isSubmitting ? <Loader className="animate-spin h-6 w-6 md:h-7 md:w-7" /> : (
-                            <>
-                                <CheckCircle2 className="mr-2 md:mr-3 h-5 w-5 md:h-7 md:w-7" />
-                                Confirm Payouts
-                            </>
-                        )}
-                    </Button>
-                </CardFooter>
-            </Card>
-        </div>
+    <div className="mx-auto w-full max-w-[1180px] px-4 py-5 md:px-6" style={{ color: '#16171a' }}>
+      <PaydayScreen
+        from={dateRange.from} to={dateRange.to} cadence={cadence}
+        onCadence={handleCadenceChange} onEarlier={handlePrevPeriod} onLater={handleNextPeriod}
+        onFirstDay={(v) => { if (v) setDateRange(prev => ({ ...prev, from: startOfDay(new Date(v.replace(/-/g, '/'))) })); }}
+        onLastDay={(v) => { if (v) setDateRange(prev => ({ ...prev, to: endOfDay(new Date(v.replace(/-/g, '/'))) })); }}
+        cameIn={currentBalance}
+        team={staffObligations} teamTotal={staffTotalOwed} employerTaxes={employerTaxes}
+        bills={[...upcomingBusiness, ...upcomingPersonal]
+          .map(item => ({ id: String(item.instance.id), name: String(item.definition?.name || 'A bill'), amount: Number(item.definition?.amount) || 0, due: safeDate(item.instance.dueDate), personal: item.definition?.context === 'Personal' }))
+          .sort((a, b) => a.due.getTime() - b.due.getTime())}
+        tax={{
+          hasState: hasTaxLocation, stateName: stateProfile.name, employerPct: stateProfile.employerPayrollTaxPct, regionLabel: countryOption.regionLabel,
+          note: stateProfile.note, stale: ratesAreStale() ? `These tax rates are from ${RATES_VINTAGE} and may be out of date. Check with your accountant before relying on the split.` : undefined,
+          state: taxState, onState: handleStateChange, canPickState: countryOption.enabled,
+          states: STATE_OPTIONS.map(s => ({ code: s.code, label: `${s.name}, ${s.taxType === 'none' ? 'no income tax' : `${s.stateRate}% ${s.taxType === 'graduated' ? 'top rate' : 'flat'}`}` })),
+          country: taxCountry, countries: COUNTRY_OPTIONS, onCountry: handleCountryChange,
+        }}
+        gusto={{ connected: !!gusto.connected, companyName: gusto.companyName }}
+        onConnectGusto={() => { if (tenantId) beginGustoConnect(tenantId); }}
+        onSendToGusto={handleApprovePayroll} sendingToGusto={isSubmittingPayroll}
+        autoDraft={autoDraftEnabled} onAutoDraft={handleAutoDraftToggle}
+        draft={pendingDraft ? { from: safeDate(pendingDraft.periodStart), to: safeDate(pendingDraft.periodEnd), people: pendingDraft.lines?.length || 0, gross: Number(pendingDraft.grossTotal || 0), taxes: Number(pendingDraft.estimatedEmployerTaxes || 0) } : null}
+        onOpenDraft={() => {
+          if (!pendingDraft) return;
+          setCadence('custom');
+          setDateRange({ from: startOfDay(safeDate(pendingDraft.periodStart)), to: endOfDay(safeDate(pendingDraft.periodEnd)) });
+        }}
+        setAside={allocationAmount} onSetAside={setAllocationAmount} parts={suggestions}
+        onRecord={handleConfirmDistributions} recording={isSubmitting} recordedOn={recorded ? safeDate(recorded.on) : null}
+        recordedSpan={recorded && (recorded.from !== payFromYmd || recorded.to !== payToYmd) ? spanWords(new Date(`${recorded.from}T00:00:00`), new Date(`${recorded.to}T00:00:00`)) : null}
+        statementFor={statementFor} onStatement={setStatementFor}
+        statement={(o) => tenantId ? <PayStatement tenantId={tenantId} staffId={o.id} from={dateRange.from.toISOString()} to={dateRange.to.toISOString()} title={`${o.name}, pay statement`} /> : null}
+        onSeeBills={() => { onNavigate?.('bills'); if (typeof window !== 'undefined') window.scrollTo({ top: 0 }); }}
+      />
     </div>
   );
 };
 
-// ─── BillsTab (new) ───────────────────────────────────────────────────────────
-
-type EnrichedBill = {
-  instance: any;
-  definition: any;
-  due: Date;
-  overdue: boolean;
-  daysUntil: number;
-};
-
-const BillRow = ({ bill, onMarkPaid }: { bill: EnrichedBill; onMarkPaid: (b: EnrichedBill) => void }) => (
-  <div className="flex items-center justify-between gap-3 p-3.5 rounded-2xl bg-background border-2 shadow-sm">
-    <div className="flex items-center gap-3 min-w-0">
-      <div className={cn('p-2.5 rounded-xl shrink-0', bill.overdue ? 'bg-destructive/10' : bill.definition?.context === 'Business' ? 'bg-blue-100' : 'bg-purple-100')}>
-        {bill.definition?.context === 'Business'
-          ? <Building className={cn('w-4 h-4', bill.overdue ? 'text-destructive' : 'text-blue-600')} />
-          : <User className={cn('w-4 h-4', bill.overdue ? 'text-destructive' : 'text-purple-600')} />}
-      </div>
-      <div className="min-w-0">
-        <p className="text-xs font-black uppercase tracking-tight text-foreground truncate">{bill.definition?.name || 'Unknown Bill'}</p>
-        <div className="flex items-center gap-2 mt-0.5">
-          <span className={cn('text-[9px] font-black uppercase tracking-widest', bill.overdue ? 'text-destructive' : 'text-muted-foreground opacity-60')}>
-            {bill.overdue
-              ? `Overdue ${Math.abs(bill.daysUntil)}d`
-              : bill.daysUntil === 0 ? 'Due today' : `Due ${fmt(bill.due, 'MMM d')}`}
-          </span>
-          <Badge className={cn('text-[8px] h-4 px-1.5 font-black uppercase tracking-widest border-none', bill.definition?.context === 'Business' ? 'bg-indigo-100 text-indigo-800' : 'bg-purple-100 text-purple-800')}>
-            {bill.definition?.context || '—'}
-          </Badge>
-          {bill.definition?.cadence && bill.definition.cadence !== 'monthly' && (
-            <Badge variant="outline" className="text-[8px] h-4 px-1.5 font-black uppercase tracking-widest border-2 text-muted-foreground">
-              {bill.definition.cadence}
-            </Badge>
-          )}
-        </div>
-      </div>
-    </div>
-    <div className="flex items-center gap-3 shrink-0">
-      <span className={cn('font-mono font-black text-sm md:text-base tracking-tighter', bill.overdue && 'text-destructive')}>
-        ${(bill.definition?.amount || 0).toFixed(2)}
-      </span>
-      <Button size="sm" variant="outline" onClick={() => onMarkPaid(bill)} className="h-9 px-3 rounded-xl border-2 font-black uppercase text-[9px] tracking-widest">
-        <CheckCircle2 className="w-3.5 h-3.5 mr-1.5 text-green-600" /> Pay
-      </Button>
-    </div>
-  </div>
-);
+// ─── BillsTab ─────────────────────────────────────────────────────────────────
+// Reads the bills and writes a payment; components/money/BillsScreen lays them out.
 
 const BillsTab = () => {
   const { billDefinitions, billInstances, isLoading } = useInventory();
@@ -1627,61 +1230,38 @@ const BillsTab = () => {
   const { toast } = useToast();
   const tenantId = selectedTenant?.id;
 
-  const [billToPay, setBillToPay] = useState<EnrichedBill | null>(null);
-  const [payMethod, setPayMethod] = useState('Bank Transfer');
-  const [isPaying, setIsPaying] = useState(false);
+  const defOf = useCallback((i: any) => (billDefinitions || []).find((d: any) => d.id === i.billDefinitionId), [billDefinitions]);
+  const unpaid = useMemo(() => (billInstances || [])
+    .filter((i: any) => i.status !== 'paid')
+    .map((i: any) => ({ instance: i, definition: defOf(i) }))
+    .filter((b: any) => b.definition), [billInstances, defOf]);
+  const view = useMemo(() => {
+    const now = new Date(); const m0 = startOfMonth(now), m1 = endOfMonth(now), since = subDays(startOfDay(now), 30);
+    const amountOf = (i: any, d: any) => Number(i.status === 'paid' && typeof i.paidAmount === 'number' ? i.paidAmount : d?.amount) || 0;
+    let paidSum = 0, leftSum = 0, earlier = 0;
+    for (const i of billInstances || []) {
+      const d = defOf(i); if (!d) continue; const due = safeDate(i.dueDate);
+      if (due < m0 && i.status !== 'paid') { earlier += amountOf(i, d); continue; }
+      if (due < m0 || due > m1) continue;
+      if (i.status === 'paid') paidSum += amountOf(i, d); else leftSum += amountOf(i, d);
+    }
+    const paid = (billInstances || []).filter((i: any) => i.status === 'paid' && i.paidDate && safeDate(i.paidDate) >= since)
+      .map((i: any) => ({ id: String(i.id), name: String(defOf(i)?.name || 'A bill'), amount: amountOf(i, defOf(i)), paidOn: safeDate(i.paidDate) }))
+      .sort((x: any, y: any) => y.paidOn.getTime() - x.paidOn.getTime());
+    return { paid, month: { label: format(now, 'MMMM'), due: paidSum + leftSum, paid: paidSum, left: leftSum, earlier } };
+  }, [billInstances, defOf]);
 
-  const unpaidBills = useMemo<EnrichedBill[]>(() => {
-    const today = startOfDay(new Date());
-    return (billInstances || [])
-      .filter((i: any) => i.status !== 'paid')
-      .map((i: any) => {
-        const definition = (billDefinitions || []).find((d: any) => d.id === i.billDefinitionId);
-        const due = safeDate(i.dueDate);
-        return {
-          instance: i,
-          definition,
-          due,
-          overdue: due < today,
-          daysUntil: differenceInDays(startOfDay(due), today),
-        };
-      })
-      .filter(b => b.definition)
-      .sort((a, b) => a.due.getTime() - b.due.getTime());
-  }, [billInstances, billDefinitions]);
-
-  const overdueBills  = unpaidBills.filter(b => b.overdue);
-  const dueSoonBills  = unpaidBills.filter(b => !b.overdue && b.daysUntil <= 7);
-  const laterBills    = unpaidBills.filter(b => !b.overdue && b.daysUntil > 7);
-
-  const totalOf = (list: EnrichedBill[]) => list.reduce((s, b) => s + (b.definition?.amount || 0), 0);
-  const overdueTotal     = totalOf(overdueBills);
-  const dueSoonTotal     = totalOf(dueSoonBills);
-  const outstandingTotal = totalOf(unpaidBills);
-  const businessTotal    = totalOf(unpaidBills.filter(b => b.definition?.context === 'Business'));
-  const personalTotal    = totalOf(unpaidBills.filter(b => b.definition?.context === 'Personal'));
-
-  const handleConfirmPay = async () => {
-    if (!billToPay || !firestore || !tenantId) return;
-    setIsPaying(true);
-    const { instance, definition } = billToPay;
+  const handlePay = async (id: string, payMethod: string): Promise<boolean> => {
+    const bill: any = unpaid.find((b: any) => String(b.instance.id) === id);
+    if (!bill || !firestore || !tenantId) return false;
+    const { instance, definition } = bill;
     const now = new Date().toISOString();
-    const batch = writeBatch(firestore);
-
-    // v66 — merge-set instead of strict update: a strict update throws if
-    // the instance doc is missing/renamed, failing the WHOLE payment with a
-    // generic error. Merge can't fail that way.
-    batch.set(doc(firestore, `tenants/${tenantId}/billInstances`, instance.id), {
-      status: 'paid',
-      paidDate: now,
-      paidAmount: definition.amount || 0,
-    }, { merge: true });
-
+    const instRef = doc(firestore, `tenants/${tenantId}/billInstances`, instance.id);
     const txnRef = doc(collection(firestore, `tenants/${tenantId}/transactions`));
-    batch.set(txnRef, {
+    const line = {
       id: txnRef.id,
       date: now,
-      description: `Bill Payment: ${definition.name}`,
+      description: `Bill paid: ${definition.name}`,
       clientOrVendor: definition.name,
       type: 'expense',
       context: definition.context || 'Business',
@@ -1691,137 +1271,48 @@ const BillsTab = () => {
       paymentMethod: payMethod,
       hasReceipt: false,
       relatedBillInstanceId: instance.id,
-    });
+    };
 
+    const way = (PAY_WAYS.find(([v]) => v === payMethod)?.[1] || payMethod).toLowerCase();
     try {
-      await batch.commit();
-      toast({ title: 'Bill Paid', description: `${definition.name} — $${(definition.amount || 0).toFixed(2)} logged to the ledger.` });
+      // Once: a bill paid meanwhile (on another device, or matched from the bank feed) isn't paid again. A merge-set, so
+      // a missing instance never fails the whole payment (v66).
+      const already = await runTransaction(firestore, async (tx) => {
+        const cur: any = (await tx.get(instRef)).data();
+        if (cur?.status === 'paid') return true;
+        tx.set(instRef, { status: 'paid', paidDate: now, paidAmount: definition.amount || 0 }, { merge: true });
+        tx.set(txnRef, line);
+        return false;
+      });
+      if (already) { toast({ title: 'That bill is already paid', description: 'Nothing was added twice.' }); return true; }
+      toast({ title: 'Bill paid', description: `${definition.name}, ${fmtCurrency(definition.amount || 0)}, is in your books.` });
       writeAudit(firestore, tenantId, {
         action: 'bill.pay', targetType: 'bill', targetId: instance.id,
-        summary: `Marked paid: ${definition.name} via ${payMethod}`,
+        summary: `${definition.name}, paid by ${way}`,
         amount: definition.amount || 0, actor: auditActor,
       });
-      setBillToPay(null);
+      return true;
     } catch (e) {
       console.error('Bill payment failed:', e);
-      toast({ variant: 'destructive', title: 'Payment Failed' });
-    } finally {
-      setIsPaying(false);
+      toast({ variant: 'destructive', title: 'The bill wasn’t marked paid', description: 'Nothing changed. Try again.' });
+      return false;
     }
   };
 
   if (isLoading) {
     return (
-      <div className="p-4 md:p-8 flex items-center justify-center min-h-[50vh]">
-        <Loader className="w-8 h-8 animate-spin text-primary" />
+      <div className="flex min-h-[50vh] items-center justify-center p-4 md:p-8">
+        <Loader className="h-8 w-8 animate-spin" style={{ color: '#6d7075' }} />
       </div>
     );
   }
 
   return (
-    <div className="p-4 md:p-8">
-      <div className="max-w-3xl mx-auto space-y-8">
-        <div className="text-center space-y-1">
-          <h1 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-foreground">Bills & Obligations</h1>
-          <p className="text-[10px] md:text-sm text-muted-foreground font-medium uppercase tracking-widest opacity-70">
-            Every unpaid instance across business & personal
-          </p>
-        </div>
-
-        <div className="grid grid-cols-3 gap-3 md:gap-4">
-          <Card className={cn('border-2 shadow-sm', overdueTotal > 0 ? 'bg-destructive/5 border-destructive/20' : 'bg-muted/20')}>
-            <CardContent className="p-4 md:p-5">
-              <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-1">Overdue</p>
-              <p className={cn('text-lg md:text-2xl font-black font-mono tracking-tighter', overdueTotal > 0 ? 'text-destructive' : 'text-foreground')}>${overdueTotal.toFixed(2)}</p>
-              <p className="text-[8px] font-bold uppercase text-muted-foreground opacity-60 mt-1">{overdueBills.length} bill{overdueBills.length === 1 ? '' : 's'}</p>
-            </CardContent>
-          </Card>
-          <Card className="border-2 shadow-sm bg-amber-50/60 border-amber-200">
-            <CardContent className="p-4 md:p-5">
-              <p className="text-[9px] font-black uppercase tracking-widest text-amber-700 mb-1">Next 7 Days</p>
-              <p className="text-lg md:text-2xl font-black font-mono tracking-tighter text-amber-800">${dueSoonTotal.toFixed(2)}</p>
-              <p className="text-[8px] font-bold uppercase text-amber-700/60 mt-1">{dueSoonBills.length} bill{dueSoonBills.length === 1 ? '' : 's'}</p>
-            </CardContent>
-          </Card>
-          <Card className="border-2 shadow-sm bg-primary/5 border-primary/10">
-            <CardContent className="p-4 md:p-5">
-              <p className="text-[9px] font-black uppercase tracking-widest text-primary mb-1">Outstanding</p>
-              <p className="text-lg md:text-2xl font-black font-mono tracking-tighter text-primary">${outstandingTotal.toFixed(2)}</p>
-              <p className="text-[8px] font-bold uppercase text-muted-foreground opacity-60 mt-1">{unpaidBills.length} total</p>
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="flex items-center justify-between px-5 py-3.5 rounded-2xl bg-muted/30 border-2 border-dashed border-muted-foreground/20 shadow-inner">
-          <div className="flex items-center gap-2">
-            <Building className="w-4 h-4 text-blue-600" />
-            <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Business</span>
-            <span className="font-mono font-black text-sm text-blue-600">${businessTotal.toFixed(2)}</span>
-          </div>
-          <Separator orientation="vertical" className="h-6" />
-          <div className="flex items-center gap-2">
-            <User className="w-4 h-4 text-purple-600" />
-            <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Personal</span>
-            <span className="font-mono font-black text-sm text-purple-600">${personalTotal.toFixed(2)}</span>
-          </div>
-        </div>
-
-        {unpaidBills.length === 0 && (
-          <div className="text-center py-24 opacity-30 border-4 border-dashed rounded-[3rem] flex flex-col items-center gap-4">
-            <CheckCircle2 className="w-16 h-16" />
-            <p className="text-sm font-black uppercase tracking-widest">All bills are paid</p>
-          </div>
-        )}
-
-        {overdueBills.length > 0 && (
-          <div className="space-y-3">
-            <h4 className="font-black text-[10px] uppercase tracking-widest flex items-center gap-2 text-destructive"><AlertCircle className="w-3.5 h-3.5" />Overdue</h4>
-            <div className="space-y-2">{overdueBills.map(b => <BillRow key={b.instance.id} bill={b} onMarkPaid={setBillToPay} />)}</div>
-          </div>
-        )}
-
-        {dueSoonBills.length > 0 && (
-          <div className="space-y-3">
-            <h4 className="font-black text-[10px] uppercase tracking-widest flex items-center gap-2 text-amber-700"><Clock className="w-3.5 h-3.5" />Due This Week</h4>
-            <div className="space-y-2">{dueSoonBills.map(b => <BillRow key={b.instance.id} bill={b} onMarkPaid={setBillToPay} />)}</div>
-          </div>
-        )}
-
-        {laterBills.length > 0 && (
-          <div className="space-y-3">
-            <h4 className="font-black text-[10px] uppercase tracking-widest flex items-center gap-2 text-muted-foreground"><CalendarCheck className="w-3.5 h-3.5" />Upcoming</h4>
-            <div className="space-y-2">{laterBills.map(b => <BillRow key={b.instance.id} bill={b} onMarkPaid={setBillToPay} />)}</div>
-          </div>
-        )}
-      </div>
-
-      <AlertDialog open={!!billToPay} onOpenChange={o => { if (!o) setBillToPay(null); }}>
-        <AlertDialogContent className="rounded-[3rem] border-4 shadow-3xl bg-background">
-          <AlertDialogHeader className="p-6 pb-0">
-            <AlertDialogTitle className="font-black uppercase tracking-tighter text-2xl">Mark Bill Paid</AlertDialogTitle>
-            <AlertDialogDescription className="font-bold text-sm text-foreground/80 leading-relaxed uppercase tracking-tight">
-              Log ${(billToPay?.definition?.amount || 0).toFixed(2)} for &quot;{billToPay?.definition?.name}&quot; as paid? An expense entry will be added to the ledger.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="px-6 pt-4 space-y-2">
-            <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Payment Method</Label>
-            <Select value={payMethod} onValueChange={setPayMethod}>
-              <SelectTrigger className="h-12 rounded-2xl border-2 font-bold"><SelectValue /></SelectTrigger>
-              <SelectContent className="rounded-xl border-2 shadow-2xl">
-                {['Bank Transfer', 'Card', 'Cash', 'Check', 'Auto-Pay'].map(m => (
-                  <SelectItem key={m} value={m} className="font-bold">{m}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <AlertDialogFooter className="p-6 pt-4 flex flex-col gap-3">
-            <Button onClick={handleConfirmPay} disabled={isPaying} className="w-full h-16 rounded-2xl font-black uppercase tracking-widest shadow-2xl shadow-primary/20">
-              {isPaying ? <Loader className="animate-spin h-5 w-5" /> : 'Confirm Payment'}
-            </Button>
-            <AlertDialogCancel onClick={() => setBillToPay(null)} className="w-full h-12 rounded-xl font-bold uppercase text-[10px] tracking-widest border-none bg-transparent">Cancel</AlertDialogCancel>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+    <div className="mx-auto w-full max-w-[1180px] px-4 py-5 md:px-6" style={{ color: '#16171a' }}>
+      <BillsScreen
+        bills={unpaid.map((b: any) => ({ id: String(b.instance.id), name: String(b.definition.name || 'A bill'), amount: Number(b.definition.amount) || 0, due: safeDate(b.instance.dueDate),
+          personal: b.definition.context === 'Personal', cadence: b.definition.cadence, lateFee: Number(b.definition.lateFee) || 0, paymentUrl: b.definition.paymentUrl || '' }))}
+        paid={view.paid} month={view.month} onPay={handlePay} />
     </div>
   );
 };
@@ -1830,171 +1321,49 @@ const BillsTab = () => {
 
 type HubTab = 'overview' | 'ledger' | 'bank' | 'payday' | 'bills' | 'reports' | 'activity';
 
-// ─── ActivityTab — live audit feed for the whole business ────────────────────
+// ─── ActivityTab — the latest actions, live (components/money/ActivityScreen lays them out) ──
 
-const ACTIVITY_KINDS: Record<string, { icon: React.ElementType; cls: string; label: string }> = {
-  transaction: { icon: Receipt,    cls: 'bg-green-100 text-green-700',   label: 'Ledger' },
-  payroll:     { icon: Banknote,   cls: 'bg-sky-100 text-sky-700',       label: 'Payroll' },
-  bill:        { icon: Landmark,   cls: 'bg-purple-100 text-purple-700', label: 'Bills' },
-  bank:        { icon: CreditCard, cls: 'bg-indigo-100 text-indigo-700', label: 'Bank' },
-  rule:        { icon: BookOpen,   cls: 'bg-amber-100 text-amber-700',   label: 'Rules' },
-  debt:        { icon: FileWarning, cls: 'bg-orange-100 text-orange-700', label: 'Debt' },
-};
-const kindOf = (action?: string) =>
-  ACTIVITY_KINDS[(action || '').split('.')[0]] || { icon: ShieldCheck, cls: 'bg-muted text-foreground/80', label: 'Other' };
-
-const dayLabel = (d: Date) => {
-  const now = new Date();
-  if (isSameDay(d, now)) return 'Today';
-  if (isSameDay(d, subDays(now, 1))) return 'Yesterday';
-  return format(d, 'EEEE, MMM d');
-};
-
-const ActivityRow = ({ e }: { e: any }) => {
-  const kind = kindOf(e.action);
-  const Icon = kind.icon;
-  const isSystem = e.actor?.type === 'system';
-  return (
-    <div className="flex items-start gap-3 p-3.5 rounded-2xl bg-background border-2 shadow-sm">
-      <div className={cn('p-2.5 rounded-xl shrink-0', kind.cls)}>
-        <Icon className="w-4 h-4" />
-      </div>
-      <div className="flex-1 min-w-0 text-left">
-        <div className="flex items-center gap-2 flex-wrap">
-          {isSystem ? (
-            <Badge className="bg-sky-100 text-sky-800 border-none font-black text-[8px] h-4 px-1.5 uppercase tracking-widest">⚙ {e.actor?.name || 'system'}</Badge>
-          ) : (
-            <Badge variant="outline" className="border-2 font-black text-[8px] h-4 px-1.5 uppercase tracking-widest">
-              {e.actor?.name || 'Team member'}{e.actor?.role ? ` · ${e.actor.role}` : ''}
-            </Badge>
-          )}
-          {e.actor?.via === 'manager-pin' && (
-            <Badge className="bg-amber-100 text-amber-800 border-none font-black text-[8px] h-4 px-1.5 uppercase tracking-widest">PIN authorized</Badge>
-          )}
-          <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground opacity-50 ml-auto shrink-0">
-            {e.at ? format(safeDate(e.at), 'h:mm a') : ''}
-          </span>
-        </div>
-        <p className="text-xs font-bold text-foreground mt-1 leading-relaxed">{e.summary}</p>
-      </div>
-      {typeof e.amount === 'number' && (
-        <span className="font-mono font-black text-sm tracking-tighter text-foreground shrink-0 mt-0.5">
-          {fmtCurrency(e.amount)}
-        </span>
-      )}
-    </div>
-  );
-};
-
-const ActivityTab = () => {
+const ACTIVITY_MAX = 200;
+const ActivityTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
   const { staff, isLoading } = useInventory();
   const { firestore } = useFirebase();
-  const { selectedTenant } = useTenant();
+  const { selectedTenant, role } = useTenant() as any;
   const tenantId = selectedTenant?.id;
+  // (The activity log is the owner's and managers' to read.)
+  const canSee = ['owner', 'admin', 'manager'].includes(String(role || ''));
 
   const [entries, setEntries] = useState<any[]>([]);
   const [feedLoading, setFeedLoading] = useState(true);
-  const [memberFilter, setMemberFilter] = useState('all');   // all | system | <staff name>
-  const [kindFilter, setKindFilter] = useState('all');       // all | transaction | payroll | ...
+  const [denied, setDenied] = useState(false);
 
   useEffect(() => {
     if (!firestore || !tenantId) return;
-    const q = query(collection(firestore, `tenants/${tenantId}/auditLogs`), orderBy('at', 'desc'), limit(200));
+    if (!canSee) { setFeedLoading(false); return; }
+    const q = query(collection(firestore, `tenants/${tenantId}/auditLogs`), orderBy('at', 'desc'), limit(ACTIVITY_MAX));
     const unsub = onSnapshot(q,
-      snap => { setEntries(snap.docs.map(d => d.data() as any)); setFeedLoading(false); },
-      () => setFeedLoading(false));
+      snap => { setEntries(snap.docs.map(d => d.data() as any)); setDenied(false); setFeedLoading(false); },
+      () => { setDenied(true); setFeedLoading(false); });
     return () => unsub();
-  }, [firestore, tenantId]);
+  }, [firestore, tenantId, canSee]);
 
-  const filtered = useMemo(() => entries.filter(e => {
-    if (memberFilter === 'system' && e.actor?.type !== 'system') return false;
-    if (memberFilter !== 'all' && memberFilter !== 'system') {
-      if (e.actor?.type !== 'user' || (e.actor?.name || '') !== memberFilter) return false;
-    }
-    if (kindFilter !== 'all' && (e.action || '').split('.')[0] !== kindFilter) return false;
-    return true;
-  }), [entries, memberFilter, kindFilter]);
-
-  // Group by day for scannable headers
-  const grouped = useMemo(() => {
-    const groups: { label: string; items: any[] }[] = [];
-    filtered.forEach(e => {
-      const label = e.at ? dayLabel(safeDate(e.at)) : 'Unknown date';
-      const last = groups[groups.length - 1];
-      if (last && last.label === label) last.items.push(e);
-      else groups.push({ label, items: [e] });
-    });
-    return groups;
-  }, [filtered]);
-
-  const memberNames = useMemo(
-    () => [...new Set((staff || []).map((s: any) => s.name).filter(Boolean))] as string[],
-    [staff],
-  );
+  // (The team's names, and anyone else who did something lately, so each can be picked.)
+  const people = useMemo(() => [...new Set([
+    ...(staff || []).map((s: any) => s.name),
+    ...entries.filter((e: any) => e.actor?.type !== 'system').map((e: any) => e.actor?.name),
+  ].filter(Boolean).map(String))].sort((x, y) => x.localeCompare(y)), [staff, entries]);
 
   if (isLoading || feedLoading) {
     return (
-      <div className="p-4 md:p-8 flex items-center justify-center min-h-[50vh]">
-        <Loader className="w-8 h-8 animate-spin text-primary" />
+      <div className="flex min-h-[50vh] items-center justify-center p-4 md:p-8">
+        <Loader className="h-8 w-8 animate-spin" style={{ color: '#6d7075' }} />
       </div>
     );
   }
 
   return (
-    <div className="p-4 md:p-8">
-      <div className="max-w-3xl mx-auto space-y-6">
-        <div className="text-center space-y-1">
-          <h1 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-foreground">Activity</h1>
-          <p className="text-[10px] md:text-sm text-muted-foreground font-medium uppercase tracking-widest opacity-70">
-            Everything happening in your business — people & automations
-          </p>
-        </div>
-
-        <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
-          <Select value={memberFilter} onValueChange={setMemberFilter}>
-            <SelectTrigger className="h-11 sm:w-56 rounded-2xl border-2 font-black uppercase text-[10px] tracking-widest bg-muted/5 shadow-sm"><SelectValue /></SelectTrigger>
-            <SelectContent className="rounded-xl border-2 shadow-2xl">
-              <SelectItem value="all" className="font-bold">Whole team</SelectItem>
-              <SelectItem value="system" className="font-bold">⚙ Automations only</SelectItem>
-              {memberNames.map(n => <SelectItem key={n} value={n} className="font-bold">{n}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <div className="flex gap-1.5 p-1.5 bg-muted border-2 border-muted rounded-2xl shadow-inner overflow-x-auto">
-            {['all', ...Object.keys(ACTIVITY_KINDS)].map(k => (
-              <Button key={k} variant="ghost" size="sm" onClick={() => setKindFilter(k)}
-                className={cn('flex-1 text-[9px] font-black uppercase h-8 px-3 rounded-xl transition-all whitespace-nowrap',
-                  kindFilter === k ? 'bg-card shadow-sm border border-border/50' : 'hover:bg-card/50')}>
-                {k === 'all' ? 'All' : ACTIVITY_KINDS[k].label}
-              </Button>
-            ))}
-          </div>
-        </div>
-
-        {grouped.length === 0 ? (
-          <div className="text-center py-24 opacity-30 border-4 border-dashed rounded-[3rem] flex flex-col items-center gap-4">
-            <History className="w-16 h-16" />
-            <p className="text-sm font-black uppercase tracking-widest">No activity yet</p>
-            <p className="text-[10px] font-bold uppercase tracking-widest max-w-xs">Actions your team and automations take will appear here the moment they happen</p>
-          </div>
-        ) : (
-          <div className="space-y-6">
-            {grouped.map(g => (
-              <div key={g.label} className="space-y-2">
-                <h4 className="font-black text-[10px] uppercase tracking-widest text-muted-foreground opacity-60 flex items-center gap-2 px-1">
-                  <History className="w-3.5 h-3.5" /> {g.label}
-                  <span className="opacity-50">· {g.items.length}</span>
-                </h4>
-                {g.items.map((e, i) => <ActivityRow key={e.id || `${g.label}-${i}`} e={e} />)}
-              </div>
-            ))}
-            {entries.length >= 200 && (
-              <p className="text-center text-[9px] font-bold uppercase tracking-widest text-muted-foreground opacity-50">
-                Showing the latest 200 actions — print the Audit Trail report for full history
-              </p>
-            )}
-          </div>
-        )}
-      </div>
+    <div className="mx-auto w-full max-w-[1180px] px-4 py-5 md:px-6" style={{ color: '#16171a' }}>
+      <ActivityScreen entries={entries} people={people} capped={entries.length >= ACTIVITY_MAX} notYours={!canSee || denied}
+        onReports={() => { onNavigate?.('reports'); if (typeof window !== 'undefined') window.scrollTo({ top: 0 }); }} />
     </div>
   );
 };
@@ -2060,6 +1429,9 @@ function MoneyHubContent() {
     }
   };
 
+  // (A link inside the page that changes the address, such as Books' All reports, or the back button: the tab follows it.)
+  useEffect(() => { if (urlTab && VALID_TABS.includes(urlTab) && urlTab !== activeTab) handleTabChange(urlTab); }, [urlTab]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // (How many of the bank's lines wait to be sorted, on the Bank tab and the overview: counted, never read, again when
   // the tab changes or the page is looked at again. The owner's to read, so for anyone else it isn't shown.)
   const [bankWaiting, setBankWaiting] = useState<number | null>(null);
@@ -2103,10 +1475,10 @@ function MoneyHubContent() {
         </div>}
         {visitedTabs.has('ledger')   && <div className={cn(activeTab !== 'ledger'   && 'hidden')}><LedgerTab /></div>}
         {visitedTabs.has('bank')     && <div className={cn(activeTab !== 'bank'     && 'hidden')}><BankTab /></div>}
-        {visitedTabs.has('payday')   && <div className={cn(activeTab !== 'payday'   && 'hidden')}><PaydayTab /></div>}
+        {visitedTabs.has('payday')   && <div className={cn(activeTab !== 'payday'   && 'hidden')}><PaydayTab onNavigate={handleTabChange} /></div>}
         {visitedTabs.has('bills')    && <div className={cn(activeTab !== 'bills'    && 'hidden')}><BillsTab /></div>}
         {visitedTabs.has('reports')  && <div className={cn(activeTab !== 'reports'  && 'hidden')}><ReportsTab /></div>}
-        {visitedTabs.has('activity') && <div className={cn(activeTab !== 'activity' && 'hidden')}><ActivityTab /></div>}
+        {visitedTabs.has('activity') && <div className={cn(activeTab !== 'activity' && 'hidden')}><ActivityTab onNavigate={handleTabChange} /></div>}
       </main>
     </div>
   );

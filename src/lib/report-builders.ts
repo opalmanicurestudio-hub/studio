@@ -206,6 +206,8 @@ const ACTION_WORDS: Record<string, string> = {
   'fee.paid': 'A fee was paid', 'fee.waived': 'Waived a fee', 'fee.auto_refunded': 'Refunded a fee', 'night.close': 'Closed the night', 'tab.void': 'Voided a check', 'tab.comp': 'Comped an item',
   'mileage.rate': 'Changed the mileage rate', 'inventory.order': 'Ordered stock', 'inventory.cost': 'Changed a cost', 'records.tips_declared': 'Declared tips', 'card.saved': 'Saved a card',
 };
+/** Whether the action has its own plain words (the rest are worked out from its name). */
+export const knownAction = (action: unknown): boolean => !!ACTION_WORDS[String(action || '')];
 export const actionWords = (action: unknown): string => {
   const a = String(action || '');
   if (ACTION_WORDS[a]) return ACTION_WORDS[a];
