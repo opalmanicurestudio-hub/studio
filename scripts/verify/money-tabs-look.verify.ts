@@ -34,7 +34,7 @@ const src = (f: string) => fs.readFileSync(f, 'utf8');
     && P.payWords({ id: 'd', name: 'H', amount: 10, hours: 1 }) === '1 hour', P.payWords({ id: 'c', name: 'S', amount: 2000, payStructure: 'salary', bonus: 40 }));
   check('the statement: came in, the team’s pay, the employer’s payroll taxes, the bills due, and what’s left (or short)',
     /Came in, after costs/.test(pay) && /Your team’s pay/.test(pay) && /Payroll taxes you pay as the employer/.test(pay) && /Bills due these dates/.test(pay)
-    && /Left after payday/.test(pay) && /Short after payday/.test(pay) && /const left = Math\.round\(\(p\.cameIn - payday - billsTotal\) \* 100\) \/ 100/.test(pay) && /const payday = p\.teamTotal \+ p\.employerTaxes/.test(pay));
+    && /Left after payday/.test(pay) && /Short after payday/.test(pay) && /const left = Math\.round\(\(p\.cameIn - payday - cashOut - billsTotal\) \* 100\) \/ 100/.test(pay) && /const payday = p\.teamTotal \+ p\.employerTaxes/.test(pay));
   check('each person: what they earned, forgotten clock-outs and shifts waiting (never paid until fixed), no hours on the clock, and how it’s worked out',
     /forgotten clock-out/.test(pay) && /waiting for approval, not paid yet/.test(pay) && /No hours on the clock/.test(pay) && /How it’s worked out/.test(pay) && /p\.statement\(o\)/.test(pay));
   check('payday goes through Gusto when it’s connected; otherwise Connect Gusto, and payday is recorded in the books',
@@ -42,8 +42,9 @@ const src = (f: string) => fs.readFileSync(f, 'utf8');
   check('the split: taxes for the business’s state, the owner’s pay, profit, and what stays to run the business, from what’s left',
     /Set aside from what’s left/.test(pay) && /Use what’s left/.test(pay) && /p\.onSetAside\(Math\.max\(0, left\)\)/.test(pay) && /Taxes are estimated for/.test(pay)
     && /tax: 'Taxes', owner: 'Your pay', profit: 'Profit', opex: 'Running the business'/.test(pay));
-  check('the pay period: the one before and after, how often, or picked dates; a payroll draft and the payroll draft switch',
-    /The pay period before/.test(pay) && /The pay period after/.test(pay) && /\['custom', 'Pick dates'\]/.test(pay) && /A payroll draft is ready/.test(pay) && /role="switch"/.test(pay));
+  check('the pay period: the one before and after (from pay period settings, with its payday), or picked dates for a one-off; a payroll draft and the payroll draft switch',
+    /The pay period before/.test(pay) && /The pay period after/.test(pay) && /Pick dates, for a one-off/.test(pay) && /pay period settings/.test(pay) && /Payday is \$\{paydayWords\}/.test(pay)
+    && /A payroll draft is ready/.test(pay) && /role="switch"/.test(pay));
   const tab = page.slice(page.indexOf('const PaydayTab'), page.indexOf('// ─── BillsTab'));
   check('the Payday tab hands its own figures to the screen: the period’s income, the pay worked out per person, the payroll tax estimate, the bills due',
     /<PaydayScreen/.test(tab) && /cameIn=\{currentBalance\}/.test(tab) && /team=\{staffObligations\} teamTotal=\{staffTotalOwed\} employerTaxes=\{employerTaxes\}/.test(tab)
@@ -53,7 +54,7 @@ const src = (f: string) => fs.readFileSync(f, 'utf8');
     && /taxBucket: 'payroll'/.test(tab) && /taxBucket: 'transfer',\s+category: 'Distribution'/.test(tab));
 
   check('what came in is the books’ own reading (never the sales tax, gift cards sold or transfers; refunds come off), with pay already booked added back',
-    /const s = booksSummary\(ls, \{ lookup: ls, businessOnly: true \}\);/.test(tab) && /s\.byCategory\.opex\.filter\(\(\[c\]\) => isTeamPay\(c\) && !\/contract\/i\.test\(c\)\)/.test(tab) && /return Math\.round\(\(s\.net \+ booked\) \* 100\) \/ 100;/.test(tab));
+    /const s = booksSummary\(ls, \{ lookup: ls, businessOnly: true \}\);/.test(tab) && /e\.side === 'opex' && \(\(isTeamPay\(e\.category\) && !\/contract\/i\.test\(e\.category\)\) \|\| t\.paydayPeriod\)/.test(tab) && /return Math\.round\(\(s\.net \+ booked\) \* 100\) \/ 100;/.test(tab));
   {
     const { booksSummary, isTeamPay } = await import('../../src/lib/books-summary');
     const ls = [
@@ -73,7 +74,7 @@ const src = (f: string) => fs.readFileSync(f, 'utf8');
     && /where\('paydayTo', '>=', payFromYmd\)/.test(tab) && /String\(t\.paydayFrom \|\| ''\) <= payToYmd/.test(tab) && /paydayPeriod: periodKey, paydayFrom: payFromYmd, paydayTo: payToYmd/.test(tab)
     && /const before = await recordedFor\(\);\s+if \(before\) \{ setRecorded\(before\); throw new Error\('already-recorded'\); \}/.test(tab)
     && /Payday for these dates is in your books, recorded/.test(pay) && /These dates overlap it, so it can’t be recorded again/.test(pay) && /recordedOn=\{recorded \? safeDate\(recorded\.on\) : null\}/.test(tab));
-  check('the team’s pay can be recorded with nothing to split', /disabled=\{\(p\.setAside <= 0 && !p\.team\.length\) \|\| p\.recording\}/.test(pay) && /Put in an amount to split to add the set-asides too/.test(pay));
+  check('the team’s pay can be recorded with nothing to split', /disabled=\{\(p\.setAside <= 0 && !p\.team\.length\) \|\| p\.recording \|\| !!p\.blocked\}/.test(pay) && /Put in an amount to split to add the set-asides too/.test(pay));
 
   console.log('bills');
   const d = (m: number, x: number) => new Date(2026, m, x);

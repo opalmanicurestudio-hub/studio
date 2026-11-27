@@ -38,7 +38,8 @@ export type GustoPayrollLine = {
   overtimeHours: number;
   doubleOvertimeHours?: number;
   commission: number;
-  tips: number;
+  tips: number;            // paycheck tips: paid on this paycheck
+  cashTips?: number;       // cash tips they took home the same day: reported, not paid again
   bonus: number;
   reimbursements: number;
   deductions: number;

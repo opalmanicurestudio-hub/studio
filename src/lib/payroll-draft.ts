@@ -14,8 +14,9 @@
 // the cron may submit to Gusto without a tap. Flip it only after months
 // of boringly-accurate Level 2 drafts.
 
-import { periodPay, payrollFields } from './pay-period';
-import { sessionsFrom, clockPolicy, localDay, weekOf } from './timeclock';
+import { periodPay, payrollFields, paidOnPayday } from './pay-period';
+import { booksSummary, effectOf, isTeamPay, lookupOf, normalizeLine } from './books-summary';
+import { sessionsFrom, clockPolicy } from './timeclock';
 import { getStateProfile, estimateEmployerPayrollTax, GENERIC_US_PROFILE } from './state-tax-profiles';
 import { withPay } from '@/lib/staff-pay-server';
 
@@ -33,8 +34,11 @@ export type DraftLine = {
   bonus?: number;          // overtime on commission / per service pay + minimum-wage top-ups (+ approved pay corrections)
   adjustments?: number;    // approved pay corrections dated in this period (lib/pay-questions)
   overtimePremium?: number; minWageTopUp?: number; salary?: number; hours?: number; missingClockOuts?: number; unapprovedSessions?: number; noHours?: boolean;
-  tips: number;
-  total: number;
+  tips: number;             // paid on the paycheck
+  cashTips?: number;        // cash tips they took home the same day: reported to payroll, not paid again
+  contractor?: boolean;     // a 1099 contractor: not on the employee payroll, no employer taxes
+  earned?: number;          // everything they earned, cash tips taken home included
+  total: number;            // what's paid on payday
 };
 
 export type PayrollGate = { key: string; label: string; passed: boolean; detail?: string };
@@ -117,8 +121,8 @@ export async function buildPayrollDraft(
     const a: any = d.data() || {}; if (a.staffId) adjBy.set(a.staffId, (adjBy.get(a.staffId) || 0) + (Number(a.amountCents) || 0) / 100); }
   const lines: DraftLine[] = staff.map((member: any) => {
     const mine = txns.filter((t: any) => t.staffId === member.id && t.type === 'income' && t.voided !== true);
-    const tips = sharing !== 'direct' ? (approvedTips.get(member.id) || 0) : mine.filter((t: any) => t.category === 'Tips' || t.tipAmount).reduce((s: number, t: any) => s + (t.tipAmount || t.amount), 0) - txns.filter((t: any) => t.tipReversal?.staffId === member.id).reduce((s: number, t: any) => s + (Number(t.tipReversal.amount) || 0), 0);
-    const l = periodPay({ member, from: periodStart, to: periodEnd, shifts: schedule, incomeTxns: txns.filter((t: any) => t.voided !== true),   /* all of the period's lines: refunds carry take-backs */ services, tenant, sessions, apptStaff, tips });
+    // (Shared tips: each person's approved share. Their own tips otherwise, worked out with the rest, cash and card apart.)
+    const l = periodPay({ member, from: periodStart, to: periodEnd, shifts: schedule, incomeTxns: txns.filter((t: any) => t.voided !== true),   /* all of the period's lines: refunds carry take-backs */ services, tenant, sessions, apptStaff, ...(sharing !== 'direct' ? { tips: approvedTips.get(member.id) || 0 } : {}) });
     const f = payrollFields(l);
     return {
       staffId: member.id,
@@ -137,22 +141,28 @@ export async function buildPayrollDraft(
       ...(l.missingClockOuts ? { missingClockOuts: l.missingClockOuts } : {}),
       ...(l.unapprovedSessions ? { unapprovedSessions: l.unapprovedSessions } : {}),
       ...(l.noHours ? { noHours: true } : {}),
-      tips: l.tips,
+      tips: f.tips,
+      ...(f.cashTips ? { cashTips: f.cashTips } : {}),
+      ...(l.contractor ? { contractor: true } : {}),
       ...(adjBy.get(member.id) ? { adjustments: Number((adjBy.get(member.id) || 0).toFixed(2)), bonus: Number(((f.bonus || 0) + (adjBy.get(member.id) || 0)).toFixed(2)) } : {}),
-      total: Number((l.total + (adjBy.get(member.id) || 0)).toFixed(2)),
+      earned: Number((l.total + (adjBy.get(member.id) || 0)).toFixed(2)),
+      total: Number((paidOnPayday(l) + (adjBy.get(member.id) || 0)).toFixed(2)),
     };
-  }).filter((l: DraftLine) => l.total > 0);
+  }).filter((l: DraftLine) => (l.earned || l.total) > 0);
 
   const grossTotal = Number(lines.reduce((s, l) => s + l.total, 0).toFixed(2));
   // v63 — per-tenant jurisdiction, never assumed: federal-only baseline
   // until the tenant has picked their state.
-  const stateCode = tenant.taxState || 'US';
-  const profile = tenant.taxState ? getStateProfile(tenant.taxState) : GENERIC_US_PROFILE;
-  const estimatedEmployerTaxes = Number(estimateEmployerPayrollTax(grossTotal, profile).toFixed(2));
+  const profile = tenant.taxState ? getStateProfile(tenant.taxState) : tenant.payRules?.state ? getStateProfile(tenant.payRules.state) : GENERIC_US_PROFILE;
+  // (Employer payroll taxes are on employees' wages, cash tips included; never on contractors.)
+  const employeeWages = lines.filter((l) => !l.contractor).reduce((s, l) => s + (l.earned ?? l.total), 0);
+  const estimatedEmployerTaxes = Number(estimateEmployerPayrollTax(employeeWages, profile).toFixed(2));
 
-  const income = txns.filter((t: any) => t.type === 'income').reduce((s: number, t: any) => s + t.amount, 0);
-  const expenses = txns.filter((t: any) => t.type === 'expense' || t.type === 'payment').reduce((s: number, t: any) => s + t.amount, 0);
-  const periodNetIncome = Number(Math.max(0, income - expenses).toFixed(2));
+  // What came in, after costs: the books' own reading (never the sales tax or money held for others), with pay already
+  // booked in the period added back, since payroll is what's being checked against it.
+  const ls = txns.map((t: any) => normalizeLine(t)); const sum = booksSummary(ls, { lookup: ls, businessOnly: true }); const byId = lookupOf(ls);
+  const booked = ls.reduce((n: number, t: any) => { const e = effectOf(t, byId); return e.side === 'opex' && ((isTeamPay(e.category) && !/contract/i.test(e.category)) || t.paydayPeriod) ? n + e.amount : n; }, 0);
+  const periodNetIncome = Number((sum.net + booked).toFixed(2));
 
   return {
     tenantId,
@@ -163,7 +173,7 @@ export async function buildPayrollDraft(
     estimatedEmployerTaxes,
     cashNeeded: Number((grossTotal + estimatedEmployerTaxes).toFixed(2)),
     periodNetIncome,
-    stateCode,
+    stateCode: tenant.taxState || tenant.payRules?.state || 'US',
     status: 'pending',
     createdAt: new Date().toISOString(),
   };
@@ -182,8 +192,8 @@ export function runPayrollGates(draft: ServerPayrollDraft): { gates: PayrollGate
     {
       key: 'all_matched',
       label: 'Every employee matched to a Gusto ID',
-      passed: draft.lines.length > 0 && draft.lines.every(l => !!l.gustoEmployeeId),
-      detail: draft.lines.filter(l => !l.gustoEmployeeId).map(l => l.name).join(', ') || 'all matched',
+      passed: draft.lines.some(l => !l.contractor) && draft.lines.filter(l => !l.contractor).every(l => !!l.gustoEmployeeId),
+      detail: draft.lines.filter(l => !l.contractor && !l.gustoEmployeeId).map(l => l.name).join(', ') || 'all matched',
     },
     {
       key: 'clock_outs',
@@ -200,28 +210,3 @@ export function runPayrollGates(draft: ServerPayrollDraft): { gates: PayrollGate
   ];
   return { gates, allPassed: gates.every(g => g.passed) };
 }
-
-/**
- * The pay period that just ended, lined up with whole workweeks (so overtime is counted per complete week): it ends at
- * the start of the current workweek in the business's time zone and runs back one or two weeks. Monthly: the last 30 days.
- */
-export function lastPeriod(tenant: any, cadence: string, now = new Date()): { start: Date; end: Date } {
-  const days = CADENCE_DAYS[cadence] || 14;
-  if (cadence === 'monthly') return { start: new Date(now.getTime() - days * 86400000), end: now };
-  const tz = tenant?.timezone || 'America/New_York'; const ws = Number.isInteger(tenant?.workweekStartsOn) ? tenant.workweekStartsOn : 1;
-  const thisWeek = weekOf(localDay(now.getTime(), tz), ws);
-  // midnight at the start of this workweek, in the business's time zone
-  const guess = Date.parse(`${thisWeek}T00:00:00Z`); const off = tzOffsetMs(tz, guess); const end = new Date(guess - off - 1);
-  return { start: new Date(end.getTime() + 1 - days * 86400000), end };
-}
-function tzOffsetMs(timeZone: string, t: number): number {
-  try { const p = new Intl.DateTimeFormat('en-US', { timeZone, hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).formatToParts(new Date(t));
-    const g = (k: string) => Number(p.find((x) => x.type === k)?.value); const asUtc = Date.UTC(g('year'), g('month') - 1, g('day'), g('hour') % 24, g('minute'), g('second')); return asUtc - t; }
-  catch { return 0; }
-}
-
-export const CADENCE_DAYS: Record<string, number> = {
-  'weekly': 7,
-  'bi-weekly': 14,
-  'monthly': 30,
-};

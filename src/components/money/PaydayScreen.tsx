@@ -18,13 +18,12 @@ export const usd = (n: number) => `$${Math.abs(n).toLocaleString('en-US', { mini
 const short = (n: number) => (Math.round(n * 100) % 100 === 0 ? `$${Math.round(Math.abs(n)).toLocaleString('en-US')}` : usd(n));
 const ymd = (x: Date) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
 
-export type PayCadence = 'weekly' | 'bi-weekly' | 'monthly' | 'custom';
-export const CADENCES: [PayCadence, string][] = [['weekly', 'Every week'], ['bi-weekly', 'Every two weeks'], ['monthly', 'Every month'], ['custom', 'Pick dates']];
-const HOW_OFTEN: Record<string, string> = { weekly: 'every week', 'bi-weekly': 'every two weeks', monthly: 'every month' };
-
 export type PayPerson = {
-  id: string; name: string; avatarUrl?: string; amount: number; tips?: number; hours?: number; commissionPay?: number; bonus?: number;
+  id: string; name: string; avatarUrl?: string;
+  /** What's paid on payday (what they earned and any approved correction, less cash tips they already took home). */
+  amount: number; tips?: number; cashTips?: number; hours?: number; commissionPay?: number; bonus?: number;
   overtimeHours?: number; doubleOvertimeHours?: number; missingClockOuts?: number; unapprovedSessions?: number; noHours?: boolean; payStructure?: string;
+  contractor?: boolean; adjustments?: number; tipsInHand?: number;
 };
 export type PayBill = { id: string; name: string; amount: number; due: Date; personal?: boolean };
 /** One part of the split: taxes, the owner's own pay, profit, and what stays to run the business. */
@@ -49,8 +48,10 @@ export function payWords(p: PayPerson): string {
   const ot = Math.round(((Number(p.overtimeHours) || 0) + (Number(p.doubleOvertimeHours) || 0)) * 100) / 100;
   if (h > 0) parts.push(`${h} hour${h === 1 ? '' : 's'}${ot > 0 ? ` (${ot} overtime)` : ''}`);
   const c = Number(p.commissionPay) || 0; if (c > 0) parts.push(`${short(c)} ${p.payStructure === 'per_service' ? 'for services' : 'in commission'}`);
-  const b = Number(p.bonus) || 0; if (b > 0) parts.push(`${short(b)} extra for overtime or minimum wage`);
+  const adj = Number(p.adjustments) || 0; const b = (Number(p.bonus) || 0) - adj; if (b > 0.004) parts.push(`${short(b)} extra for overtime or minimum wage`);
   const t = Number(p.tips) || 0; if (t > 0) parts.push(`${short(t)} in tips`);
+  if (adj) parts.push(`${short(adj)} ${adj < 0 ? 'taken off' : 'added'} by an approved correction`);
+  const inHand = Number(p.tipsInHand) || 0; if (inHand > 0) parts.push(`${short(inHand)} in cash tips already taken home`);
   return parts.join(', ') || 'Pay set for the period';
 }
 
@@ -68,13 +69,19 @@ const Note = ({ children, warn }: { children: React.ReactNode; warn?: boolean })
 );
 
 export type PaydayScreenProps = {
-  from: Date; to: Date; cadence: PayCadence;
-  onCadence: (c: PayCadence) => void; onEarlier: () => void; onLater: () => void;
-  /** Pick dates: the first or last day picked, as yyyy-mm-dd. */
+  /** The period's first and last day (the business's own pay periods, Settings > Time clock), and its payday. */
+  from: Date; to: Date; payday: Date | null; cadenceWords: string; settingsHref: string;
+  onEarlier: () => void; onLater: () => void;
+  /** Pick dates: a one-off set of dates instead of a pay period. */
+  custom: boolean; onPickDates: (on: boolean) => void;
   onFirstDay: (v: string) => void; onLastDay: (v: string) => void;
   /** Sales and other money in, less what was spent, for these dates. */
   cameIn: number;
   team: PayPerson[]; teamTotal: number; employerTaxes: number;
+  /** Cash tips the team took home the same day: part of what they earned, out of the till already, never paid again. */
+  cashTipsOut?: number;
+  /** Why payday can't be recorded or sent from here right now (a part of the pay that couldn't be read). */
+  blocked?: string | null;
   bills: PayBill[];
   tax: {
     hasState: boolean; stateName: string; employerPct: number; regionLabel: string; note?: string; stale?: string;
@@ -101,9 +108,13 @@ export function PaydayScreen(p: PaydayScreenProps) {
   const teamRef = React.useRef<HTMLElement>(null);
   const billsTotal = p.bills.reduce((n, b) => n + (Number(b.amount) || 0), 0);
   const payday = p.teamTotal + p.employerTaxes;
-  const left = Math.round((p.cameIn - payday - billsTotal) * 100) / 100;
-  const custom = p.cadence === 'custom';
+  const cashOut = Math.round((Number(p.cashTipsOut) || 0) * 100) / 100;
+  const left = Math.round((p.cameIn - payday - cashOut - billsTotal) * 100) / 100;
+  const custom = p.custom;
   const words = spanWords(p.from, p.to, now);
+  const paydayWords = p.payday ? p.payday.toLocaleDateString('en-US', { month: 'long', day: 'numeric' }) : '';
+  const employees = p.team.filter((o) => !o.contractor); const contractors = p.team.length - employees.length;
+  const contractorPay = p.team.filter((o) => o.contractor).reduce((n, o) => n + (Number(o.amount) || 0), 0);
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const parts = PART_ORDER.map((k) => p.parts.find((x) => x.key === k)).filter(Boolean) as SetAsidePart[];
   const toTeam = () => { teamRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); teamRef.current?.focus({ preventScroll: true }); };
@@ -113,7 +124,7 @@ export function PaydayScreen(p: PaydayScreenProps) {
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="text-[17px] font-semibold">This pay period</h3>
-          <p className="text-[14px]" style={{ color: MUTED }}>{words}.{!custom && ` You pay ${HOW_OFTEN[p.cadence]}.`}</p>
+          <p className="text-[14px]" style={{ color: MUTED }}>{words}.{!custom && paydayWords ? ` Payday is ${paydayWords}. You pay ${p.cadenceWords}.` : ' Dates you picked.'}</p>
         </div>
         {!custom && <div className="flex shrink-0 gap-1">
           <button type="button" onClick={p.onEarlier} aria-label="The pay period before" className={`flex h-11 w-11 items-center justify-center rounded-full ${RING}`} style={plain}><ChevronLeft className="h-5 w-5" /></button>
@@ -122,11 +133,10 @@ export function PaydayScreen(p: PaydayScreenProps) {
       </div>
       {(datesOpen || custom) && (
         <div className="mt-3 rounded-2xl p-3" style={{ background: SOFT }}>
-          <p className="mb-2 text-[14px]" style={{ color: MUTED }}>How often you pay</p>
-          <div className="flex flex-wrap gap-2" role="group" aria-label="How often you pay">
-            {CADENCES.map(([k, l]) => (
-              <button key={k} type="button" onClick={() => p.onCadence(k)} aria-pressed={p.cadence === k} className={`min-h-[44px] rounded-full px-4 text-[14px] ${RING}`}
-                style={p.cadence === k ? { background: INK, color: '#fff', fontWeight: 600 } : plain}>{l}</button>))}
+          <p className="text-[14px]" style={{ color: MUTED }}>Your pay periods and payday come from <a href={p.settingsHref} className="underline underline-offset-2" style={{ color: INK }}>pay period settings</a>, so stubs, drafts and Payday all use the same dates.</p>
+          <div className="mt-2 flex flex-wrap gap-2" role="group" aria-label="Which dates">
+            <button type="button" onClick={() => p.onPickDates(false)} aria-pressed={!custom} className={`min-h-[44px] rounded-full px-4 text-[14px] ${RING}`} style={!custom ? { background: INK, color: '#fff', fontWeight: 600 } : plain}>A pay period</button>
+            <button type="button" onClick={() => p.onPickDates(true)} aria-pressed={custom} className={`min-h-[44px] rounded-full px-4 text-[14px] ${RING}`} style={custom ? { background: INK, color: '#fff', fontWeight: 600 } : plain}>Pick dates, for a one-off</button>
           </div>
           {custom && <div className="mt-3 flex flex-wrap items-center gap-2">
             <label className="inline-flex items-center gap-2 text-[14px]" style={{ color: MUTED }}>First day
@@ -138,7 +148,8 @@ export function PaydayScreen(p: PaydayScreenProps) {
       )}
       <div className="mt-3">
         <Row label="Came in, after costs" sub="Sales, tips and other income, less refunds and costs. Sales tax and money held for others aren’t in it." value={`${p.cameIn < 0 ? '−' : ''}${usd(p.cameIn)}`} />
-        <Row label="Your team’s pay" sub={p.team.length ? 'Hours, commission and tips, from the time clock and checkouts' : 'Nobody has pay for these dates yet'} value={p.teamTotal ? `−${usd(p.teamTotal)}` : usd(0)} />
+        <Row label="Your team’s pay" sub={!p.team.length ? 'Nobody has pay for these dates yet' : contractors ? `Hours, commission and tips. ${usd(contractorPay)} of it to ${contractors === 1 ? 'a contractor' : `${contractors} contractors`}` : 'Hours, commission and tips, from the time clock and checkouts'} value={p.teamTotal ? `−${usd(p.teamTotal)}` : usd(0)} />
+        {cashOut > 0 && <Row label="Cash tips taken home" sub="Paid out of the till the same day, so they aren’t paid again on payday" value={`−${usd(cashOut)}`} />}
         {p.employerTaxes > 0 && <Row label="Payroll taxes you pay as the employer" sub={`An estimate, about ${p.tax.employerPct}% of pay${p.tax.hasState ? ` in ${p.tax.stateName}` : ''}`} value={`−${usd(p.employerTaxes)}`} />}
         <Row label="Bills due these dates" sub={p.bills.length ? namesOf(p.bills.map((b) => b.name)) : 'None left to pay'} value={billsTotal ? `−${usd(billsTotal)}` : usd(0)} />
         {left >= 0
@@ -147,7 +158,7 @@ export function PaydayScreen(p: PaydayScreenProps) {
       </div>
       <div className="mt-3 flex flex-wrap gap-2 pb-1">
         {p.team.length > 0 && <button type="button" onClick={toTeam} className={btn} style={solid}>Review and pay the team</button>}
-        {!custom && <button type="button" onClick={() => setDatesOpen((o) => !o)} aria-expanded={datesOpen} className={btn} style={plain}>{datesOpen ? 'Done with the dates' : 'Change the dates'}</button>}
+        <button type="button" onClick={() => { if (custom) { p.onPickDates(false); setDatesOpen(false); } else setDatesOpen((o) => !o); }} aria-expanded={datesOpen || custom} className={btn} style={plain}>{custom ? 'Back to pay periods' : datesOpen ? 'Hide the dates' : 'Change the dates'}</button>
       </div>
     </section>
   );
@@ -168,11 +179,11 @@ export function PaydayScreen(p: PaydayScreenProps) {
                   ? <img src={o.avatarUrl} alt="" className="h-9 w-9 shrink-0 rounded-full object-cover" />
                   : <span aria-hidden className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full font-semibold" style={{ background: SOFT, color: MUTED }}>{(o.name || '?').charAt(0)}</span>}
                 <span className="min-w-0 flex-1">
-                  <span className="block">{o.name}</span>
+                  <span className="flex flex-wrap items-center gap-1.5"><span>{o.name}</span>{o.contractor && <span className="rounded-full px-2 py-0.5 text-[12px] font-semibold" style={{ background: SOFT, color: MUTED }}>Contractor</span>}</span>
                   <span className="block text-[13px]" style={{ color: MUTED }}>{payWords(o)}</span>
                   {miss > 0 && <a href="/timesheets" className="block text-[13px] font-semibold underline underline-offset-2" style={{ color: AMBER }}>{miss} forgotten clock-out{miss === 1 ? '' : 's'}, not paid until fixed on Timesheets</a>}
                   {waiting > 0 && <a href="/timesheets" className="block text-[13px] font-semibold underline underline-offset-2" style={{ color: AMBER }}>{waiting} shift{waiting === 1 ? '' : 's'} waiting for approval, not paid yet</a>}
-                  {o.noHours && <span className="block text-[13px]" style={{ color: AMBER }}>No hours on the clock, so minimum wage and overtime can’t be checked</span>}
+                  {o.noHours && !o.contractor && <span className="block text-[13px]" style={{ color: AMBER }}>No hours on the clock, so minimum wage and overtime can’t be checked</span>}
                   <button type="button" onClick={() => p.onStatement(open ? null : o.id)} aria-expanded={open} className={`-my-1 min-h-[44px] text-left text-[13px] underline underline-offset-2 ${RING}`} style={{ color: INK }}>{open ? 'Hide how it’s worked out' : 'How it’s worked out'}</button>
                 </span>
                 <span className="shrink-0 self-start pt-0.5 font-semibold tabular-nums">{usd(o.amount)}</span>
@@ -190,13 +201,14 @@ export function PaydayScreen(p: PaydayScreenProps) {
       </>}
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {p.gusto.connected
-          ? <button type="button" onClick={p.onSendToGusto} disabled={!p.team.length || p.sendingToGusto} className={btn} style={solid}>{p.sendingToGusto ? 'Sending to Gusto' : 'Send payroll to Gusto'}</button>
+          ? <button type="button" onClick={p.onSendToGusto} disabled={!employees.length || p.sendingToGusto || !!p.blocked} className={btn} style={solid}>{p.sendingToGusto ? 'Sending to Gusto' : `Send payroll to Gusto${contractors ? `, ${employees.length} ${employees.length === 1 ? 'employee' : 'employees'}` : ''}`}</button>
           : <button type="button" onClick={p.onConnectGusto} className={btn} style={plain}>Connect Gusto</button>}
         <span className="text-[13px]" style={{ color: MUTED }}>{p.gusto.connected ? 'Gusto works out the exact taxes, sends the deposits and files.' : 'To pay your team and file payroll taxes from here. Until then, record payday in your books below.'}</span>
       </div>
+      {contractors > 0 && <Note>Contractors aren’t on payroll: nothing is withheld for them, and no employer taxes are owed. Pay them directly, then record payday.</Note>}
       <div className="mt-3 flex min-h-[56px] items-center justify-between gap-3 py-2" style={{ borderTop: `1px solid ${LINE}` }}>
         <span className="min-w-0"><span className="block">A payroll draft each payday</span>
-          <span className="block text-[13px]" style={{ color: MUTED }}>Put together {custom ? 'every two weeks' : HOW_OFTEN[p.cadence]}, with a note to you. Nothing is paid until you approve it.</span></span>
+          <span className="block text-[13px]" style={{ color: MUTED }}>Put together when each pay period ends ({p.cadenceWords}), with a note to you. Nothing is paid until you approve it.</span></span>
         <button type="button" role="switch" aria-checked={p.autoDraft} aria-label="A payroll draft each payday" onClick={() => p.onAutoDraft(!p.autoDraft)} className={`flex h-11 w-14 shrink-0 items-center justify-center rounded-full ${RING}`}>
           <span className="relative block h-7 w-12 rounded-full transition-colors" style={{ background: p.autoDraft ? GREEN : '#d4d5d8' }}>
             <span className="absolute top-0.5 block h-6 w-6 rounded-full bg-[#fff] shadow transition-all" style={{ left: p.autoDraft ? 22 : 2 }} />
@@ -245,11 +257,13 @@ export function PaydayScreen(p: PaydayScreenProps) {
         {p.recordedOn
           ? <p role="status" className="mt-3 rounded-2xl px-4 py-3 text-[14px] font-medium" style={{ background: GREEN_TINT, color: GREEN }}>{p.recordedSpan ? `Payday for ${p.recordedSpan} is in your books, recorded ${p.recordedOn.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}. These dates overlap it, so it can’t be recorded again.` : `Payday for these dates is in your books, recorded ${p.recordedOn.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}.`}</p>
           : <>
-            <button type="button" onClick={p.onRecord} disabled={(p.setAside <= 0 && !p.team.length) || p.recording} className={`${btn} mt-3`} style={solid}>{p.recording ? 'Recording' : 'Record payday in your books'}</button>
+            {p.blocked && <Note warn>{p.blocked}</Note>}
+            {!p.gusto.connected && employees.length > 0 && <Note>Recording payday puts what you paid in your books. It doesn’t withhold or file anyone’s taxes: for employees, a payroll company does that.</Note>}
+            <button type="button" onClick={p.onRecord} disabled={(p.setAside <= 0 && !p.team.length) || p.recording || !!p.blocked} className={`${btn} mt-3`} style={solid}>{p.recording ? 'Recording' : 'Record payday in your books'}</button>
             <p className="mt-2 text-[13px]" style={{ color: MUTED }}>
               {p.setAside > 0
-                ? `Adds ${p.team.length ? `each person’s pay (${usd(p.teamTotal)} in all) and ` : ''}these set-asides to your books, dated today. It’s recorded once for these dates.`
-                : p.team.length ? `Adds each person’s pay (${usd(p.teamTotal)} in all) to your books, dated today. Put in an amount to split to add the set-asides too.` : 'Put in an amount to split, and recording adds the set-asides to your books.'}
+                ? `Adds ${p.team.length ? `each person’s pay (${usd(p.teamTotal + cashOut)} in all${cashOut > 0 ? ', cash tips taken home included' : ''}) and ` : ''}these set-asides to your books, dated today. It’s recorded once for these dates.`
+                : p.team.length ? `Adds each person’s pay (${usd(p.teamTotal + cashOut)} in all${cashOut > 0 ? ', cash tips taken home included' : ''}) to your books, dated today. Put in an amount to split to add the set-asides too.` : 'Put in an amount to split, and recording adds the set-asides to your books.'}
             </p>
           </>}
       </div>

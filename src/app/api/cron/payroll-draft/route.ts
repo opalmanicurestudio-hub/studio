@@ -1,10 +1,9 @@
 // src/app/api/cron/payroll-draft/route.ts
 //
-// Payroll auto-draft (Level 2) — runs daily; each tenant's cadence decides
-// whether a draft is actually due. For tenants with payroll.autoDraft on:
+// Payroll auto-draft (Level 2) — runs daily. For tenants with payroll.autoDraft on:
 //
-//   1. If enough days have passed since the last draft (7 / 14 / ~30 per
-//      cadence), build a draft with the shared engine.
+//   1. Once a pay period has ended (the business's own periods, lib/pay-periods: the same ones the stubs and Payday
+//      use), build a draft for it with the shared engine, once (payroll.lastDraftKey = the period's first day).
 //   2. Save it to tenants/{id}/payrollDrafts (superseding older pending
 //      drafts) and write a notification doc the app can surface.
 //   3. LEVEL 3 (off by default): if payroll.autoSubmit is true AND every
@@ -16,7 +15,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { refuseCron } from '@/lib/cron-auth';
-import { buildPayrollDraft, runPayrollGates, CADENCE_DAYS, lastPeriod } from '@/lib/payroll-draft';
+import { buildPayrollDraft, runPayrollGates } from '@/lib/payroll-draft';
+import { recentPeriods, periodRange } from '@/lib/pay-periods';
 import { logAuditAdmin } from '@/lib/audit';
 
 export const maxDuration = 300;
@@ -33,18 +33,12 @@ export async function GET(req: NextRequest) {
   for (const tDoc of tenantsSnap.docs) {
     const tenantId = tDoc.id;
     try {
-      const payroll = (tDoc.data() as any)?.payroll || {};
-      const cadence: string = payroll.cadence || 'bi-weekly';
-      const cadenceDays = CADENCE_DAYS[cadence] || 14;
-
-      // Due when at least (cadence − 1) days have passed — the daily run
-      // self-corrects drift without needing a fixed anchor day.
-      const lastDraftAt = payroll.lastDraftAt ? new Date(payroll.lastDraftAt) : null;
-      const daysSince = lastDraftAt ? (now.getTime() - lastDraftAt.getTime()) / 86400000 : Infinity;
-      if (daysSince < cadenceDays - 0.5) { results[tenantId] = { skipped: 'not due' }; continue; }
-
-      // The period that just ended, on whole workweeks in the business's time zone (overtime is per workweek).
-      const { start: periodStart, end: periodEnd } = lastPeriod(tDoc.data(), cadence, now);
+      const tenant: any = tDoc.data() || {}; const payroll = tenant.payroll || {};
+      // The period that ended last, as the business's own pay periods have it: drafted once.
+      const ended = recentPeriods(tenant, 2, now.getTime())[1];
+      if (!ended || payroll.lastDraftKey === ended.from) { results[tenantId] = { skipped: 'not due' }; continue; }
+      const { fromIso, toIso } = periodRange(tenant, ended);
+      const periodStart = new Date(fromIso), periodEnd = new Date(toIso);
       const draft = await buildPayrollDraft(db, tenantId, periodStart, periodEnd);
       const { gates, allPassed } = runPayrollGates(draft);
 
@@ -54,21 +48,23 @@ export async function GET(req: NextRequest) {
       const batch = db.batch();
       for (const d of pendingSnap.docs) batch.set(d.ref, { status: 'superseded' }, { merge: true });
       const draftRef = db.collection(`tenants/${tenantId}/payrollDrafts`).doc();
-      batch.set(draftRef, { ...draft, id: draftRef.id, gates, allGatesPassed: allPassed });
-      batch.set(tDoc.ref, { payroll: { ...payroll, lastDraftAt: now.toISOString() } }, { merge: true });
+      batch.set(draftRef, { ...draft, id: draftRef.id, periodKey: ended.from, payday: ended.payday, gates, allGatesPassed: allPassed });
+      batch.set(tDoc.ref, { payroll: { ...payroll, lastDraftAt: now.toISOString(), lastDraftKey: ended.from } }, { merge: true });
+      const people = `${draft.lines.length} ${draft.lines.length === 1 ? 'person' : 'people'}`;
+      const usd = (n: number) => `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
       // Notification the app (or a future email hook) can surface
       const noteRef = db.collection(`tenants/${tenantId}/notifications`).doc();
       batch.set(noteRef, {
         id: noteRef.id, type: 'payroll_draft',
-        title: 'Payroll draft ready',
-        body: `${draft.lines.length} employee(s) · gross $${draft.grossTotal.toFixed(2)} + est. employer taxes $${draft.estimatedEmployerTaxes.toFixed(2)}. Open Payday to review & approve.`,
-        draftId: draftRef.id, read: false, createdAt: now.toISOString(),
+        title: 'A payroll draft is ready',
+        body: `${people}, ${usd(draft.grossTotal)} to pay and about ${usd(draft.estimatedEmployerTaxes)} in payroll taxes. Open Payday to look it over and approve it.`,
+        draftId: draftRef.id, link: '/money?tab=payday', read: false, createdAt: now.toISOString(),
       });
       await batch.commit();
       await logAuditAdmin(db, tenantId, {
         action: 'payroll.draft_created', targetType: 'payroll', targetId: draftRef.id,
-        summary: `Auto-draft created: ${draft.lines.length} staff, gross $${draft.grossTotal.toFixed(2)}, est. employer taxes $${draft.estimatedEmployerTaxes.toFixed(2)} (${cadence})`,
+        summary: `Payroll draft for ${ended.from} to ${ended.to}: ${people}, ${usd(draft.grossTotal)} to pay, about ${usd(draft.estimatedEmployerTaxes)} in payroll taxes`,
         amount: draft.grossTotal, actor: { type: 'system', name: 'payroll-cron' },
       });
 

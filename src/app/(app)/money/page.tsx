@@ -5,7 +5,8 @@ import { getAuth } from 'firebase/auth';
 import { payPost } from '@/components/pay/pay-client';
 import { PayStatement } from '@/components/staff/PayStatement';
 import { serviceCommission, earnsCommission, rateFor, serviceEarnings, paidPerService, payExtras, reversalsFor } from '@/lib/commission';
-import { periodPay, payrollFields } from '@/lib/pay-period';
+import { periodPay, payrollFields, paidOnPayday } from '@/lib/pay-period';
+import { periodOf, periodToPay, periodBefore, periodAfter, periodRange, cadenceWords, type PayPeriod } from '@/lib/pay-periods';
 import { sessionsFrom, clockPolicy } from '@/lib/timeclock';
 import { useTransactionsInRange, usePunchesInRange } from '@/hooks/use-transactions';
 import { useAppointmentsByIds } from '@/hooks/use-appointments';
@@ -516,7 +517,6 @@ const BankTab = () => {
   );
 };
 
-type Cadence = 'weekly' | 'bi-weekly' | 'monthly' | 'custom';
 
 const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
   const { billDefinitions, billInstances, staff, isLoading: ctxLoading, services } = useInventory();
@@ -527,17 +527,24 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
   const tenantId = selectedTenant?.id;
 
   const [allocationAmount, setAllocationAmount] = useState<number>(0);
-  const [cadence, setCadence] = useState<Cadence>('bi-weekly');
   const [statementFor, setStatementFor] = useState<string | null>(null);   // whose pay statement is open
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const [dateRange, setDateRange] = useState<{ from: Date, to: Date }>(() => {
-      const now = new Date();
-      return {
-          from: startOfDay(subDays(now, 13)),
-          to: endOfDay(now)
-      };
-  });
+  // The business's own pay periods (lib/pay-periods: Settings > Time clock > Pay periods), the same ones the stubs and the
+  // payroll draft use. It opens on the period to pay now; the arrows step a period at a time. "Pick dates" is for a one-off.
+  const [period, setPeriod] = useState<PayPeriod | null>(null);
+  const [custom, setCustom] = useState<{ from: string; to: string } | null>(null);
+  const periodKeyOf = (t: any) => JSON.stringify([t?.payroll?.cadence, t?.payroll?.periodAnchor, t?.payroll?.paydayAfterDays, t?.timezone, t?.workweekStartsOn]);
+  const periodSettingsKey = periodKeyOf(selectedTenant);
+  useEffect(() => { if (selectedTenant) { setPeriod(periodToPay(selectedTenant)); setCustom(null); } }, [selectedTenant?.id, periodSettingsKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const dateRange = useMemo(() => {
+      if (custom) return { from: startOfDay(new Date(`${custom.from}T00:00:00`)), to: endOfDay(new Date(`${custom.to}T00:00:00`)) };
+      if (period && selectedTenant) { const r = periodRange(selectedTenant, period); return { from: new Date(r.fromIso), to: new Date(r.toIso) }; }
+      const now = new Date(); return { from: startOfDay(subDays(now, 13)), to: endOfDay(now) };
+  }, [custom, period, selectedTenant]);
+  // (The period's own first and last day, in the business's time zone: what's recorded and sent.)
+  const dayFrom = custom ? custom.from : period ? period.from : format(dateRange.from, 'yyyy-MM-dd');
+  const dayTo = custom ? custom.to : period ? period.to : format(dateRange.to, 'yyyy-MM-dd');
   // Only this pay period's sales and clock punches are read.
   const payFrom = useMemo(() => new Date(dateRange.from.getTime()), [dateRange.from.getTime()]);
   const payTo = useMemo(() => new Date(dateRange.to.getTime() + 1), [dateRange.to.getTime()]);
@@ -545,48 +552,9 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
   const { activityLogs, isLoading: punchLoading } = usePunchesInRange(payFrom, payTo);
   const isLoading = ctxLoading || txLoading || punchLoading;
 
-  const handlePrevPeriod = () => {
-      if (cadence === 'custom') return;
-      setDateRange(prev => {
-          let daysToShift = 7;
-          if (cadence === 'bi-weekly') daysToShift = 14;
-          if (cadence === 'monthly') {
-              const prevMonth = subMonths(prev.from, 1);
-              return { from: startOfMonth(prevMonth), to: endOfMonth(prevMonth) };
-          }
-          return { from: startOfDay(subDays(prev.from, daysToShift)), to: endOfDay(subDays(prev.to, daysToShift)) };
-      });
-  };
-
-  const handleNextPeriod = () => {
-      if (cadence === 'custom') return;
-      setDateRange(prev => {
-          let daysToShift = 7;
-          if (cadence === 'bi-weekly') daysToShift = 14;
-          if (cadence === 'monthly') {
-              const nextMonth = addMonths(prev.from, 1);
-              return { from: startOfMonth(nextMonth), to: endOfMonth(nextMonth) };
-          }
-          return { from: startOfDay(addDays(prev.from, daysToShift)), to: endOfDay(addDays(prev.to, daysToShift)) };
-      });
-  };
-
-  const handleCadenceChange = (newCadence: Cadence) => {
-      setCadence(newCadence);
-      const now = new Date();
-      // Weekly / bi-weekly: whole workweeks up to the end of this one, so overtime is counted per complete week.
-      const wso = ((selectedTenant as any)?.workweekStartsOn === 0 ? 0 : 1) as 0 | 1;
-      if (newCadence === 'weekly') {
-          setDateRange({ from: startOfWeek(now, { weekStartsOn: wso }), to: endOfDay(endOfWeek(now, { weekStartsOn: wso })) });
-      } else if (newCadence === 'bi-weekly') {
-          setDateRange({ from: startOfWeek(subDays(now, 7), { weekStartsOn: wso }), to: endOfDay(endOfWeek(now, { weekStartsOn: wso })) });
-      } else if (newCadence === 'monthly') {
-          setDateRange({ from: startOfMonth(now), to: endOfMonth(now) });
-      }
-  };
-  // The business's own pay cadence (saved with the payroll settings), not always bi-weekly.
-  const savedCadence = (selectedTenant as any)?.payroll?.cadence as Cadence | undefined;
-  useEffect(() => { if (savedCadence && ['weekly', 'bi-weekly', 'monthly'].includes(savedCadence)) handleCadenceChange(savedCadence); }, [savedCadence]); // eslint-disable-line react-hooks/exhaustive-deps
+  const handlePrevPeriod = () => { if (custom || !period || !selectedTenant) return; setPeriod(periodBefore(selectedTenant, period)); };
+  const handleNextPeriod = () => { if (custom || !period || !selectedTenant) return; setPeriod(periodAfter(selectedTenant, period)); };
+  const handlePickDates = (on: boolean) => setCustom(on ? { from: dayFrom, to: dayTo } : null);
 
   // The schedule for the period — paid non-service time (training, meetings) for commission / per service people.
   const shFrom = format(subDays(dateRange.from, 1), 'yyyy-MM-dd'), shTo = format(addDays(dateRange.to, 1), 'yyyy-MM-dd');
@@ -610,9 +578,9 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
   // in these dates is added back, since the team's pay is taken off on the screen.
   const currentBalance = useMemo(() => {
       const ls = filteredTransactions.map((t: any) => normalizeLine(t));
-      const s = booksSummary(ls, { lookup: ls, businessOnly: true });
-      // (Payroll only: contract labor isn't in the team's pay worked out here, so it stays a cost.)
-      const booked = s.byCategory.opex.filter(([c]) => isTeamPay(c) && !/contract/i.test(c)).reduce((n, [, v]) => n + v, 0);
+      const s = booksSummary(ls, { lookup: ls, businessOnly: true }); const byId = lookupOf(ls);
+      // (Payroll, and anything Payday recorded: the team's pay worked out here. Other contract labor stays a cost.)
+      const booked = ls.reduce((n: number, t: any) => { const e = effectOf(t, byId); return e.side === 'opex' && ((isTeamPay(e.category) && !/contract/i.test(e.category)) || t.paydayPeriod) ? n + e.amount : n; }, 0);
       return Math.round((s.net + booked) * 100) / 100;
   }, [filteredTransactions]);
 
@@ -620,6 +588,11 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
   const periodVisitIds = useMemo(() => (filteredTransactions || []).map((t: any) => String(t.appointmentId || '')).filter(Boolean), [filteredTransactions]);
   const { appointments } = useAppointmentsByIds(periodVisitIds);
   const apptStaff = useMemo(() => Object.fromEntries((appointments || []).filter((a: any) => a?.id && a.staffId).map((a: any) => [a.id, String(a.staffId)])) as Record<string, string>, [appointments]);
+  // Pay corrections a manager approved (Pay questions > Add to next pay), dated in these dates: on the stub, the draft and
+  // what's paid alike.
+  const fromIso = dateRange.from.toISOString(), toIso = dateRange.to.toISOString();
+  const { data: periodAdjustments, error: adjustmentsError } = useCollection<any>(useMemoFirebase(() => (firestore && tenantId ? query(collection(firestore, 'tenants', tenantId, 'payAdjustments'), where('date', '>=', fromIso), where('date', '<=', toIso)) : null), [firestore, tenantId, fromIso, toIso]));
+  const adjustmentsBy = useMemo(() => { const m = new Map<string, number>(); for (const a of periodAdjustments || []) if (a?.staffId) m.set(a.staffId, (m.get(a.staffId) || 0) + (Number(a.amountCents) || 0) / 100); return m; }, [periodAdjustments]);
   const staffObligations = useMemo(() => {
     if (!staff || !filteredTransactions || !activityLogs) return [];
     // One calculation for every pay setup (lib/pay-period) — hours from the time clock's punches, overtime per
@@ -632,41 +605,49 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
     return staff.filter((m: any) => m.isRenter !== true).map(member => {
         const l = periodPay({ member, from: dateRange.from, to: dateRange.to, shifts: periodShifts || [], incomeTxns: filteredTransactions, services: services || [], tenant: selectedTenant, sessions, apptStaff, ...(sharedTips ? { tips: sharedTips.get(member.id) || 0 } : {}) });
         const f = payrollFields(l);
-        const ps = String(member.payStructure || 'commission');
-        const parts = [ps === 'commission' ? 'Comm' : ps === 'hourly_plus_commission' ? 'Hr + Comm' : ps === 'per_service' ? 'Per service' : ps === 'salary' ? 'Salary' : 'Hr'];
-        if (l.overtimeHours) parts.push(`${l.overtimeHours}h OT`); if (l.doubleTimeHours) parts.push(`${l.doubleTimeHours}h double`); if (l.minWageTopUp) parts.push('min. wage top-up'); parts.push('Tips');
+        const adj = Math.round((adjustmentsBy.get(member.id) || 0) * 100) / 100;
         return {
             id: member.id,
             name: member.name,
             avatarUrl: member.avatarUrl,
-            amount: l.total,
-            // v60 — broken out for the Gusto payroll draft
-            earnings: l.total - l.tips,
+            // What's paid on payday: what they earned and any approved correction, less cash tips they already took home.
+            amount: Math.round((paidOnPayday(l) + adj) * 100) / 100,
+            earned: Math.round((l.total + adj) * 100) / 100,
+            adjustments: adj,
+            contractor: l.contractor,
+            tipsInHand: l.tipsInHand,
             commissionPay: f.commission,
-            bonus: f.bonus,
+            bonus: Math.round((f.bonus + adj) * 100) / 100,
             regularHours: f.regularHours,
             overtimeHours: f.overtimeHours,
             doubleOvertimeHours: f.doubleOvertimeHours,
-            tips: l.tips,
+            tips: f.tips,
+            cashTips: f.cashTips,
             hours: l.hours,
             missingClockOuts: l.missingClockOuts,
             unapprovedSessions: l.unapprovedSessions,
             noHours: l.noHours,
             line: l,
             payStructure: member.payStructure,
-            details: parts.join(' + '),
         };
-    }).filter(o => o.amount > 0 || o.missingClockOuts > 0);
-  }, [staff, filteredTransactions, activityLogs, dateRange, services, apptStaff, selectedTenant, sharedTips, periodShifts]);
+    }).filter(o => o.earned > 0 || o.missingClockOuts > 0);
+  }, [staff, filteredTransactions, activityLogs, dateRange, services, apptStaff, selectedTenant, sharedTips, periodShifts, adjustmentsBy]);
 
   const staffTotalOwed = useMemo(() => staffObligations.reduce((sum, o) => sum + o.amount, 0), [staffObligations]);
+  // (Cash tips taken home the same day: what's booked for them, never more than the person earned.)
+  const cashLineOf = (o: { tipsInHand?: number; earned: number }) => Math.round(Math.min(Number(o.tipsInHand) || 0, Math.max(0, o.earned)) * 100) / 100;
+  const cashTipsOut = useMemo(() => staffObligations.reduce((sum, o) => sum + cashLineOf(o), 0), [staffObligations]);
+  // (Employer payroll taxes are on employees' wages, cash tips taken home included; never on contractors.)
+  const employeeWages = useMemo(() => staffObligations.filter((o) => !o.contractor).reduce((sum, o) => sum + o.earned, 0), [staffObligations]);
+  const employees = useMemo(() => staffObligations.filter((o) => !o.contractor), [staffObligations]);
 
   // ── Jurisdiction-aware tax profile — PER TENANT, never assumed. ──
   // v63 — multi-tenancy fix: no hardcoded state default. Until this tenant
   // picks their location, a federal-only generic applies and the UI prompts.
   const taxCountry = ((selectedTenant as any)?.taxCountry || 'US') as string;
   const countryOption = getCountryOption(taxCountry);
-  const taxState: string | null = (selectedTenant as any)?.taxState || null;
+  // (The state picked here, or the one in the pay rules: the same state either way.)
+  const taxState: string | null = (selectedTenant as any)?.taxState || (selectedTenant as any)?.payRules?.state || null;
   const hasTaxLocation = countryOption.enabled && !!taxState;
   const stateProfile = hasTaxLocation ? getStateProfile(taxState) : GENERIC_US_PROFILE;
   const handleStateChange = (code: string) => {
@@ -681,7 +662,7 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
   // ── Gusto payroll ──
   const gusto = getGustoConnection(selectedTenant);
   const [isSubmittingPayroll, setIsSubmittingPayroll] = useState(false);
-  const employerTaxes = estimateEmployerPayrollTax(staffTotalOwed, stateProfile);
+  const employerTaxes = estimateEmployerPayrollTax(employeeWages, stateProfile);
   const payrollCashNeeded = staffTotalOwed + employerTaxes;
 
   // ── Auto-draft (Level 2) — pending drafts from the daily cron. The
@@ -699,11 +680,12 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
 
   const handleAutoDraftToggle = (on: boolean) => {
       if (!firestore || !tenantId) return;
-      updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId), {
-          'payroll.autoDraft': on,
-          'payroll.cadence': cadence === 'custom' ? 'bi-weekly' : cadence,
-      });
+      // (How often is the pay period setting's own; the draft follows it.)
+      updateDocumentNonBlocking(doc(firestore, 'tenants', tenantId), { 'payroll.autoDraft': on });
   };
+
+  // (A draft's dates: its pay period, or for an older draft, its own first and last instant as local days.)
+  const draftPeriod = (d: any): { from: string; to: string } => d?.periodKey && selectedTenant ? periodOf(selectedTenant, String(d.periodKey)) : { from: format(safeDate(d?.periodStart), 'yyyy-MM-dd'), to: format(safeDate(d?.periodEnd), 'yyyy-MM-dd') };
 
   const markDraftApproved = () => {
       if (!firestore || !tenantId || !pendingDraft) return;
@@ -759,7 +741,7 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
 
   // Payday is recorded once for a pay period: each line has a fixed id for the period, written only if none is there,
   // and never for dates that overlap a payday already recorded (a custom period a day shorter is the same payday).
-  const payFromYmd = format(dateRange.from, 'yyyy-MM-dd'), payToYmd = format(dateRange.to, 'yyyy-MM-dd');
+  const payFromYmd = dayFrom, payToYmd = dayTo;
   const periodKey = `${payFromYmd}_${payToYmd}`;
   const [recorded, setRecorded] = useState<{ on: string; from: string; to: string } | null>(null);
   const recordedFor = useCallback(async () => {
@@ -775,29 +757,28 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
   }, [recordedFor]);
 
   const handleConfirmDistributions = async () => {
-    if (!firestore || !tenantId || recorded) return;
+    if (!firestore || !tenantId || recorded || adjustmentsError) return;
     setIsSubmitting(true);
 
     const now = new Date().toISOString();
     const lines: { ref: any; data: any }[] = [];
 
     staffObligations.forEach(obligation => {
-        const txnRef = doc(firestore, `tenants/${tenantId}/transactions`, `payday_${periodKey}_${obligation.id}`);
-        const newTxn: any = {
-            date: now,
-            description: `Payday: ${obligation.name}`,
-            clientOrVendor: obligation.name,
-            type: 'expense',
-            context: 'Business',
-            taxBucket: 'payroll',
-            category: 'Payroll',
-            amount: Number(obligation.amount.toFixed(2)),
-            paymentMethod: 'Distribution',
-            hasReceipt: false,
-            staffId: obligation.id,
-            paydayPeriod: periodKey, paydayFrom: payFromYmd, paydayTo: payToYmd,
-        };
-        lines.push({ ref: txnRef, data: { ...newTxn, id: txnRef.id } });
+        // (An employee's pay is payroll; a contractor's is contract labor. Cash tips they took home are part of their pay,
+        // booked on their own line as cash that left the till, so the books still show everything they earned.)
+        const kind = obligation.contractor ? { taxBucket: 'operating_cost', category: 'Contract Labor' } : { taxBucket: 'payroll', category: 'Payroll' };
+        const mark = { paydayPeriod: periodKey, paydayFrom: payFromYmd, paydayTo: payToYmd };
+        if (obligation.amount > 0) {
+            const txnRef = doc(firestore, `tenants/${tenantId}/transactions`, `payday_${periodKey}_${obligation.id}`);
+            lines.push({ ref: txnRef, data: { id: txnRef.id, date: now, description: `Payday: ${obligation.name}`, clientOrVendor: obligation.name, type: 'expense', context: 'Business', ...kind,
+                amount: Number(obligation.amount.toFixed(2)), paymentMethod: 'Distribution', hasReceipt: false, staffId: obligation.id, ...mark } });
+        }
+        const cash = cashLineOf(obligation);
+        if (cash > 0) {
+            const cashRef = doc(firestore, `tenants/${tenantId}/transactions`, `paydaycash_${periodKey}_${obligation.id}`);
+            lines.push({ ref: cashRef, data: { id: cashRef.id, date: now, description: `Cash tips taken home: ${obligation.name}`, clientOrVendor: obligation.name, type: 'expense', context: 'Business', ...kind,
+                amount: cash, paymentMethod: 'Cash', hasReceipt: false, staffId: obligation.id, ...mark } });
+        }
     });
 
     suggestions.forEach(bucket => {
@@ -854,14 +835,17 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
   // ── Gusto: build the payroll draft from this period's obligations and
   // submit it. Gusto handles exact taxes, withholdings, deposits & filings.
   const handleApprovePayroll = async () => {
-    if (staffObligations.length === 0 || !tenantId) return;
+    // (Employees with pay for these dates only: contractors aren't on the employee payroll.)
+    const payees = employees.filter(o => o.earned > 0);
+    if (payees.length === 0 || !tenantId || adjustmentsError) return;
     setIsSubmittingPayroll(true);
     try {
-        const draft: GustoPayrollDraft = {
+        const draft: GustoPayrollDraft & { periodEndDay: string } = {
             tenantId,
             periodStart: dateRange.from.toISOString(),
             periodEnd: dateRange.to.toISOString(),
-            lines: staffObligations.map(o => ({
+            periodEndDay: dayTo,
+            lines: payees.map(o => ({
                 staffId: o.id,
                 name: o.name,
                 payStructure: o.payStructure,
@@ -869,26 +853,28 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
                 overtimeHours: Number(((o as any).overtimeHours || 0).toFixed(2)),
                 doubleOvertimeHours: Number(((o as any).doubleOvertimeHours || 0).toFixed(2)),
                 commission: Number(((o as any).commissionPay || 0).toFixed(2)),   // commission, per service pay and extras (hours are paid from regularHours)
-                tips: Number((o.tips || 0).toFixed(2)),
-                bonus: Number(((o as any).bonus || 0).toFixed(2)),   // overtime on commission / per service pay + minimum-wage top-ups
+                tips: Number((o.tips || 0).toFixed(2)),                       // paycheck tips
+                cashTips: Number((o.cashTips || 0).toFixed(2)),               // cash tips they took home: reported, not paid again
+                bonus: Number(((o as any).bonus || 0).toFixed(2)),   // overtime on commission / per service pay + minimum-wage top-ups + approved corrections
                 reimbursements: 0,
                 deductions: 0,
             })),
-            grossTotal: Number(staffTotalOwed.toFixed(2)),
+            grossTotal: Number(payees.reduce((n, o) => n + o.amount, 0).toFixed(2)),
             estimatedEmployerTaxes: Number(employerTaxes.toFixed(2)),
         };
         const result = await submitGustoPayroll(draft);
+        const people = `${payees.length} ${payees.length === 1 ? 'person' : 'people'}`;
         if (result.status === 'submitted' || result.status === 'processing') {
-            toast({
-                title: 'Payroll sent to Gusto',
-                description: `${staffObligations.length} ${staffObligations.length === 1 ? 'person' : 'people'}. Gusto works out the taxes and withholding and sends the deposits.`,
-            });
+            toast({ title: 'Payroll sent to Gusto', description: `${people}. Gusto works out the taxes and withholding and sends the deposits.` });
             markDraftApproved();
             writeAudit(firestore, tenantId, {
                 action: 'payroll.submit_gusto', targetType: 'payroll',
-                summary: `Sent payroll to Gusto: ${staffObligations.length} ${staffObligations.length === 1 ? 'person' : 'people'}, ${fmtCurrency(staffTotalOwed)} in pay, about ${fmtCurrency(employerTaxes)} in payroll taxes`,
-                amount: staffTotalOwed, actor: auditActor,
+                summary: `Sent payroll to Gusto: ${people}, ${fmtCurrency(draft.grossTotal)} in pay, about ${fmtCurrency(employerTaxes)} in payroll taxes`,
+                amount: draft.grossTotal, actor: auditActor,
             });
+        } else if (result.status === 'synced_not_submitted') {
+            toast({ title: 'The numbers are in Gusto', description: 'Gusto didn’t let the app press Submit. Open Gusto and submit this payroll there: everything is filled in.' });
+            markDraftApproved();
         } else {
             toast({ variant: 'destructive', title: 'Gusto didn’t take the payroll', description: result.message || 'Nothing was sent. Check the details in Gusto and try again.' });
         }
@@ -911,12 +897,15 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
   return (
     <div className="mx-auto w-full max-w-[1180px] px-4 py-5 md:px-6" style={{ color: '#16171a' }}>
       <PaydayScreen
-        from={dateRange.from} to={dateRange.to} cadence={cadence}
-        onCadence={handleCadenceChange} onEarlier={handlePrevPeriod} onLater={handleNextPeriod}
-        onFirstDay={(v) => { if (v) setDateRange(prev => ({ ...prev, from: startOfDay(new Date(v.replace(/-/g, '/'))) })); }}
-        onLastDay={(v) => { if (v) setDateRange(prev => ({ ...prev, to: endOfDay(new Date(v.replace(/-/g, '/'))) })); }}
+        from={new Date(`${dayFrom}T00:00:00`)} to={new Date(`${dayTo}T00:00:00`)}
+        payday={!custom && period ? new Date(`${period.payday}T00:00:00`) : null} cadenceWords={cadenceWords(selectedTenant)} settingsHref="/settings?tab=timeclock"
+        onEarlier={handlePrevPeriod} onLater={handleNextPeriod}
+        custom={!!custom} onPickDates={handlePickDates}
+        onFirstDay={(v) => { if (/^\d{4}-\d{2}-\d{2}$/.test(v)) setCustom(c => ({ from: v, to: c && c.to >= v ? c.to : v })); }}
+        onLastDay={(v) => { if (/^\d{4}-\d{2}-\d{2}$/.test(v)) setCustom(c => ({ from: c && c.from <= v ? c.from : v, to: v })); }}
         cameIn={currentBalance}
-        team={staffObligations} teamTotal={staffTotalOwed} employerTaxes={employerTaxes}
+        team={staffObligations} teamTotal={staffTotalOwed} employerTaxes={employerTaxes} cashTipsOut={cashTipsOut}
+        blocked={adjustmentsError ? 'Approved pay corrections couldn’t be read with your access, so payday can’t be recorded or sent from here. The owner can do it.' : null}
         bills={[...upcomingBusiness, ...upcomingPersonal]
           .map(item => ({ id: String(item.instance.id), name: String(item.definition?.name || 'A bill'), amount: Number(item.definition?.amount) || 0, due: safeDate(item.instance.dueDate), personal: item.definition?.context === 'Personal' }))
           .sort((a, b) => a.due.getTime() - b.due.getTime())}
@@ -931,11 +920,12 @@ const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
         onConnectGusto={() => { if (tenantId) beginGustoConnect(tenantId); }}
         onSendToGusto={handleApprovePayroll} sendingToGusto={isSubmittingPayroll}
         autoDraft={autoDraftEnabled} onAutoDraft={handleAutoDraftToggle}
-        draft={pendingDraft ? { from: safeDate(pendingDraft.periodStart), to: safeDate(pendingDraft.periodEnd), people: pendingDraft.lines?.length || 0, gross: Number(pendingDraft.grossTotal || 0), taxes: Number(pendingDraft.estimatedEmployerTaxes || 0) } : null}
+        draft={pendingDraft ? (() => { const dp = draftPeriod(pendingDraft); return { from: new Date(`${dp.from}T00:00:00`), to: new Date(`${dp.to}T00:00:00`), people: pendingDraft.lines?.length || 0, gross: Number(pendingDraft.grossTotal || 0), taxes: Number(pendingDraft.estimatedEmployerTaxes || 0) }; })() : null}
         onOpenDraft={() => {
-          if (!pendingDraft) return;
-          setCadence('custom');
-          setDateRange({ from: startOfDay(safeDate(pendingDraft.periodStart)), to: endOfDay(safeDate(pendingDraft.periodEnd)) });
+          if (!pendingDraft || !selectedTenant) return;
+          // (A draft is for one of the business's pay periods: it opens that period. An older one, from its dates.)
+          if (pendingDraft.periodKey) { setCustom(null); setPeriod(periodOf(selectedTenant, String(pendingDraft.periodKey))); }
+          else { const dp = draftPeriod(pendingDraft); setCustom({ from: dp.from, to: dp.to }); }
         }}
         setAside={allocationAmount} onSetAside={setAllocationAmount} parts={suggestions}
         onRecord={handleConfirmDistributions} recording={isSubmitting} recordedOn={recorded ? safeDate(recorded.on) : null}

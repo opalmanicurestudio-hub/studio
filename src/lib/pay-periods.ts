@@ -43,3 +43,17 @@ export function periodRange(tenant: any, p: { from: string; to: string }) {
 }
 
 export const isPaid = (tenant: any, p: PayPeriod, now = Date.now()) => toDay(now, periodSettings(tenant).tz) >= p.payday;
+
+/** Today, as the business's local day. */
+export const todayIn = (tenant: any, now = Date.now()) => toDay(now, periodSettings(tenant).tz);
+/** The period before and after one (Payday's arrows). */
+export const periodBefore = (tenant: any, p: { from: string }) => periodOf(tenant, addDays(p.from, -1));
+export const periodAfter = (tenant: any, p: { to: string }) => periodOf(tenant, addDays(p.to, 1));
+/** The period to pay now: the one that ended last, until two days after its payday (a payday that slips a day, or one
+ *  paid the day a period ends, still opens on it); then the one under way. */
+export function periodToPay(tenant: any, now = Date.now()): PayPeriod {
+  const today = todayIn(tenant, now); const cur = periodOf(tenant, today); const prev = periodBefore(tenant, cur);
+  return today <= addDays(prev.payday, 2) ? prev : cur;
+}
+/** How often, in words: "every two weeks". */
+export const cadenceWords = (tenant: any) => ({ weekly: 'every week', monthly: 'every month' } as Record<string, string>)[periodSettings(tenant).cadence] || 'every two weeks';

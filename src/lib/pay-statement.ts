@@ -58,7 +58,9 @@ export function buildStatement(input: { member: any; from: string; to: string; i
   if (l.hours) notes.push(`${hrs(l.hours)} on the clock${l.overtimeHours ? `, ${hrs(l.overtimeHours)} of it overtime` : ''}.`);
   if (l.missingClockOuts) notes.push(`${l.missingClockOuts} shift${l.missingClockOuts === 1 ? '' : 's'} with no clock-out — not counted until a manager adds the time.`);
   if (l.unapprovedSessions) notes.push(`${l.unapprovedSessions} shift${l.unapprovedSessions === 1 ? '' : 's'} waiting for a manager’s approval.`);
-  if (l.noHours) notes.push('No hours on the clock this period — clock in each shift so minimum wage and overtime can be checked.');
+  if (l.noHours && !l.contractor) notes.push('No hours on the clock this period — clock in each shift so minimum wage and overtime can be checked.');
+  if (l.contractor) notes.push('Paid as a contractor: what you earned, with no overtime or minimum-wage top-up.');
+  if (l.tipsInHand) notes.push(`${money(l.tipsInHand)} of your tips were cash you took home, so they aren’t paid again on payday.`);
   notes.push('Before taxes and deductions — your payroll service takes those out.');
   return { staffId: m.id, name: m.name || 'Team member', from: input.from, to: input.to, payStructure: l.payStructure, sections, total: l.total, tips: l.tips, notes, line: l };
 }

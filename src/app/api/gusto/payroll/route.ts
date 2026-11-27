@@ -11,7 +11,10 @@
 //      the payroll Gusto gives us and adjust hours/amounts, so job uuids
 //      and rates stay exactly what Gusto expects:
 //        Regular Hours / Overtime          ← hours
-//        Bonus / Commission / Paycheck Tips / Reimbursement ← dollars
+//        Bonus / Commission / Paycheck Tips / Cash Tips / Reimbursement ← dollars
+//      (Cash Tips: tips they already took home: reported for taxes, never paid again.)
+//      Contractors aren't on the employee payroll: their lines are refused here, never sent.
+//      Only a Gusto payroll whose pay period covers the draft's is filled in; with none, nothing is sent.
 //   4. PUT the payroll (with its version — Gusto rejects stale writes),
 //      then PUT /submit. From there Gusto owns the regulated work: exact
 //      withholdings, direct deposits, filings, stubs.
@@ -37,7 +40,7 @@ const hoursStr = (n: any) => String(Math.round((Number(n) || 0) * 1000) / 1000);
 export async function POST(req: NextRequest) {
   const draft = await req.json().catch(() => null);
   if (!draft?.tenantId || !Array.isArray(draft?.lines) || draft.lines.length === 0) {
-    return NextResponse.json({ error: 'Invalid payroll draft' }, { status: 400 });
+    return NextResponse.json({ error: 'There’s no pay to send.' }, { status: 400 });
   }
   const tenantId = String(draft.tenantId);
   { const g = await requireRole(req, String(tenantId || ''), 'owner'); if (g.deny) return g.deny; }
@@ -49,6 +52,7 @@ export async function POST(req: NextRequest) {
     // ── Resolve gustoEmployeeId for every line (draft value, else staff doc) ──
     const staffSnap = await db.collection(`tenants/${tenantId}/staff`).get();
     const staffById = new Map((await withPay(db, tenantId, staffSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })))).map((m: any) => [m.id, m]));
+    if (draft.lines.some((l: any) => l.contractor)) return NextResponse.json({ status: 'failed', error: 'Contractors aren’t on the employee payroll. Pay them directly, then record payday.' }, { status: 400 });
     const lines = draft.lines.map((l: any) => ({
       ...l,
       gustoEmployeeId: l.gustoEmployeeId || (staffById.get(l.staffId) as any)?.gustoEmployeeId || null,
@@ -57,7 +61,7 @@ export async function POST(req: NextRequest) {
     if (unmatched.length > 0) {
       return NextResponse.json({
         status: 'failed',
-        error: `Not matched to Gusto yet: ${unmatched.join(', ')}. Run "Sync employees" in the Payday tab first.`,
+        error: `Not matched to Gusto yet: ${unmatched.join(', ')}. Match each person to their Gusto employee, then send it again.`,
       }, { status: 409 });
     }
 
@@ -68,14 +72,21 @@ export async function POST(req: NextRequest) {
     if (list.length === 0) {
       return NextResponse.json({
         status: 'failed',
-        error: 'No open payroll in Gusto right now — check the company’s pay schedule in Gusto.',
+        error: 'There’s no open payroll in Gusto right now. Check the company’s pay schedule in Gusto.',
       }, { status: 409 });
     }
+    // (The open Gusto payroll whose pay period holds the draft's last day; never another one in its place.)
+    const endDay = String(draft.periodEndDay || draft.periodEnd || '').slice(0, 10);   // the business's own last day of the period
     const covers = (p: any) =>
-      p?.pay_period?.start_date && p?.pay_period?.end_date && draft.periodEnd
-      && p.pay_period.start_date <= draft.periodEnd && draft.periodEnd <= p.pay_period.end_date;
-    const target = list.find(covers)
-      || [...list].sort((a, b) => String(a?.pay_period?.start_date || '').localeCompare(String(b?.pay_period?.start_date || '')))[0];
+      p?.pay_period?.start_date && p?.pay_period?.end_date && endDay
+      && p.pay_period.start_date <= endDay && endDay <= p.pay_period.end_date;
+    const target = list.find(covers);
+    if (!target) {
+      return NextResponse.json({
+        status: 'failed',
+        error: `No open payroll in Gusto covers the period ending ${endDay}. Make Gusto’s pay schedule match your pay periods in Settings, then send it again.`,
+      }, { status: 409 });
+    }
     const payrollId = target.uuid || target.payroll_uuid || target.id;
 
     // ── Pull the full payroll (version + Gusto's own compensation shapes) ──
@@ -99,6 +110,7 @@ export async function POST(req: NextRequest) {
           'bonus': line.bonus,
           'commission': line.commission,
           'paycheck tips': line.tips,
+          'cash tips': line.cashTips || 0,
           'reimbursement': line.reimbursements,
         };
         const seen = new Set<string>();
@@ -107,10 +119,12 @@ export async function POST(req: NextRequest) {
           if (n in FIXED) { seen.add(n); return { ...f, amount: dollars(FIXED[n]) }; }
           return f;
         });
-        // Entries Gusto didn't include but the draft pays → append by name.
+        // Entries Gusto didn't include but the draft pays → added by name, on the person's own job (cash tips included, so
+        // they're reported). One Gusto won't take stops the whole payroll before it's submitted: nothing is dropped quietly.
+        const job = (comp.fixed_compensations || [])[0]?.job_uuid || (comp.hourly_compensations || [])[0]?.job_uuid;
         for (const [n, amt] of Object.entries(FIXED)) {
           if (!seen.has(n) && (Number(amt) || 0) > 0) {
-            fixed.push({ name: n.replace(/(^|\s)\S/g, (c: string) => c.toUpperCase()), amount: dollars(amt) });
+            fixed.push({ name: n.replace(/(^|\s)\S/g, (c: string) => c.toUpperCase()), amount: dollars(amt), ...(job ? { job_uuid: job } : {}) });
           }
         }
         return {
@@ -125,7 +139,7 @@ export async function POST(req: NextRequest) {
     if (updatedComps.length === 0) {
       return NextResponse.json({
         status: 'failed',
-        error: 'None of the draft’s people are on this Gusto payroll — check pay schedules and employee matching.',
+        error: 'Nobody on this payroll is on Gusto’s open payroll. Check the pay schedule in Gusto and that each person is matched.',
       }, { status: 409 });
     }
 
@@ -146,7 +160,7 @@ export async function POST(req: NextRequest) {
     } catch (e: any) {
       // Numbers ARE in Gusto — only the final button was refused. Say so.
       status = 'synced_not_submitted';
-      message = `Draft synced to Gusto, but submission was refused (${e?.message || 'permission'}). Open Gusto and press Submit there — every number is already filled in.`;
+      message = `The pay is in Gusto, but Gusto didn’t let it be submitted from here (${e?.message || 'permission'}). Open Gusto and submit it there: every number is already filled in.`;
     }
 
     await db.doc(`tenants/${tenantId}/payrollRuns/${payrollId}`).set({
@@ -163,8 +177,8 @@ export async function POST(req: NextRequest) {
       action: status === 'submitted' ? 'payroll.submitted_to_gusto' : 'payroll.synced_to_gusto',
       targetType: 'payrollRun', targetId: payrollId,
       summary: status === 'submitted'
-        ? `Payroll submitted to Gusto — ${updatedComps.length} team member${updatedComps.length === 1 ? '' : 's'}, period ${draft.periodStart} → ${draft.periodEnd}`
-        : `Payroll synced to Gusto (submit refused — finish in Gusto) — ${updatedComps.length} team member${updatedComps.length === 1 ? '' : 's'}`,
+        ? `Sent payroll to Gusto: ${updatedComps.length} ${updatedComps.length === 1 ? 'person' : 'people'}, for the period ending ${endDay}`
+        : `Put payroll in Gusto, to be submitted there: ${updatedComps.length} ${updatedComps.length === 1 ? 'person' : 'people'}, for the period ending ${endDay}`,
       amount: Number(draft.grossTotal) || undefined,
       actor: { type: 'user', name: draft.actorName || 'Owner', via: 'payday-tab' },
     });
@@ -172,7 +186,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ status, payrollId, checkDate: payroll?.check_date || null, message });
   } catch (e: any) {
     const status = e?.status === 409 ? 409 : e?.status === 401 ? 401 : 502;
-    return NextResponse.json({ status: 'failed', error: e?.message || 'Payroll submission failed.' }, { status });
+    return NextResponse.json({ status: 'failed', error: e?.message || 'Gusto didn’t take the payroll.' }, { status });
   }
 }
 

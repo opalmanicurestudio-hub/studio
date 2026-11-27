@@ -12,7 +12,12 @@
 //                work (the front desk, say) and non-service shifts on the schedule are paid at their hourly rate; the
 //                rest earns commission only. Where the state says each kind of time must reach minimum wage on its
 //                own (California, or switched on in settings), the commission-only hours are checked separately.
-//   tips         never count toward minimum wage or the overtime rate
+//   tips         never count toward minimum wage or the overtime rate (unless a tip credit is switched on, below)
+//   contractors  someone marked a 1099 contractor (employmentType 'contractor') is paid what they earned: their hours at
+//                their rate, commission, tips. No overtime, no minimum-wage top-up: those are an employee's.
+//   cash tips    where the team takes cash tips home the same day (payRules.cashTips 'same_day'), those tips are still
+//                part of what they earned, but they aren't paid again on payday (tipsInHand); payroll reports them as cash
+//                tips. With tip sharing, tips are paid on the paycheck.
 //
 // Not legal advice: wage rules differ by state and city (daily overtime in California, tip credits, exempt status).
 import { serviceEarnings, earnsCommission, paidPerService, payExtras, tierBonus, payReversals } from '@/lib/commission';
@@ -28,6 +33,9 @@ export type PayLine = {
   overtimePremium: number;     // overtime owed beyond what hourly pay already covers (commission / per service / the commission part of hourly + commission)
   minWageTopUp: number;
   tips: number; total: number;
+  contractor: boolean;         // a 1099 contractor: no overtime or minimum-wage top-up
+  cashTips: number;            // the part of their own tips paid in cash (tips they kept, not shared)
+  tipsInHand: number;          // cash tips they took home the same day: earned, but not paid again on payday
   missingClockOuts: number;    // sessions waiting for a manager — not paid until fixed
   unapprovedSessions: number;  // with "pay approved hours only": sessions still waiting for approval
   noHours: boolean;            // earned from services but has no hours on the clock (minimum wage and overtime can't be checked)
@@ -64,6 +72,7 @@ export function periodPay(input: {
   shifts?: any[];   // the schedule, for paid non-service time (training, meetings, other) — optional
 }): PayLine {
   const { member: m, tenant } = input; const rules = payRules(tenant); const ps = String(m.payStructure || 'commission');
+  const contractor = m.employmentType === 'contractor';
   const fromMs = new Date(input.from as any).getTime(), toMs = new Date(input.to as any).getTime();
   // Their sales — including services they assisted on (a shared service names them in splitWith). The list passed in
   // may hold every transaction for the period: refund lines are read for take-backs, other people's ignored.
@@ -71,6 +80,9 @@ export function periodPay(input: {
   // Tips refunded to the client come back off (unless the business chose to absorb them — then no tipReversal is written).
   const tipBack = (input.incomeTxns || []).filter((t) => t.tipReversal?.staffId === m.id).reduce((s, t) => s + (Number(t.tipReversal.amount) || 0), 0);
   const tips = (input.tips ?? mine.filter((t) => t.staffId === m.id && (t.category === 'Tips' || t.tipAmount)).reduce((s, t) => s + (t.tipAmount || amt(t)), 0)) - (input.tips != null ? 0 : tipBack);
+  // (Their own tips paid in cash; with sharing, the shares are paid on the paycheck.)
+  const cashTips = input.tips != null ? 0 : Math.max(0, Math.min(tips, mine.filter((t) => t.staffId === m.id && (t.category === 'Tips' || t.tipAmount) && /cash/i.test(String(t.paymentMethod || ''))).reduce((s, t) => s + (t.tipAmount || amt(t)), 0)));
+  const tipsInHand = tenant?.payRules?.cashTips === 'same_day' ? cashTips : 0;
 
   // Hours, per workweek. With "pay approved hours only" on, sessions a manager hasn't approved wait for the next run.
   const approvedOnly = tenant?.payRules?.approvedHoursOnly === true;
@@ -111,7 +123,7 @@ export function periodPay(input: {
 
   // Hourly and salary
   const rate = Number(m.hourlyRate) || 0; const hourlyish = ps === 'hourly' || ps === 'hourly_plus_commission';
-  const hourlyPay = hourlyish && rate ? regHours * rate + otHours * rate * rules.multiplier + dtHours * rate * 2 : 0;
+  const hourlyPay = hourlyish && rate ? (contractor ? hours * rate : regHours * rate + otHours * rate * rules.multiplier + dtHours * rate * 2) : 0;
   const days = Math.max(0, (toMs - fromMs) / 86400000); const salaryWeekly = annualSalary(m) / 52;
   const salaryPay = ps === 'salary' ? salaryWeekly * Math.min(days, 366) / 7 : 0;
   const salaryNonExempt = ps === 'salary' && (m.overtimeExempt === false || m.overtimeNonExempt === true);
@@ -129,38 +141,42 @@ export function periodPay(input: {
     const other = (earns ? svcFor(wt) + retailFor(wt) + ((nsByWeek.get(w.weekStart) || 0) / 60) * nsRate : 0);                                   // commission / per service / retail that week
     const straight = (hourlyish ? h * rate : 0) + other + (ps === 'salary' ? salaryWeekly : 0);  // pay for the week before overtime and tips
     let premium = 0;
-    if (h > 0 && (ot > 0 || dt > 0)) {
+    if (!contractor && h > 0 && (ot > 0 || dt > 0)) {
       // overtime adds half the regular rate per hour; double time adds a full regular rate
       if (ps === 'commission' || ps === 'per_service') { const rr = Math.max(rules.minimumWage, other / h); premium = 0.5 * rr * ot + rr * dt; }
       else if (ps === 'hourly_plus_commission') { const rr = other / h; premium = 0.5 * rr * ot + rr * dt; }   // the hourly part is already in hourlyPay
       else if (salaryNonExempt) premium = (ot * rules.multiplier + dt * 2) * (salaryWeekly / rules.overtimeHours);
     }
     const need = tc !== null ? Math.max(tc * h, rules.minimumWage * h - weekTips(w.weekStart, h)) : rules.minimumWage * h;
-    let topUp = ps !== 'salary' && h > 0 ? Math.max(0, need - straight) : 0;
+    let topUp = !contractor && ps !== 'salary' && h > 0 ? Math.max(0, need - straight) : 0;
     const nsH = Math.min(h, (nsByWeek.get(w.weekStart) || 0) / 60);
-    if (rules.separateMinWage && earns && tc === null && nsH > 0 && h > 0) {
+    if (!contractor && rules.separateMinWage && earns && tc === null && nsH > 0 && h > 0) {
       // each kind of time on its own: commission-only hours from commission, hourly-work hours from their hourly rate
       const svcH = h - nsH, nsPay = nsH * nsRate, svcPay = other - nsPay + (hourlyish ? h * rate : 0);
       topUp = Math.max(0, rules.minimumWage * svcH - svcPay) + Math.max(0, rules.minimumWage * nsH - nsPay);
     }
     overtimePremium += premium; minWageTopUp += topUp;
-    weekRows.push({ weekStart: w.weekStart, hours: r2(h), overtimeHours: r2(ot), doubleTimeHours: r2(dt), earned: r2(straight), topUp: r2(topUp), premium: r2(premium) });
+    weekRows.push({ weekStart: w.weekStart, hours: r2(h), overtimeHours: contractor ? 0 : r2(ot), doubleTimeHours: contractor ? 0 : r2(dt), earned: r2(straight), topUp: r2(topUp), premium: r2(premium) });
   }
 
   const total = hourlyPay + salaryPay + servicePay + retail + extras + nonServicePay + overtimePremium + minWageTopUp + tips;
-  return { staffId: m.id, name: m.name, payStructure: ps, hours: r2(hours), regularHours: r2(regHours), overtimeHours: r2(otHours), doubleTimeHours: r2(dtHours),
+  return { staffId: m.id, name: m.name, payStructure: ps, hours: r2(hours), regularHours: r2(contractor ? hours : regHours), overtimeHours: contractor ? 0 : r2(otHours), doubleTimeHours: contractor ? 0 : r2(dtHours),
     hourlyPay: r2(hourlyPay), salaryPay: r2(salaryPay), servicePay: r2(servicePay), retail: r2(retail), extras: r2(extras), tierBonus: r2(tiers), refundTakeBack: r2(refunds.total), refunds: refunds.count, nonServicePay, nonServiceHours: r2(nsMinutes / 60),
-    overtimePremium: r2(overtimePremium), minWageTopUp: r2(minWageTopUp), tips: r2(tips), total: r2(total), missingClockOuts, unapprovedSessions: unapproved,
+    overtimePremium: r2(overtimePremium), minWageTopUp: r2(minWageTopUp), tips: r2(tips), total: r2(total), contractor, cashTips: r2(cashTips), tipsInHand: r2(tipsInHand), missingClockOuts, unapprovedSessions: unapproved,
     noHours: (earns && servicePay > 0 && hours === 0), weeks: weekRows };
 }
 
-/** What payroll (Gusto) is sent: hours for hourly pay (Gusto applies the rate), and everything else as fixed amounts. */
+/** What's paid on payday: what they earned, less cash tips they already took home. */
+export const paidOnPayday = (l: Pick<PayLine, 'total' | 'tipsInHand'>) => r2((l.total || 0) - (l.tipsInHand || 0));
+
+/** What payroll (Gusto) is sent: hours for hourly pay (Gusto applies the rate), and everything else as fixed amounts.
+ *  Tips go as paycheck tips, except cash tips taken home the same day, which go as cash tips (reported, not paid again). */
 export function payrollFields(l: PayLine) {
   const hourly = l.payStructure === 'hourly' || l.payStructure === 'hourly_plus_commission';
   return {
     regularHours: hourly ? l.regularHours : 0, overtimeHours: hourly ? l.overtimeHours : 0, doubleOvertimeHours: hourly ? l.doubleTimeHours : 0,
     commission: r2(l.servicePay + l.retail + l.extras),
     bonus: r2(l.overtimePremium + l.minWageTopUp + l.nonServicePay),   // overtime on commission / per service pay, minimum-wage top-ups, paid non-service time
-    salary: l.salaryPay, tips: l.tips,
+    salary: l.salaryPay, tips: r2(l.tips - (l.tipsInHand || 0)), cashTips: r2(l.tipsInHand || 0),
   };
 }
