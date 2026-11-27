@@ -88,6 +88,7 @@ import { todayIn, tenantTimeZone } from '@/lib/tenant-time';
 import { nextTermEnd } from '@/lib/lease-builder';
 import { credentialsAfterUpload } from '@/lib/compliance';
 import { settleStay, stayClock } from '@/lib/stay-settle';
+import { renterAppointments, renterEarned, renterProvider, renterStaffIds } from '@/lib/renter-earned';
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 const CODE_TTL_MS = 10 * 60 * 1000;
@@ -2438,30 +2439,15 @@ export async function POST(req: NextRequest) {
       const why = offerBlocked(o, key, r, t.name, day);
       return { why, addPriceCents: why && o.modes[key] === 'addon' ? o.prices[key] : null };
     };
-    const myProvider = async () => {
-      if (!session.renterId) return null;
-      const stSnap = await db.collection(`tenants/${tenantId}/staff`).where('renterId', '==', session.renterId).get();
-      return stSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).find((m: any) => m.isRenter && m.isActive !== false) || null;
-    };
+    const myProvider = async () => (session.renterId ? renterProvider(db, tenantId, session.renterId) : null);
+
     // EVERY staff record that belongs to this renter — not just the one
     // flagged as the provider. A renter who was an employee first, or was
     // set up through the old rent page, can have two records with the same
     // name: old appointments point at the old one, the portal reads the new
     // one, and the planner looks empty. Their chair is their chair whichever
     // record booked it, so the book reads all of them.
-    const myStaffIds = async (): Promise<string[]> => {
-      if (!session.renterId) return [];
-      const stSnap = await db.collection(`tenants/${tenantId}/staff`).where('renterId', '==', session.renterId).get();
-      const ids = stSnap.docs.map((d: any) => d.id);
-      // Same person by name, never linked (renterId missing on the old record).
-      const r = ((await db.doc(`tenants/${tenantId}/renters/${session.renterId}`).get()).data() as any) || {};
-      const full = `${r.firstName || ''} ${r.lastName || ''}`.trim().toLowerCase();
-      if (full) {
-        const byName = await db.collection(`tenants/${tenantId}/staff`).get();
-        for (const d of byName.docs) { const x = d.data() as any; if (!ids.includes(d.id) && String(x.name || '').trim().toLowerCase() === full && (x.isRenter || !x.renterId)) ids.push(d.id); }
-      }
-      return ids.slice(0, 10); // Firestore 'in' cap
-    };
+    const myStaffIds = async (): Promise<string[]> => (session.renterId ? renterStaffIds(db, tenantId, session.renterId) : []);
     // Three ways down, so a missing Firestore index can never blank the book:
     //   1. staffId IN ids + date range (needs a composite index)
     //   2. one staffId == id + date range per record (needs the older index)
@@ -2529,35 +2515,7 @@ export async function POST(req: NextRequest) {
       offersAt: c?.smsMarketingOptInAt || null,
     });
 
-    const apptsFor = async (ids: string[], fromIso: string, toIso?: string): Promise<any[]> => {
-      if (ids.length === 0) return [];
-      const col = db.collection(`tenants/${tenantId}/appointments`);
-      const inRange = (a: any) => String(a.startTime || '') >= fromIso && (!toIso || String(a.startTime || '') <= toIso);
-      try {
-        let q: any = col.where('staffId', 'in', ids).where('startTime', '>=', fromIso);
-        if (toIso) q = q.where('startTime', '<=', toIso);
-        return (await q.get()).docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }));
-      } catch (e1) {
-        console.warn('[portal/renter] appointments: IN+range query unavailable (index?), falling back', String((e1 as any)?.message || e1).slice(0, 160));
-      }
-      try {
-        const out: any[] = [];
-        for (const id of ids) {
-          let q: any = col.where('staffId', '==', id).where('startTime', '>=', fromIso);
-          if (toIso) q = q.where('startTime', '<=', toIso);
-          out.push(...(await q.get()).docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })));
-        }
-        return out;
-      } catch (e2) {
-        console.warn('[portal/renter] appointments: ==+range query unavailable (index?), falling back to in-memory', String((e2 as any)?.message || e2).slice(0, 160));
-      }
-      const out: any[] = [];
-      for (const id of ids) {
-        const snap = await col.where('staffId', '==', id).get();
-        out.push(...snap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) })).filter(inRange));
-      }
-      return out;
-    };
+    const apptsFor = (ids: string[], fromIso: string, toIso?: string): Promise<any[]> => renterAppointments(db, tenantId, ids, fromIso, toIso);
     const myAppt = async (apptId: string) => {
       const st = await myProvider();
       if (!st) return { st: null, ref: null, a: null, error: 'Your booking profile is not set up yet.' };
@@ -3109,20 +3067,11 @@ export async function POST(req: NextRequest) {
     // (expenses they log here), and the net. Package-covered visits count
     // as $0 collected on the day — the money came in when the package sold.
     if (action === 'ledger') {
-      const st = await myProvider();
       const month = /^\d{4}-\d{2}$/.test(String(body.month || '')) ? String(body.month) : new Date().toISOString().slice(0, 7);
       const from = `${month}-01T00:00:00.000Z`;
       const toDate = new Date(`${month}-01T00:00:00Z`); toDate.setUTCMonth(toDate.getUTCMonth() + 1);
       const to = toDate.toISOString();
-      const ids = st ? await myStaffIds() : [];
-      const appts = ids.length ? (await apptsFor(ids, from, to)).filter((a: any) => a.isRenterBooking && (a.status === 'completed' || a.renterOutcome === 'completed')) : [];
-      const visits = appts.map((a: any) => ({ id: a.id, date: String(a.startTime).slice(0, 10), clientName: a.clientName || 'Client', serviceName: a.renterServiceName || a.serviceName || '', cents: a.paidByPackageId ? 0 : Math.max(0, Math.round((Number(a.renterServicePrice) || 0) * 100) - (Number(a.renterDiscountCents) || 0)), discountCents: Number(a.renterDiscountCents) || 0, covered: !!a.paidByPackageId, packageName: a.paidByPackageName || null }))
-        .sort((x: any, y: any) => x.date.localeCompare(y.date));
-      const pur = st ? (await db.collection(`tenants/${tenantId}/renterPackagePurchases`).where('staffId', '==', st.id).get()).docs.map((d) => ({ id: d.id, ...(d.data() as any) })).filter((p: any) => String(p.purchasedAt || '') >= from && String(p.purchasedAt || '') < to && p.status !== 'refunded') : [];
-      const packages = pur.map((p: any) => ({ id: p.id, date: String(p.purchasedAt).slice(0, 10), clientName: p.clientName || 'Client', packageName: p.packageName || 'Package', cents: Number(p.amountCents) || 0, source: p.source || 'stripe' }));
-      // Membership income: active members' monthly price counts in the month it was last paid (start or renewal).
-      const subs = st ? (await db.collection(`tenants/${tenantId}/renterMemberSubscriptions`).where('staffId', '==', st.id).get()).docs.map((d) => ({ id: d.id, ...(d.data() as any) })) : [];
-      for (const m of subs as any[]) { const paid = String(m.lastPaidAt || m.startedAt || ''); if (paid >= from && paid < to) packages.push({ id: `m-${m.id}`, date: paid.slice(0, 10), clientName: m.clientName || 'Member', packageName: `${m.membershipName || 'Membership'} (monthly)`, cents: Number(m.priceCents) || 0, source: 'stripe' }); }
+      const { visits, packages } = await renterEarned(db, tenantId, String(session.renterId || ''), from, to);
       const rentSnap = await db.collection(`tenants/${tenantId}/rentLedger`).where('renterId', '==', session.renterId).get().catch(() => ({ docs: [] } as any));
       // Rent they PAID: 'payment' entries (manual, card, autopay's rent_charge
       // when it succeeded; a failed or waiting one isn't paid). Credits (leave, sublet, abatement) reduce rent and

@@ -136,7 +136,7 @@ const cost = (id: string, category: string, cents: number, extra: any = {}) => (
   check('Money, Your business, Write-offs: for anyone with a renter record', PM.viewAllowed('writeoffs', base) && !PM.viewAllowed('writeoffs', { ...base, hasRenter: false }) && PM.VIEW_PARENT.writeoffs === 'money'
     && PM.placeRows('money', base).some((g: any) => g.id === 'business' && g.views.includes('writeoffs')));
   const readers = execSync("grep -rl renterExpenses src/app src/lib src/components || true", { encoding: 'utf8' }).trim().split('\n').filter(Boolean).sort();
-  check('only the renter’s own portal routes read their costs', readers.every((f) => /^src\/app\/api\/portal\/renter(-writeoffs)?\/route\.ts$/.test(f) || f === 'src/lib/renter-write-offs.ts'), readers);
+  check('only the renter’s own portal routes read their costs', readers.every((f) => /^src\/app\/api\/portal\/renter(-writeoffs|-taxes)?\/route\.ts$/.test(f) || f === 'src/lib/renter-write-offs.ts'), readers);
   const rules = src('firestore.rules'); const team = rules.slice(rules.indexOf('match /tenants/{tenantId}/{collection}/{rest=**}'), rules.indexOf('match /tenants/{tenantId}/jobListings/'));
   check('the rules keep their costs from the business’s team: server only', /'choiceSets',\s*'renterExpenses'\s*\]\);/.test(team) && (rules.match(/renterExpenses/g) || []).length === 2);
   const page = src('src/app/rent/[tenantId]/page.tsx'); const screen = src('src/components/rent/RenterWriteOffs.tsx'); const books = src('src/components/rent/setup.tsx');

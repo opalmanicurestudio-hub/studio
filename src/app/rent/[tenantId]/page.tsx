@@ -7,6 +7,7 @@ import { RenterMessages } from '@/components/rent/RenterMessages';
 import { MyGiftCards } from '@/components/rent/MyGiftCards';
 import { RenterMileage } from '@/components/rent/RenterMileage';
 import { RenterWriteOffs } from '@/components/rent/RenterWriteOffs';
+import { RenterTaxes } from '@/components/rent/RenterTaxes';
 import { StaleCopyBanner } from '@/components/shared/StaleCopyBanner';
 import { downscaleImageToDataUrl } from '@/lib/client-image';
 import { getApps, initializeApp } from 'firebase/app';
@@ -431,6 +432,7 @@ export default function RenterPortalPage() {
       case 'books': return <MyBooks tenantId={tenantId} token={token} />;
       case 'payouts': return <MyPayments data={data} tenantId={tenantId} token={token} />;
       case 'mileage': return <RenterMileage tenantId={tenantId} token={token} business={renterBrand || String(data?.renter?.name || data?.name || '')} />;
+      case 'taxes': return <RenterTaxes tenantId={tenantId} token={token} />;
       case 'writeoffs': return <RenterWriteOffs tenantId={tenantId} token={token} business={renterBrand || String(data?.renter?.name || data?.name || '')} />;
       case 'followups': return <RenterFollowUps tenantId={tenantId} token={token} />;
       case 'campaigns': return <MyCampaigns data={data} tenantId={tenantId} token={token} />;
@@ -530,6 +532,7 @@ export default function RenterPortalPage() {
       case 'payouts': return { title: 'Payouts', sub: 'Where your money lands' };
       case 'mileage': return { title: 'Mileage', sub: 'Drives for your business, logged as you go' };
       case 'writeoffs': return { title: 'Write-offs', sub: 'Rent, miles and costs, for your accountant' };
+      case 'taxes': return { title: 'Taxes to set aside', sub: 'How much to keep back, and the four dates to pay' };
       case 'followups': return { title: 'Follow-ups', sub: 'Who to check in with, and a text ready to send' };
       case 'campaigns': return { title: 'Campaigns', sub: 'One message to a group of your clients' };
       case 'reconnect': return { title: 'Win back', sub: 'Clients you haven’t seen in a while' };

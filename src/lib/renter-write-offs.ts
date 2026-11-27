@@ -15,6 +15,7 @@
 // A starting point for their accountant, who decides what goes on the return.
 import { CHECKLIST, GIFT_LIMIT_CENTS, EQUIPMENT_AT_CENTS, RECEIPT_AT_CENTS } from './write-offs';
 import { rentLineCents, rentCreditsUsed } from './renter-rent-history';
+import { amountCents } from './trip-log';
 
 /** What a renter's cost can be (the portal's Earnings and expenses and Write-offs). */
 export const RENTER_COST_KINDS = ['Supplies', 'Products', 'Equipment', 'Education', 'Meals', 'Gifts', 'Marketing', 'Insurance', 'Licenses and fees', 'Software', 'Travel', 'Other'] as const;
@@ -89,6 +90,31 @@ export function rentPaidOf(lines: any[], year: number, ledger: any[] = []): { ce
   return { cents: Math.max(0, cents) + creditsCents, payments: n, creditsCents };
 }
 
+/** The year's write-offs by month ('2026-03' → cents), for setting tax aside as the year goes (lib/renter-taxes): the costs
+ *  that count, rent and space fees (as rentPaidOf counts them), and business miles at the year's rate. */
+export function writeOffsByMonth(expenses: any[], payLines: any[], ledger: any[], trips: any[], year: number): Record<string, number> {
+  const out: Record<string, number> = {}; const add = (day: string, c: number) => { if (day.slice(0, 4) !== String(year) || !c) return; const m = day.slice(0, 7); out[m] = (out[m] || 0) + c; };
+  for (const c of expenses.map(costOf)) if (c.cents > 0) add(c.day, renterCounts(c).counts);
+  const byId = new Map<string, any>(); for (const t of payLines) if (t?.id) byId.set(String(t.id), t);
+  for (const t of byId.values()) add(dayOfAny(t.date || t.createdAt), rentLineCents(t, byId));
+  for (const c of rentCreditsUsed(ledger, year)) add(c.date, c.cents);
+  for (const t of trips) if (t && t.kind === 'trip' && !t.removed && t.use === 'business') add(String(t.day || ''), amountCents(Number(t.tenths) || 0, year));
+  return out;
+}
+
+/** Tips the front desk collected for them, by month (income for the tax set-aside). */
+export function deskTipsByMonth(ledger: any[], year: number): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const r of ledger) if (r?.type === 'desk_collected' && r?.kind === 'tip' && r?.status !== 'voided') { const d = dayOfAny(r.date || r.createdAt); if (d.slice(0, 4) === String(year)) out[d.slice(0, 7)] = (out[d.slice(0, 7)] || 0) + Math.max(0, Math.round(Number(r.amountCents) || 0)); }
+  return out;
+}
+/** Their share of what they sold in the business's online shop, by month (lib/renter-sales-server: a rent-ledger credit
+ *  once the order's handed over or shipped, less returns): income for the tax set-aside. */
+export function shopSalesByMonth(ledger: any[], year: number): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const r of ledger) if (r?.type === 'retail_sale_credit' && r?.status === 'paid') { const d = dayOfAny(r.date || r.createdAt); const c = Math.abs(Math.round(Number(r.amountCents) || 0)); if (c && d.slice(0, 4) === String(year)) out[d.slice(0, 7)] = (out[d.slice(0, 7)] || 0) + c; }
+  return out;
+}
 /** Tips the business collected for them at the front desk in the year (a rent-ledger line, kind tip, not voided). */
 export function deskTipsOf(ledger: any[], year: number): number {
   return ledger.filter((r) => r?.type === 'desk_collected' && r?.kind === 'tip' && r?.status !== 'voided' && dayOfAny(r.date || r.createdAt).slice(0, 4) === String(year))

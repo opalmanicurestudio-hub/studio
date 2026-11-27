@@ -24,7 +24,7 @@ export function tabFor(t: unknown): PortalTab {
 export const VIEW_TITLES: Record<string, string> = {
   notices: 'Messages and notices', repairs: 'Something broken?', concerns: 'Raise a concern', lease: 'Lease and documents',
   rules: 'House rules', insurance: 'Insurance and license', w9: 'Tax form (W-9)', tools: 'What comes with your space', away: 'Time away', closures: 'Closures', swaps: 'Swap days',
-  history: 'Payments and past bookings', books: 'Earnings and expenses', payouts: 'Payouts', mileage: 'Mileage', writeoffs: 'Write-offs',
+  history: 'Payments and past bookings', books: 'Earnings and expenses', payouts: 'Payouts', mileage: 'Mileage', writeoffs: 'Write-offs', taxes: 'Taxes to set aside',
   followups: 'Follow-ups', campaigns: 'Campaigns', reconnect: 'Win back', giftcards: 'Gift cards', clientdocs: 'Client documents',
   setup: 'Business setup', 'setup:page': 'Your booking page', 'setup:services': 'Services', 'setup:hours': 'Hours',
   'setup:packages': 'Packages and memberships', 'setup:profile': 'Your profile', 'setup:number': 'Your number',
@@ -32,7 +32,7 @@ export const VIEW_TITLES: Record<string, string> = {
 };
 export const VIEW_PARENT: Record<string, PortalTab> = {
   notices: 'space', repairs: 'space', concerns: 'space', lease: 'space', rules: 'space', insurance: 'space', w9: 'space', tools: 'space', away: 'space', closures: 'space', swaps: 'space',
-  history: 'money', books: 'money', payouts: 'money', mileage: 'money', writeoffs: 'money', followups: 'clients', campaigns: 'clients', reconnect: 'clients', giftcards: 'clients', clientdocs: 'clients',
+  history: 'money', books: 'money', payouts: 'money', mileage: 'money', writeoffs: 'money', taxes: 'money', followups: 'clients', campaigns: 'clients', reconnect: 'clients', giftcards: 'clients', clientdocs: 'clients',
 };
 /** Where Back goes with no step to retrace (opened from a link): a setup screen to Business setup, anything else to its place. */
 export const VIEW_BACK: Record<string, string> = Object.fromEntries(Object.keys(VIEW_TITLES).filter((k) => k.startsWith('setup:')).map((k) => [k, 'setup']));
@@ -40,7 +40,7 @@ export const VIEW_BACK: Record<string, string> = Object.fromEntries(Object.keys(
 /** Screens that only make sense for someone who takes bookings here. */
 export const BOOKS_ONLY = new Set(['books', 'payouts', 'followups', 'campaigns', 'reconnect', 'giftcards', 'clientdocs', ...Object.keys(VIEW_TITLES).filter((k) => k.startsWith('setup:'))]);
 /** Screens that read or write the renter's own record (an account not yet linked to one has none). */
-export const RENTER_ONLY = new Set(['notices', 'repairs', 'concerns', 'lease', 'rules', 'insurance', 'w9', 'tools', 'closures', 'away', 'swaps', 'followups', 'clientdocs', 'mileage', 'writeoffs']);
+export const RENTER_ONLY = new Set(['notices', 'repairs', 'concerns', 'lease', 'rules', 'insurance', 'w9', 'tools', 'closures', 'away', 'swaps', 'followups', 'clientdocs', 'mileage', 'writeoffs', 'taxes']);
 
 /** What decides what a renter can reach. */
 export type Who = { booksHere: boolean; hasRenter: boolean; hasLease: boolean; swapsOn: boolean;
@@ -86,7 +86,7 @@ export function placeRows(tab: PortalTab, w: Who): RowGroupSpec[] {
     ]
     : tab === 'money' ? [
       { id: 'with', title: 'With the business', views: ['history'] },
-      { id: 'business', title: 'Your business', views: ['books', 'payouts', 'writeoffs', 'mileage'] },
+      { id: 'business', title: 'Your business', views: ['books', 'payouts', 'writeoffs', 'taxes', 'mileage'] },
     ]
     : [];
   return groups.map((g) => ({ ...g, views: g.views.filter((v) => viewAllowed(v, w)) })).filter((g) => g.views.length > 0);
