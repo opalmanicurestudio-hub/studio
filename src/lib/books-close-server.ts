@@ -27,7 +27,7 @@ export function nextToClose(tenant: any, today: string): string {
 }
 
 /** What's still open in a month, and its figures. */
-export async function monthView(db: any, tenantId: string, tenant: any, m: string, now = Date.now()): Promise<MonthView> {
+export async function monthView(db: any, tenantId: string, tenant: any, m: string, now = Date.now(), owner = true): Promise<MonthView> {
   const T = `tenants/${tenantId}`; const tz = tenantTimeZone(tenant); const today = todayIn(tz, new Date(now));
   const { start, end } = monthDays(m); const { openFrom } = closeThrough(tenant, m);
   const c = closeOf(tenant); const closed = !!c && c.through >= m;
@@ -36,11 +36,12 @@ export async function monthView(db: any, tenantId: string, tenant: any, m: strin
   const s = booksSummary(lines, { businessOnly: true });
   const checks: CloseCheck[] = [];
   // Bank lines from the month still waiting in the inbox (one still pending at the bank can't be sorted yet: said, not
-  // counted against the month), sorted at the top of Books.
+  // counted against the month), sorted at the top of Books by the owner (who alone reads the bank: anyone else is told
+  // so, with nowhere to go).
   const waiting = ((await db.collection(`${T}/bankTransactions`).where('status', '==', 'unmatched').limit(3000).get().catch(() => ({ docs: [] as any[] }))).docs as any[])
     .map((d: any) => d.data() || {}).filter((b: any) => { const d = String(b.date || '').slice(0, 10); return d >= start && d <= end; });
   const bank = waiting.filter((b: any) => !b.pending); const stillPending = waiting.length - bank.length;
-  checks.push(bank.length ? { id: 'bank', ok: false, title: `${bank.length} bank line${bank.length === 1 ? '' : 's'} still to sort`, detail: 'Each has a category picked, waiting at the top of Books', href: '/money?tab=bank' }
+  checks.push(bank.length ? { id: 'bank', ok: false, title: `${bank.length} bank line${bank.length === 1 ? '' : 's'} still to sort`, ...(owner ? { detail: 'Each has a category picked, waiting at the top of Books', href: '/money?tab=bank' } : { detail: 'The owner sorts these, at the top of Books' }) }
     : { id: 'bank', ok: true, title: 'Every bank line is sorted', detail: stillPending ? `Matched or booked. ${stillPending} still pending at the bank.` : 'Matched or booked' });
   // Checks and desk sales with money taken but never closed (lib/night-close-server): not in the books until they are.
   const taken = (pc: any) => String(pc.status) === 'paid_waiting' ? Math.round(num(pc.paidCents))
@@ -79,11 +80,11 @@ export async function monthView(db: any, tenantId: string, tenant: any, m: strin
 }
 
 /** The months around now: the one to close, the last few closed, and this one. */
-export async function closeOverview(db: any, tenantId: string, tenant: any, want?: unknown, now = Date.now()) {
+export async function closeOverview(db: any, tenantId: string, tenant: any, want?: unknown, now = Date.now(), owner = true) {
   const tz = tenantTimeZone(tenant); const today = todayIn(tz, new Date(now)); const c = closeOf(tenant);
   const m = typeof want === 'string' && MONTH.test(want) ? want : nextToClose(tenant, today);
   if (m > today.slice(0, 7)) return fail('That month hasn’t started yet.', 400);
-  const view = await monthView(db, tenantId, tenant, m, now);
+  const view = await monthView(db, tenantId, tenant, m, now, owner);
   const log: any[] = ((await db.doc(`tenants/${tenantId}/private/booksClose`).get()).data() || {}).log || [];
   const closedAt = (mm: string) => [...log].reverse().find((x: any) => x.kind === 'close' && x.month >= mm) || null;
   const months = [0, -1, -2, -3].map((i) => monthAfter(today.slice(0, 7), i)).map((mm) => {

@@ -170,7 +170,7 @@ check('shown to whoever keeps the books, the owner’s parts for the owner', /\{
 check('the owner is the owner', /isOwner=\{String\(role \|\| ''\) === 'owner'\}/.test(page));
 check('nothing read until it’s asked for', !/useEffect/.test(comp) && /onClick=\{check\}/.test(comp) && /onClick=\{print\}/.test(comp));
 check('the owner’s taxes asked for by the owner alone', /owner \? call\('\/api\/owner-taxes'/.test(comp));
-check('the business’s own day', /todayIn\(tenant\)/.test(comp));
+check('the business’s own day', /const today = React\.useMemo\(\(\) => dayKey\(new Date\(\), tz\), \[tz\]\);/.test(comp));
 check('bank lines: the year’s, the business’s own, not pending', /t\.context !== 'Personal' && !t\.pending && String\(t\.date \|\| ''\)\.slice\(0, 4\) === String\(y\)/.test(comp));
 check('sales tax: the year’s own last return once it’s over', /action: 'status', year: y/.test(comp) && /lastEnded\(yearOver \? `\$\{Number\(forYear\) \+ 1\}-01-01` : today, f\)/.test(src('src/lib/sales-tax-server.ts'))
   && /taxStatus\(db, tenantId, tenant, Date\.now\(\), forYear\)/.test(src('src/app/api/money/sales-tax/route.ts')));

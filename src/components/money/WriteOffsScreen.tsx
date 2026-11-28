@@ -10,6 +10,8 @@
 import * as React from 'react';
 import { getAuth } from 'firebase/auth';
 import { milesText } from '@/lib/trip-log';
+import { HomeOfficeCalc } from '@/components/money/HomeOfficeCalc';
+import { homeOfficeLine, type HomeOffice } from '@/lib/home-office';
 import { CHECKLIST, MEAL_ASKS, MEAL_KINDS, USUAL_COSTS, writeOffsBodyHtml, type Extras, type Found, type Line, type MealKind } from '@/lib/write-offs';
 import { printPage } from '@/lib/print-style';
 import { ImageUpload } from '@/components/shared/ImageUpload';
@@ -48,7 +50,8 @@ export function MilesWriteOff({ data, canLog, err }: { data: Miles | null; canLo
   );
 }
 
-type W = { year: number; years: number[]; found: Found; checklist: Record<string, string>; owner: boolean; partial?: boolean } & Extras;
+type W = { year: number; years: number[]; found: Found; checklist: Record<string, string>; owner: boolean; partial?: boolean; homeOfficeKept?: HomeOffice | null } & Extras;
+const HOME_OFFICE = 'homeOffice';
 const md = (day: string) => new Date(`${day}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 const field = `h-11 w-full rounded-xl border bg-[#fff] px-3 text-[15px] ${RING}`;
 
@@ -110,7 +113,7 @@ export function WriteOffsScreen({ tenantId, canLog, business = '', actor }: { te
   const print = () => {
     if (!w) return; const win = window.open('', '_blank'); if (!win) { setErr('Your browser blocked the new window. Allow pop-ups for ClarityFlow and try again.'); return; }
     const m = miles && miles.year === w.year ? { tenths: miles.summary.businessTenths, cents: miles.summary.amountCents, rate: miles.summary.rate.label, trips: miles.summary.trips } : null;
-    win.document.write(printPage({ title: `${w.year} write-offs`, heading: `${w.year} <b>write-offs</b>`, shopName: business, subtitle: 'Found in ClarityFlow, for your accountant.', body: writeOffsBodyHtml(w.found, m, w.checklist, { tipCredit: w.tipCredit, stockLoss: w.stockLoss, missing: w.missing }), footNote: 'Meals, gifts and equipment are from the books; miles from the mileage log; the tip credit from the paydays recorded; stock from Inventory. Your accountant decides what goes on the return.' }));
+    win.document.write(printPage({ title: `${w.year} write-offs`, heading: `${w.year} <b>write-offs</b>`, shopName: business, subtitle: 'Found in ClarityFlow, for your accountant.', body: writeOffsBodyHtml(w.found, m, w.checklist, { tipCredit: w.tipCredit, stockLoss: w.stockLoss, missing: w.missing, homeOffice: w.homeOffice }), footNote: 'Meals, gifts and equipment are from the books; miles from the mileage log; the tip credit from the paydays recorded; stock from Inventory. Your accountant decides what goes on the return.' }));
     win.document.close();
   };
 
@@ -190,11 +193,16 @@ export function WriteOffsScreen({ tenantId, canLog, business = '', actor }: { te
           <a href="/money?tab=ledger" className={`${btn} mb-3 mt-1 self-start`} style={{ background: '#fff', color: INK, border: `1px solid ${LINE}` }}>Add one in Books</a>
         </div>}
         <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
-          {CHECKLIST.map((c) => { const v = w.checklist[c.id] || null; return <div key={c.id} className="flex flex-col gap-2.5 rounded-2xl p-4" style={{ border: `1px solid ${LINE}` }}>
+          {CHECKLIST.map((c) => { const v = w.checklist[c.id] || null; const home = c.id === HOME_OFFICE; const figured = home && v === 'figured' && !!w.homeOffice; const working = home && open === HOME_OFFICE;
+            return <div key={c.id} className="flex flex-col gap-2.5 rounded-2xl p-4" style={{ border: `1px solid ${LINE}`, ...(working ? { gridColumn: '1 / -1' } : {}) }}>
             <span className="text-[15px] font-semibold">{c.title}</span><span className="text-[14px]" style={{ color: MUTED }}>{c.text}</span>
-            {w.owner ? <div className="flex flex-wrap gap-2">
+            {figured && !working && <p className="text-[14px] font-semibold" style={{ color: GREEN }}>{homeOfficeLine(w.homeOffice!)} It prints with the rest.</p>}
+            {working ? <HomeOfficeCalc key={w.year} initial={w.homeOffice || w.homeOfficeKept} busy={busy === 'homeoffice'} onCancel={() => setOpen(null)}
+              onSave={(h) => act('homeoffice', '/api/writeoffs', { action: 'homeoffice', year: w.year, ...h }, 'Saved. The home office prints with the rest.')} />
+            : w.owner ? <div className="flex flex-wrap gap-2">
+              {home && <button type="button" disabled={!!busy} onClick={() => { setErr(''); setSaid(''); setOpen(HOME_OFFICE); }} className={btn} style={figured ? { background: '#fff', color: INK, border: `1px solid ${INK}` } : { background: INK, color: '#fff' }}>{figured ? 'Change it' : 'Work it out'}</button>}
               {(['ask', 'no'] as const).map((ans) => <button key={ans} type="button" aria-pressed={v === ans} disabled={!!busy} onClick={() => act(`c_${c.id}`, '/api/writeoffs', { action: 'check', year: w.year, item: c.id, answer: v === ans ? null : ans }, 'Saved.')}
-                className={btn} style={v === ans ? { background: INK, color: '#fff' } : { background: '#fff', color: ans === 'ask' ? INK : MUTED, border: `1px solid ${ans === 'ask' ? INK : LINE}` }}>{ans === 'ask' ? 'Ask my accountant' : 'Doesn’t apply'}</button>)}
+                className={btn} style={v === ans ? { background: INK, color: '#fff' } : { background: '#fff', color: ans === 'ask' && !home ? INK : MUTED, border: `1px solid ${ans === 'ask' && !home ? INK : LINE}` }}>{ans === 'ask' ? 'Ask my accountant' : 'Doesn’t apply'}</button>)}
             </div> : <span className="text-[13px] font-semibold" style={{ color: MUTED }}>The owner answers this one.</span>}
           </div>; })}
         </div>

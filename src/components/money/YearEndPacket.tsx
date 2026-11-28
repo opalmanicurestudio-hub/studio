@@ -13,8 +13,8 @@ import { readDatedRange } from '@/hooks/use-transactions';
 import { booksSummary, normalizeLine } from '@/lib/books-summary';
 import { form1099s, w2sFor } from '@/lib/payroll-yearend';
 import { owedRunsFrom, runByOf } from '@/lib/payroll-taxes';
-import { todayIn } from '@/lib/pay-periods';
 import { printPage } from '@/lib/print-style';
+import { calendarZone, dayKey, wallToUtc } from '@/lib/tenant-time';
 import { packetBody, plural, yearItems, yearToClose, type YearItem } from '@/lib/year-end-packet';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', AMBER = '#b45309', AMBER_TINT = '#fff7ed', GREEN = '#1f7a4d';
@@ -25,7 +25,9 @@ const ID = /^[A-Za-z0-9_-]{1,160}$/; const BANK_READ = 2000;
 type Gathered = { year: number; items: YearItem[]; ls: any[]; lookup: any[]; wo: any; mi: any; ot: any; w2s: any[]; necs: any[] };
 
 export function YearEndPacket({ tenantId, firestore, tenant, owner, shop }: { tenantId: string; firestore: Firestore; tenant: any; owner: boolean; shop: string }) {
-  const today = React.useMemo(() => todayIn(tenant), [tenant]);
+  // (The business's own calendar: a year starts at midnight on January 1 where the business is, wherever this device is.)
+  const tz = React.useMemo(() => calendarZone(tenant), [tenant]);
+  const today = React.useMemo(() => dayKey(new Date(), tz), [tz]);
   const first = yearToClose(today); const ys = [first, first === Number(today.slice(0, 4)) ? first - 1 : first + 1].sort((a, b) => b - a);
   const [year, setYear] = React.useState(first);
   const [g, setG] = React.useState<Gathered | null>(null); const [busy, setBusy] = React.useState(''); const [err, setErr] = React.useState('');
@@ -33,10 +35,10 @@ export function YearEndPacket({ tenantId, firestore, tenant, owner, shop }: { te
     const tk = await getAuth().currentUser?.getIdToken().catch(() => '') || '';
     return fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(tk ? { Authorization: `Bearer ${tk}` } : {}) }, body: JSON.stringify({ tenantId, ...body }) }).then((r) => r.json()).catch(() => null);
   }, [tenantId]);
-  const began = React.useMemo(() => { const v = tenant?.createdAt; const d = v?.toDate ? v.toDate() : v ? new Date(v) : null; return d && Number.isFinite(d.getTime()) ? d.toISOString().slice(0, 7) : ''; }, [tenant?.createdAt]);
+  const began = React.useMemo(() => { const v = tenant?.createdAt; const d = v?.toDate ? v.toDate() : v ? new Date(v) : null; return d && Number.isFinite(d.getTime()) ? dayKey(d, tz).slice(0, 7) : ''; }, [tenant?.createdAt, tz]);
 
   const gather = async (y: number): Promise<Gathered> => {
-    const ls = (await readDatedRange(firestore, tenantId, 'transactions', 'date', new Date(y, 0, 1), new Date(y + 1, 0, 1))).map((t: any) => normalizeLine(t));
+    const ls = (await readDatedRange(firestore, tenantId, 'transactions', 'date', wallToUtc(`${y}-01-01`, 0, 0, tz), wallToUtc(`${y + 1}-01-01`, 0, 0, tz), tz)).map((t: any) => normalizeLine(t));
     // (What a take-back takes back when that's from before the year, so it's taken back as it was counted: the same
     // reading as the Reports below.)
     const have = new Map<string, any>(ls.map((t: any) => [String(t.id), t])); let next: any[] = ls;

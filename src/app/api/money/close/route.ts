@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
     const action = String(b.action || 'view');
     if (action === 'closed') return reply(await closedMonths(db, tenantId, tenant));
     if (action === 'statement') { const r: any = await monthStatement(db, tenantId, tenant, b.month, !!auth.actor.isTenantOwner || auth.actor.role === 'admin'); return reply(r, r.ok ? 200 : r.status); }
-    if (action === 'view') { const r: any = await closeOverview(db, tenantId, tenant, b.month); return reply({ ...r, canReopen: !!auth.actor.isTenantOwner }, r.ok ? 200 : r.status); }
+    if (action === 'view') { const r: any = await closeOverview(db, tenantId, tenant, b.month, Date.now(), !!auth.actor.isTenantOwner); return reply({ ...r, canReopen: !!auth.actor.isTenantOwner }, r.ok ? 200 : r.status); }
     if (action === 'close') {
       const r: any = await closeMonth(db, tenantId, tenant, b.month, by);
       if (r.ok && !r.already) await logAuditAdmin(db, tenantId, { action: 'books.month_closed', targetType: 'tenant', targetId: tenantId, summary: `${by} closed ${monthName(String(b.month))}: nothing dated in it can change now.`, actor } as any).catch(() => {});

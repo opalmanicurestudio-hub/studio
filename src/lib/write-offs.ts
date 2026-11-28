@@ -16,6 +16,7 @@
 // The tax summary (lib/report-builders) and the books' tax line (components/money/BooksScreen) count each line as
 // here (`countsOf`, `mealKindOf`), a line taken back by the line it takes back (`originalOf`); the books themselves keep
 // what was paid.
+import { homeOfficeRows, type HomeOffice } from './home-office';
 import { canonicalCategory } from './categories';
 
 export const MEAL_CATEGORY = 'Meals & Entertainment';
@@ -193,7 +194,9 @@ export function stockLossOf(lines: any[], entries: any[], year: number): { booke
 /** What else the year shows, printed with the rest: the tip credit (lib/tip-credit), stock written off, and usual costs
  *  with nothing booked. */
 export type Extras = { tipCredit?: { creditCents: number; tipsCents: number; minWage: number; paydays: number; noHours: number; medspa?: boolean; priorLeftOut?: boolean } | null;
-  stockLoss?: { bookedCents: number; unbooked: number } | null; missing?: UsualCost[] };
+  stockLoss?: { bookedCents: number; unbooked: number } | null; missing?: UsualCost[];
+  /** The home office, worked out (lib/home-office): the owner's own, printed only for them. */
+  homeOffice?: HomeOffice | null };
 
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' } as any)[c]);
 const usd = (c: number) => `$${(c / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -210,6 +213,7 @@ ${f.gifts.lines.length ? row('Business gifts', usd(f.gifts.counts), `${usd(f.gif
 ${f.education.count ? row('Classes and education', usd(f.education.cents), `${f.education.count} line${f.education.count === 1 ? '' : 's'}`) : ''}
 ${f.equipment.map((e) => row(`Equipment: ${e.title}`, usd(e.cents), `${e.day}. Written off this year or over several: your choice`)).join('\n')}
 ${tc && tc.creditCents > 0 ? row('Tip credit (Form 8846), an estimate', usd(tc.creditCents), `7.65% (1.45% past the Social Security wage base) of the employees’ reported tips above what tops their pay up to $${tc.minWage.toFixed(2)} an hour, from ${tc.paydays} payday${tc.paydays === 1 ? '' : 's'} (${usd(tc.tipsCents)} in tips)${tc.noHours ? `; ${tc.noHours} without hours, so every tip counted` : ''}${tc.medspa ? '; tips on medical treatments don’t count, only on esthetics and spa services' : ''}${tc.priorLeftOut ? '; tips paid before ClarityFlow this year aren’t in it' : ''}. A credit, not a deduction: the same amount comes off the payroll tax deduction`) : ''}
+${x.homeOffice ? homeOfficeRows(x.homeOffice).map(([k, v, sub]) => row(k, v, sub)).join('\n') : ''}
 ${sl && sl.bookedCents > 0 ? row('Stock written off, booked as Spoilage', usd(sl.bookedCents), 'Written off in Inventory and booked then, with cost of goods sold: counted already, not again') : ''}
 ${sl && sl.unbooked > 0 ? row(`Stock thrown out or used up early: ${sl.unbooked} time${sl.unbooked === 1 ? '' : 's'}`, '', 'Taken off stock with no line of its own: a year-end inventory count picks it up') : ''}
 </tbody></table>

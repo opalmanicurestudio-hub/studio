@@ -17,6 +17,7 @@
 import * as React from 'react';
 import { collection, getDocs, limit, onSnapshot, query, where, type Firestore } from 'firebase/firestore';
 import { categoriesFor, findCategory, CUSTOM_CATEGORY } from '@/lib/categories';
+import { useToast } from '@/hooks/use-toast';
 import { normalizeLine } from '@/lib/books-summary';
 import { lineCents, notBankMoney, saleOf } from '@/lib/bank-match';
 import { readDatedRange } from '@/hooks/use-transactions';
@@ -83,6 +84,12 @@ export function BankScreen({ tenantId, firestore, actor, inBooks = false }: { te
   const [accounts, setAccounts] = React.useState<any[] | null>(null);
   const [busy, setBusy] = React.useState(''); const [error, setError] = React.useState(''); const [note, setNote] = React.useState('');
   const [labelPick, setLabelPick] = React.useState(false);
+  // (In Books the list runs on down the page, so what an action did is said where it can be seen from anywhere on it.)
+  const { toast } = useToast();
+  React.useEffect(() => {
+    if (!inBooks) return;
+    if (error) toast({ variant: 'destructive', title: error }); else if (note) toast({ title: note });
+  }, [inBooks, note, error]); // eslint-disable-line react-hooks/exhaustive-deps
   const [cat, setCat] = React.useState<Record<string, string>>({});
   const [receipt, setReceipt] = React.useState<Record<string, string>>({}); const [receiptFor, setReceiptFor] = React.useState('');
   const [billOff, setBillOff] = React.useState<Record<string, boolean>>({});
@@ -236,7 +243,6 @@ export function BankScreen({ tenantId, firestore, actor, inBooks = false }: { te
           <div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => connect('Business')} className={btn(true)} style={btnStyle(true)}>Business</button><button type="button" onClick={() => connect('Personal')} className={btn()} style={btnStyle()}>Personal</button></div>
         </div>
       )}
-      {error && <p role="alert" className="rounded-2xl px-4 py-3 text-[14px] font-medium" style={{ background: AMBER_TINT, color: AMBER }}>{error}</p>}
     </div>
   );
 
@@ -259,8 +265,8 @@ export function BankScreen({ tenantId, firestore, actor, inBooks = false }: { te
           <button type="button" onClick={() => relink(a)} disabled={!!busy} className={btn()} style={btnStyle()}>{busy === `relink:${a.id}` ? 'Opening' : 'Sign in again'}</button>
         </div>
       ))}
-      {error && <p role="alert" className="rounded-2xl px-4 py-3 text-[14px] font-medium" style={{ background: AMBER_TINT, color: AMBER }}>{error}</p>}
-      {note && !error && <p role="status" className="text-[14px] font-medium" style={{ color: GREEN }}>{note}</p>}
+      {!inBooks && error && <p role="alert" className="rounded-2xl px-4 py-3 text-[14px] font-medium" style={{ background: AMBER_TINT, color: AMBER }}>{error}</p>}
+      {!inBooks && note && !error && <p role="status" className="text-[14px] font-medium" style={{ color: GREEN }}>{note}</p>}
 
       <section aria-labelledby="sort-h" className={card} style={cardStyle}>
         <div className="mb-1 flex flex-wrap items-start justify-between gap-3">

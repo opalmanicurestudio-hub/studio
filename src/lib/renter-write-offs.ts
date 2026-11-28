@@ -16,6 +16,7 @@
 import { CHECKLIST, GIFT_LIMIT_CENTS, EQUIPMENT_AT_CENTS, RECEIPT_AT_CENTS } from './write-offs';
 import { rentLineCents, rentCreditsUsed } from './renter-rent-history';
 import { amountCents } from './trip-log';
+import { homeOfficeRows, type HomeOffice } from './home-office';
 
 /** What a renter's cost can be (the portal's Earnings and expenses and Write-offs). */
 export const RENTER_COST_KINDS = ['Supplies', 'Products', 'Equipment', 'Education', 'Meals', 'Gifts', 'Marketing', 'Insurance', 'Licenses and fees', 'Software', 'Travel', 'Other'] as const;
@@ -158,7 +159,9 @@ export type RenterPhoto = { id: string; day: string; kind: string; cents: number
 export type RenterYear = { found: RenterFound; rent: { cents: number; payments: number; creditsCents?: number }; space: string;
   miles: { tenths: number; cents: number; rate: string; trips: number } | null; deskTipsCents: number; checklist: Record<string, string>; missing: string[];
   /** Costs with a photo of the receipt kept (api/portal/renter-writeoffs list), each with its photo's link. */
-  photos?: RenterPhoto[] };
+  photos?: RenterPhoto[];
+  /** Their home office, worked out (lib/home-office). */
+  homeOffice?: HomeOffice | null };
 
 /** The year's write-offs for their accountant (lib/print-style printPage wraps it). */
 export function renterWriteOffsHtml(y: RenterYear): string {
@@ -169,6 +172,7 @@ ${y.rent.cents > 0 ? row(`Rent and space fees paid to ${y.space}`, usd(y.rent.ce
 ${y.miles ? row('Business miles', usd(y.miles.cents), `${(y.miles.tenths / 10).toLocaleString('en-US')} miles in ${y.miles.trips} trips at ${y.miles.rate} a mile, from the mileage log`) : ''}
 ${f.kinds.map((k) => row(k.kind, usd(k.counts), `${k.lines} cost${k.lines === 1 ? '' : 's'}${k.counts !== k.spent ? `, ${usd(k.spent)} spent; ${k.kind === 'Meals' ? 'half of a business meal counts' : 'up to $25 a person a year counts, worked out gift by gift, so cap anyone who got more than one at $25 in all'}` : ''}`)).join('\n')}
 ${f.equipment.map((e) => row(`Equipment: ${e.title}`, usd(e.cents), `${e.day}. Written off this year or over several: your choice`)).join('\n')}
+${y.homeOffice ? homeOfficeRows(y.homeOffice).map(([k, v, sub]) => row(k, v, sub)).join('\n') : ''}
 ${y.deskTipsCents > 0 ? row('Tips collected for you at the front desk', usd(y.deskTipsCents), 'For the deduction for tips. Tips paid to you directly aren’t in it') : ''}
 </tbody></table>
 ${missing.length ? `<h2>Nothing logged this year for</h2><ul>${missing.map((u) => `<li><b>${esc(u.title)}</b>: ${esc(u.text)}</li>`).join('')}</ul>` : ''}

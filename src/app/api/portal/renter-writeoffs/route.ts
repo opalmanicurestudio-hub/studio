@@ -13,6 +13,8 @@
 //   add    { date, amount, kind, note?, people?, receiptUrl? } → a cost logged (the same costs as Earnings and expenses)
 //   finish { id, note?, people? }                     → a meal's who and why, or a gift's how many people
 //   check  { year, item, answer: 'ask'|'no'|null }     → an often-missed write-off marked
+//   homeoffice { year, officeSqft, months, homeSqft?, costs?, clear? } → their home office worked out (lib/home-office),
+//                                                       kept with their answers and marked as answered, or cleared
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { renterSession } from '@/lib/renter-session';
@@ -22,6 +24,7 @@ import { yearSummary } from '@/lib/trip-log';
 import { limitByKey } from '@/lib/rate-limit';
 import { renterFound, rentPaidOf, deskTipsOf, missingRenterUsual, cleanRenterCost, costKindOf, RENTER_CHECKLIST, RENTER_COST_KINDS } from '@/lib/renter-write-offs';
 import { receiptUrlOk } from '@/lib/write-offs';
+import { cleanHomeOffice, homeOfficeOf } from '@/lib/home-office';
 import { ourBuckets } from '@/lib/inspo-photos';
 import { readReceipt, takeReceiptRead, dropReceiptPhoto } from '@/lib/receipt-read';
 import { uploadPortalImageFromDataUrl } from '@/lib/maintenance-server';
@@ -69,6 +72,9 @@ export async function POST(req: NextRequest) {
         found: renterFound(exp, year), rent: rentPaidOf(pays, year, ledger), deskTipsCents: deskTipsOf(ledger, year), missing: missingRenterUsual(exp, year),
         miles: m.trips > 0 ? { tenths: m.businessTenths, cents: m.amountCents, rate: m.rate.label, trips: m.trips, stale: m.rate.stale, rateYear: m.rate.year } : null,
         checklist: (kept as any)?.[String(year)] || {},
+        // (Marked another way since, it isn't printed, but what was worked out is kept to start from again.)
+        homeOffice: (kept as any)?.[String(year)]?.homeOffice === 'figured' ? homeOfficeOf((kept as any)?.homeOffice?.[String(year)]) : null,
+        homeOfficeKept: homeOfficeOf((kept as any)?.homeOffice?.[String(year)]),
         // (Costs with a photo of the receipt kept, to open again.)
         photos: exp.filter((e: any) => e.receiptUrl && String(e.date || '').slice(0, 4) === String(year) && Number(e.cents) > 0).sort((a: any, b2: any) => String(a.date).localeCompare(String(b2.date)))
           .map((e: any) => ({ id: String(e.id), day: String(e.date).slice(0, 10), kind: costKindOf(e.category), cents: Math.round(Number(e.cents)), note: clip(e.note, 80), url: String(e.receiptUrl) })) });
@@ -127,6 +133,14 @@ export async function POST(req: NextRequest) {
       if (!(year === thisYear || year === thisYear - 1) || !RENTER_CHECKLIST.some((c) => c.id === item) || !(b.answer === 'ask' || b.answer === 'no' || b.answer === null)) return reply({ ok: false, error: 'Something went wrong.' }, 400);
       await checklistRef.set({ [String(year)]: { [item]: b.answer } }, { merge: true });
       return reply({ ok: true });
+    }
+    if (action === 'homeoffice') {
+      const year = Number(b.year); if (!(year === thisYear || year === thisYear - 1)) return reply({ ok: false, error: 'Something went wrong.' }, 400);
+      if (b.clear === true) { await checklistRef.set({ [String(year)]: { homeOffice: null }, homeOffice: { [String(year)]: null } }, { merge: true }); return reply({ ok: true }); }
+      const r = cleanHomeOffice(b); if (!r.ok) return reply({ ok: false, error: r.error }, 400);
+      const h = { ...r.h, updatedAt: new Date().toISOString() };
+      await checklistRef.set({ [String(year)]: { homeOffice: 'figured' }, homeOffice: { [String(year)]: h } }, { merge: true });
+      return reply({ ok: true, homeOffice: h });
     }
 
     return reply({ ok: false, error: 'Something went wrong.' }, 400);

@@ -74,6 +74,14 @@ export function tenantTimeZone(tenant?: any, location?: any): string {
   return FALLBACK_TIME_ZONE;
 }
 
+/** The calendar a screen counts days, months and years by: the business's own time zone once it's set, else this
+ *  device's (so a business that hasn't picked one sees what it always has), else UTC. */
+export function calendarZone(tenant?: any): string {
+  if (hasTimeZone(tenant)) return tenantTimeZone(tenant);
+  try { const z = Intl.DateTimeFormat().resolvedOptions().timeZone; if (z && isValidTimeZone(z)) return z; } catch { /* none */ }
+  return FALLBACK_TIME_ZONE;
+}
+
 /** True when the shop has actually chosen — so a surface can prompt for it
  *  instead of quietly showing UTC and looking broken. */
 export function hasTimeZone(tenant?: any, location?: any): boolean {

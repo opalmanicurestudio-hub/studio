@@ -10,6 +10,10 @@
 //   receipt  { id, url }                   → a receipt photo kept with a line (the business's own storage only)
 //   note     { id, on }                    → equipment marked for the accountant
 //   check    { year, item, answer }        → an often-missed one: 'ask' (ask the accountant), 'no', or null (owner only)
+//   homeoffice { year, officeSqft, months, homeSqft?, costs?, clear? } → the home office worked out (lib/home-office),
+//                                            kept with the answers and marked as answered, or cleared (owner only).
+//                                            Marked another way after, it isn't printed; its figures are kept to start
+//                                            from again
 //   personal { id }                        → a personal-account purchase that was personal, so it isn't asked about
 //                                            again (owner only: personal accounts are the owner's)
 // Lines are the business's own (tenants/{t}/transactions); what's said about them is kept on each (`writeOff`). A line
@@ -27,6 +31,7 @@ import { tipCreditEstimate, tipCreditKind } from '@/lib/tip-credit';
 import { nicheOf } from '@/lib/niche';
 import { CHECKLIST, EQUIPMENT_AT_CENTS, USUAL_COSTS, cleanMeal, dayOf, everydayPurchase, findWriteOffs, missingUsual, stockLossOf, isGift, isMeal, receiptUrlOk, type PersonalLine } from '@/lib/write-offs';
 import { canonicalCategory, scheduleCFor } from '@/lib/categories';
+import { cleanHomeOffice, homeOfficeOf } from '@/lib/home-office';
 export const dynamic = 'force-dynamic';
 
 const ID = /^[A-Za-z0-9_-]{1,160}$/;
@@ -109,6 +114,10 @@ export async function POST(req: NextRequest) {
       return reply({ ok: true, year, years: [thisYear, thisYear - 1], found: findWriteOffs(lines, year, personal),
         // (The owner's answers about their own taxes are theirs: others who keep the books see the list, not the answers.)
         checklist: a.isTenantOwner ? kept.checklist?.[String(year)] || {} : {}, owner: !!a.isTenantOwner,
+        // (Their home office, once worked out: theirs too.)
+        // (Marked another way since, it isn't printed, but what was worked out is kept to start from again.)
+        homeOffice: a.isTenantOwner && kept.checklist?.[String(year)]?.homeOffice === 'figured' ? homeOfficeOf(kept.homeOffice?.[String(year)]) : null,
+        homeOfficeKept: a.isTenantOwner ? homeOfficeOf(kept.homeOffice?.[String(year)]) : null,
         tipCredit: tc && tc.tipsCents > 0 ? { creditCents: tc.creditCents, tipsCents: tc.tipsCents, minWage: tc.minWage, paydays: tc.paydays, noHours: tc.noHours, kind: tc.kind,
           ...(nicheOf(tenant) === 'medspa' ? { medspa: true } : {}), ...(tc.priorTips ? { priorLeftOut: true } : {}) } : null,
         stockLoss: loss.bookedCents > 0 || loss.unbooked > 0 ? loss : null,
@@ -123,6 +132,15 @@ export async function POST(req: NextRequest) {
       if (!(year >= thisYear - 1 && year <= thisYear) || !CHECKLIST.some((c) => c.id === item) || ![null, 'ask', 'no'].includes(b.answer ?? null)) return reply({ ok: false, error: 'Something went wrong.' }, 400);
       await privRef.set({ checklist: { [String(year)]: { [item]: b.answer ?? null } } }, { merge: true });
       return reply({ ok: true });
+    }
+    if (action === 'homeoffice') {
+      if (!a.isTenantOwner) return reply({ ok: false, error: 'These are about the owner’s own taxes, so the owner answers them.' }, 403);
+      const year = Number(b.year); if (!(year >= thisYear - 1 && year <= thisYear)) return reply({ ok: false, error: 'Something went wrong.' }, 400);
+      if (b.clear === true) { await privRef.set({ checklist: { [String(year)]: { homeOffice: null } }, homeOffice: { [String(year)]: null } }, { merge: true }); return reply({ ok: true }); }
+      const r = cleanHomeOffice(b); if (!r.ok) return reply({ ok: false, error: r.error }, 400);
+      const h = { ...r.h, updatedAt: new Date().toISOString() };
+      await privRef.set({ checklist: { [String(year)]: { homeOffice: 'figured' } }, homeOffice: { [String(year)]: h } }, { merge: true });
+      return reply({ ok: true, homeOffice: h });
     }
     if (action === 'personal') {
       if (!a.isTenantOwner) return reply({ ok: false, error: 'Personal accounts are the owner’s, so the owner answers these.' }, 403);

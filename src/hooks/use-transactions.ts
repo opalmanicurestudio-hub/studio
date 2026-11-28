@@ -11,6 +11,7 @@ import { parseISO } from 'date-fns';
 import { useFirebase, useMemoFirebase } from '@/firebase/provider';
 import { useCollection } from '@/firebase/firestore/use-collection';
 import { useTenant } from '@/context/TenantContext';
+import { dayKey } from '@/lib/tenant-time';
 
 const DAY = 86_400_000;
 const NONE: any[] = [];
@@ -31,12 +32,16 @@ export function textBounds(from: Date, to: Date): [string, string] {
   return [ymd(new Date(from.getTime() - DAY)), ymd(new Date(to.getTime() + 2 * DAY))];
 }
 
-/** Merge both query results, keep only what's really in [from, to), and give every record a Date like the old context did. */
-export function mergeInRange(a: any[] | null, b: any[] | null, from: number, to: number, field = 'date'): any[] {
+/** Merge both query results, keep only what's really in [from, to), and give every record a Date like the old context did.
+ *  With the business's time zone (`tz`), a date that's only a day ("2026-01-01") is kept by that day, as the business
+ *  counts it, wherever the device is; one with a time, by the instant. */
+export function mergeInRange(a: any[] | null, b: any[] | null, from: number, to: number, field = 'date', tz?: string | null): any[] {
   const byId = new Map<string, any>();
+  const first = tz ? dayKey(new Date(from), tz) : '', last = tz ? dayKey(new Date(to - 1), tz) : '';
   for (const t of [...(a || []), ...(b || [])]) {
-    const d = txDate(t[field]); const ms = d.getTime();
-    if (ms >= from && ms < to) byId.set(t.id, { ...t, [field]: d });
+    const raw = t[field]; const d = txDate(raw); const ms = d.getTime();
+    const dayOnly = !!tz && typeof raw === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw.trim());
+    if (dayOnly ? raw.trim() >= first && raw.trim() <= last : ms >= from && ms < to) byId.set(t.id, { ...t, [field]: d });
   }
   return [...byId.values()].sort((x, y) => y[field].getTime() - x[field].getTime());
 }
@@ -151,7 +156,7 @@ export function useTransactionsInCategories(categories: string[]): { transaction
 }
 
 /** The same records read once, not kept live: for a past period shown beside this one, or a long one (a whole year). */
-export async function readDatedRange(firestore: any, tenantId: string, name: string, field: string, from: Date, to: Date): Promise<any[]> {
+export async function readDatedRange(firestore: any, tenantId: string, name: string, field: string, from: Date, to: Date, tz?: string | null): Promise<any[]> {
   const [lo, hi] = textBounds(from, to);
   const col = collection(firestore, 'tenants', tenantId, name);
   // (Older records' stored times are a second, smaller read. If the text-dated read fails the figures would be wrong,
@@ -161,5 +166,5 @@ export async function readDatedRange(firestore: any, tenantId: string, name: str
     getDocs(query(col, where(field, '>=', Timestamp.fromMillis(from.getTime() - DAY)), where(field, '<', Timestamp.fromMillis(to.getTime() + DAY)))).then((q) => q.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))),
   ]);
   if (a.status === 'rejected') throw a.reason;
-  return mergeInRange(a.value, b.status === 'fulfilled' ? b.value : [], from.getTime(), to.getTime(), field);
+  return mergeInRange(a.value, b.status === 'fulfilled' ? b.value : [], from.getTime(), to.getTime(), field, tz);
 }

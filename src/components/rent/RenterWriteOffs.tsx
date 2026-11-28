@@ -7,6 +7,8 @@
 import * as React from 'react';
 import { OpenScreenContext, ScreenYearContext } from '@/components/rent/shared';
 import { printPage } from '@/lib/print-style';
+import { HomeOfficeCalc } from '@/components/money/HomeOfficeCalc';
+import { homeOfficeLine, type HomeOffice } from '@/lib/home-office';
 import { RENTER_CHECKLIST, RENTER_COST_KINDS, RENTER_USUAL, renterWriteOffsHtml, type RenterCost, type RenterCostKind, type RenterFound, type RenterPhoto } from '@/lib/renter-write-offs';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', SOFT = '#f5f5f7', GREEN = '#1f7a4d', GREEN_TINT = '#eaf6ef', AMBER = '#b45309', AMBER_TINT = '#fff7ed';
@@ -18,7 +20,7 @@ const usd = (c: number) => `$${(c / 100).toLocaleString('en-US', { minimumFracti
 const md = (day: string) => new Date(`${day}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 
 type Data = { year: number; years: number[]; today: string; space: string; found: RenterFound; rent: { cents: number; payments: number; creditsCents: number }; deskTipsCents: number; missing: string[];
-  miles: { tenths: number; cents: number; rate: string; trips: number; stale: boolean; rateYear: number } | null; checklist: Record<string, string>; photos?: RenterPhoto[] };
+  miles: { tenths: number; cents: number; rate: string; trips: number; stale: boolean; rateYear: number } | null; checklist: Record<string, string>; photos?: RenterPhoto[]; homeOffice?: HomeOffice | null; homeOfficeKept?: HomeOffice | null };
 
 const NOTE_HINT: Partial<Record<RenterCostKind, string>> = { Meals: 'Who was there, and what it was about', Gifts: 'Who it was for', Education: 'The class or show', Travel: 'Where, and what for' };
 
@@ -138,6 +140,7 @@ export function RenterWriteOffs({ tenantId, token, business }: { tenantId: strin
   const openScreen = React.useContext(OpenScreenContext);
   const [d, setD] = React.useState<Data | null>(null); const [err, setErr] = React.useState(''); const [said, setSaid] = React.useState('');
   const [busy, setBusy] = React.useState<string | null>(null); const [adding, setAdding] = React.useState<RenterCostKind | null>(null);
+  const [working, setWorking] = React.useState(false);
   const post = React.useCallback(async (body: any) => {
     try { const r = await fetch('/api/portal/renter-writeoffs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, tenantId, token }) }); return await r.json(); }
     catch { return { ok: false, error: 'No connection. Try again.' }; }
@@ -162,7 +165,7 @@ export function RenterWriteOffs({ tenantId, token, business }: { tenantId: strin
   const print = () => {
     const w = window.open('', '_blank'); if (!w) { setErr('Your browser blocked the new window. Allow pop-ups for ClarityFlow and try again.'); return; }
     w.document.write(printPage({ title: `${d.year} write-offs`, heading: `${d.year} <b>write-offs</b>`, shopName: business, subtitle: 'Found in ClarityFlow, for your accountant.',
-      body: renterWriteOffsHtml({ found: f, rent: d.rent, space: d.space, miles: d.miles, deskTipsCents: d.deskTipsCents, checklist: d.checklist, missing: d.missing, photos: d.photos || [] }),
+      body: renterWriteOffsHtml({ found: f, rent: d.rent, space: d.space, miles: d.miles, deskTipsCents: d.deskTipsCents, checklist: d.checklist, missing: d.missing, photos: d.photos || [], homeOffice: d.homeOffice }),
       footNote: `Rent from your payments to ${d.space}; miles from your mileage log; costs as you logged them. A starting point: your accountant decides what goes on your return.` }));
     w.document.close();
   };
@@ -230,10 +233,16 @@ export function RenterWriteOffs({ tenantId, token, business }: { tenantId: strin
     <section aria-label="Often missed" className="flex flex-col gap-2.5">
       <div className="px-1"><h2 className="text-[16px] font-semibold">Often missed: worth asking your accountant</h2>
         <p className="text-[13px]" style={{ color: MUTED }}>These aren’t in ClarityFlow, so they can’t be found for you. Mark each one, and the ones to ask about print with the rest.</p></div>
-      {RENTER_CHECKLIST.map((c) => { const v = d.checklist[c.id] || null; return <div key={c.id} className={`${card} flex flex-col gap-2 py-4`}>
+      {RENTER_CHECKLIST.map((c) => { const v = d.checklist[c.id] || null; const home = c.id === 'homeOffice'; const figured = home && v === 'figured' && !!d.homeOffice;
+        return <div key={c.id} className={`${card} flex flex-col gap-2 py-4`}>
         <span className="text-[15px] font-semibold">{c.title}</span><span className="text-[14px]" style={{ color: MUTED }}>{c.text}</span>
-        <div className="flex flex-wrap gap-2">{(['ask', 'no'] as const).map((ans) => <button key={ans} type="button" aria-pressed={v === ans} disabled={!!busy} onClick={() => act(`c_${c.id}`, { action: 'check', year: d.year, item: c.id, answer: v === ans ? null : ans }, 'Saved.')}
-          className={btn} style={v === ans ? { background: INK, color: '#fff' } : { background: '#fff', color: ans === 'ask' ? INK : MUTED, border: `1px solid ${ans === 'ask' ? INK : LINE}` }}>{ans === 'ask' ? 'Ask my accountant' : 'Doesn’t apply'}</button>)}</div>
+        {figured && !working && <p className="text-[14px] font-semibold" style={{ color: GREEN }}>{homeOfficeLine(d.homeOffice!)} It prints with the rest.</p>}
+        {home && working ? <HomeOfficeCalc key={d.year} initial={d.homeOffice || d.homeOfficeKept} busy={busy === 'homeoffice'} onCancel={() => setWorking(false)}
+          onSave={async (h) => { if (await act('homeoffice', { action: 'homeoffice', year: d.year, ...h }, 'Saved. Your home office prints with the rest.')) setWorking(false); }} />
+        : <div className="flex flex-wrap gap-2">
+          {home && <button type="button" disabled={!!busy} onClick={() => { setErr(''); setSaid(''); setWorking(true); }} className={btn} style={figured ? { background: '#fff', color: INK, border: `1px solid ${INK}` } : { background: INK, color: '#fff' }}>{figured ? 'Change it' : 'Work it out'}</button>}
+          {(['ask', 'no'] as const).map((ans) => <button key={ans} type="button" aria-pressed={v === ans} disabled={!!busy} onClick={() => act(`c_${c.id}`, { action: 'check', year: d.year, item: c.id, answer: v === ans ? null : ans }, 'Saved.')}
+          className={btn} style={v === ans ? { background: INK, color: '#fff' } : { background: '#fff', color: ans === 'ask' && !home ? INK : MUTED, border: `1px solid ${ans === 'ask' && !home ? INK : LINE}` }}>{ans === 'ask' ? 'Ask my accountant' : 'Doesn’t apply'}</button>)}</div>}
       </div>; })}
     </section>
 

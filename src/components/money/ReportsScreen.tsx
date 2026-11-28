@@ -15,6 +15,7 @@ import {
 } from '@/lib/report-builders';
 import { csvName, downloadCsv, type Cell } from '@/lib/csv';
 import { YearEndPacket } from '@/components/money/YearEndPacket';
+import { calendarZone, dayKey, wallToUtc } from '@/lib/tenant-time';
 
 const INK = '#16171a', MUTED = '#6d7075', LINE = '#ececee', AMBER = '#b45309', AMBER_TINT = '#fff7ed', GREEN = '#1f7a4d', GREEN_TINT = '#eaf6ef';
 const RING = 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2';
@@ -25,9 +26,11 @@ const ymd = (x: Date) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart
 
 type Preset = 'thisMonth' | 'lastMonth' | 'thisQuarter' | 'thisYear' | 'lastYear' | 'custom';
 const PRESETS: [Preset, string][] = [['thisMonth', 'This month'], ['lastMonth', 'Last month'], ['thisQuarter', 'This quarter'], ['thisYear', 'This year'], ['lastYear', 'Last year'], ['custom', 'Pick dates']];
-/** The dates a choice means, this device's own days: the first day's start to the last day's end. */
-export function rangeOf(p: Preset, now = new Date(), from = '', to = ''): { from: Date; to: Date } | null {
-  const y = now.getFullYear(), m = now.getMonth();
+/** The dates a choice means: the first day to the last (as this device's Dates, so they print as those days). Which
+ *  month and year it is now is the business's (`tz`, lib/tenant-time calendarZone), or this device's without one. */
+export function rangeOf(p: Preset, now = new Date(), from = '', to = '', tz?: string | null): { from: Date; to: Date } | null {
+  const today = tz ? dayKey(now, tz) : '';
+  const y = today ? Number(today.slice(0, 4)) : now.getFullYear(), m = today ? Number(today.slice(5, 7)) - 1 : now.getMonth();
   const span = (a: Date, b: Date) => ({ from: a, to: new Date(b.getFullYear(), b.getMonth(), b.getDate(), 23, 59, 59, 999) });
   if (p === 'thisMonth') return span(new Date(y, m, 1), new Date(y, m + 1, 0));
   if (p === 'lastMonth') return span(new Date(y, m - 1, 1), new Date(y, m, 0));
@@ -36,6 +39,12 @@ export function rangeOf(p: Preset, now = new Date(), from = '', to = ''): { from
   if (p === 'lastYear') return span(new Date(y - 1, 0, 1), new Date(y - 1, 11, 31));
   if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) return null;
   return span(new Date(`${from}T00:00:00`), new Date(`${to}T00:00:00`));
+}
+
+/** What those days are to read: from the first day's midnight where the business is, up to the midnight after the last. */
+export function readSpan(range: { from: Date; to: Date }, tz: string): { from: Date; to: Date } {
+  const after = new Date(range.to.getFullYear(), range.to.getMonth(), range.to.getDate() + 1);
+  return { from: wallToUtc(ymd(range.from), 0, 0, tz), to: wallToUtc(ymd(after), 0, 0, tz) };
 }
 
 export function ReportsScreen({ tenantId, firestore, tenant, staff, payroll, canManage = true, isOwner = false }: {
@@ -50,7 +59,8 @@ export function ReportsScreen({ tenantId, firestore, tenant, staff, payroll, can
   const [busy, setBusy] = React.useState(''); const [error, setError] = React.useState(''); const [note, setNote] = React.useState('');
   const [tax, setTax] = React.useState<any | null | undefined>(undefined);
   const [months, setMonths] = React.useState<any[] | null>(null); const [allMonths, setAllMonths] = React.useState(false);
-  const range = rangeOf(preset, new Date(), from, to);
+  const tz = React.useMemo(() => calendarZone(tenant), [tenant]);
+  const range = rangeOf(preset, new Date(), from, to, tz);
   const shop = String(tenant?.name || tenant?.businessName || '');
   const words = range ? periodLabel(range) : 'Pick the first and last day';
   const fileDates = range ? (preset === 'lastMonth' || preset === 'thisMonth' ? ymd(range.from).slice(0, 7) : `${ymd(range.from)} to ${ymd(range.to)}`) : '';
@@ -67,7 +77,8 @@ export function ReportsScreen({ tenantId, firestore, tenant, staff, payroll, can
 
   const lines = async () => {
     if (!range) throw new Error('dates');
-    return (await readDatedRange(firestore, tenantId, 'transactions', 'date', range.from, new Date(range.to.getTime() + 1))).map((t: any) => normalizeLine(t));
+    const span = readSpan(range, tz);
+    return (await readDatedRange(firestore, tenantId, 'transactions', 'date', span.from, span.to, tz)).map((t: any) => normalizeLine(t));
   };
   // (The lines, and what the ones that take something back take back when that's from before these dates (a meal
   // reversed in January, made in December), so each is taken back as it was counted: lib/books-summary, lib/write-offs.)
@@ -93,7 +104,8 @@ export function ReportsScreen({ tenantId, firestore, tenant, staff, payroll, can
   const AUDIT_MAX = 1000;
   const audit = async () => {
     if (!range) throw new Error('dates');
-    const q = await getDocs(query(collection(firestore, `tenants/${tenantId}/auditLogs`), where('at', '>=', range.from.toISOString()), where('at', '<=', range.to.toISOString()), orderBy('at', 'desc'), limit(AUDIT_MAX)));
+    const span = readSpan(range, tz);
+    const q = await getDocs(query(collection(firestore, `tenants/${tenantId}/auditLogs`), where('at', '>=', span.from.toISOString()), where('at', '<', span.to.toISOString()), orderBy('at', 'desc'), limit(AUDIT_MAX)));
     const list = q.docs.map((d) => d.data() as any);
     if (list.length >= AUDIT_MAX) setNote(`These dates have more than ${AUDIT_MAX.toLocaleString('en-US')} actions, so the audit trail shows the latest ${AUDIT_MAX.toLocaleString('en-US')}. Pick fewer days to see the rest.`);
     return { list, capped: list.length >= AUDIT_MAX };
