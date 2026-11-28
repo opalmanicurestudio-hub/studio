@@ -11,6 +11,7 @@
 import { unitCost } from './product-cost';
 import { nudgesFor } from '@/lib/checkout-nudges';
 import { moduleEnabled, type ModuleId } from '@/lib/modules';
+import { outreachHold, type OutreachHold } from '@/lib/outreach-guard';
 
 export type OppKind = 'due' | 'first_visit' | 'long_gone' | 'cancelled' | 'no_show' | 'no_rebook' | 'quote' | 'gift_card' | 'fill_gap' | 'renewal_failed' | 'unused_visits' | 'shop_reorder' | 'share_ask' | 'inquiry_waiting' | 'booth_lead' | 'booth_pass' | 'booth_lapsed' | 'academy_lead' | 'academy_stalled' | 'applicant_waiting' | 'manual' | 'follow_up' | 'membership_fit' | 'overtime_risk' | 'supply_overuse';
 export type Who = 'provider' | 'desk' | 'owner';
@@ -627,12 +628,12 @@ export function reorderDue(list: Purchase[], now: number): Array<{ clientId: str
 /** Fill a gap: who to ask about one spare time. Clients with past visits and nothing booked, who aren't opted out, whose
  * usual service fits in the time, and who are at least most of the way to their usual next visit. Those who see this
  * provider, and usually come on this weekday, first. At most three. */
-export function gapAskList(o: { opening: any; H: Map<string, History>; clients: Map<string, any>; busy: Set<string>; minsOf: (serviceId: any) => number | null; now: number; tz?: string }): Candidate[] {
+export function gapAskList(o: { opening: any; H: Map<string, History>; clients: Map<string, any>; busy: Set<string>; minsOf: (serviceId: any) => number | null; now: number; tz?: string; tenant?: any }): Candidate[] {
   const { opening: op, now } = o; const start = ms(op.start); const mins = Number(op.minutes) || Math.round((ms(op.end) - start) / 60000) || 0; if (!mins) return [];
   const wd = (t: number) => new Date(t).toLocaleDateString('en-US', { weekday: 'short', ...(o.tz ? { timeZone: o.tz } : {}) }); const opDay = wd(start);
   const scored: Array<{ c: any; h: History; score: number }> = [];
   for (const [cid, h] of o.H) {
-    const c = o.clients.get(cid); if (!c || c.archived || c.deleted || c.opportunityOptOut || c.marketingOptOut || o.busy.has(cid)) continue;
+    const c = o.clients.get(cid); if (!c || c.archived || c.deleted || c.opportunityOptOut || c.marketingOptOut || o.busy.has(cid) || outreachHold(c, o.tenant, 'invite')) continue;
     if (h.upcoming || !h.last || !(c.phone || c.phoneNumber)) continue;
     const since = (now - ms(h.last.startTime)) / DAY; const g = h.gapDays || 28; if (since < g * 0.8 || since > Math.max(g * 3, 120)) continue;
     const need = o.minsOf(h.last.serviceId) || Number(h.last.duration) || 0; if (!need || need > mins) continue;
@@ -648,7 +649,14 @@ export function gapAskList(o: { opening: any; H: Map<string, History>; clients: 
     facts: { first: firstName(c), service_short: shortService(h.last?.serviceName), weeks: String(weeksOf(h.gapDays)), ...(c.phone ? { phone: String(c.phone) } : {}) } } as Candidate));
 }
 
-export function filterCandidates(c: Candidate[], o: { existing: any[]; clients: Map<string, any>; openCaseClients: Set<string>; recentAutoNudge: Set<string>; now: number }): Candidate[] {
+/** Kinds that invite a visit or a purchase (lib/outreach-guard 'invite'): a balance owed or a record over the limit holds
+ *  them back too. The rest are about something the client already has or asked for (visits a member has paid for, a
+ *  quote, a gift card, a membership payment). */
+export const invitesVisit = (kind: string) => { const pb = PLAYBOOKS[kind as OppKind]; return !!pb && kind !== 'unused_visits' && (pb.marketing || pb.winBack || kind === 'cancelled' || kind === 'no_show'); };
+
+export function filterCandidates(c: Candidate[], o: { existing: any[]; clients: Map<string, any>; openCaseClients: Set<string>; recentAutoNudge: Set<string>; now: number;
+  /** The business, for its outreach rules. Without it the defaults apply. */ tenant?: any;
+  /** Counts what the outreach rules held back, by reason. */ held?: Partial<Record<OutreachHold, number>> }): Candidate[] {
   const ACT = ['open', 'holdout', 'waiting', 'auto', 'scheduled'];
   const openByClient = new Set(o.existing.filter((e) => ACT.includes(e.status) && e.clientId).map((e) => String(e.clientId)));
   const keys = new Set(o.existing.filter((e) => ACT.includes(e.status)).map((e) => e.key));
@@ -660,6 +668,8 @@ export function filterCandidates(c: Candidate[], o: { existing: any[]; clients: 
     if (x.clientId) {
       if (openByClient.has(x.clientId) || seen.has(x.clientId)) return false;
       const cl = o.clients.get(x.clientId); if (cl?.opportunityOptOut || (pb.marketing && cl?.marketingOptOut)) return false;
+      const hold = outreachHold(cl, o.tenant, invitesVisit(x.kind) ? 'invite' : 'service');
+      if (hold) { if (o.held) o.held[hold] = (o.held[hold] || 0) + 1; return false; }   // not booked anymore, a balance owed, or too many missed visits
       if (o.openCaseClients.has(x.clientId)) return false;   // fix first — nothing is sold while a case is open
       if (pb.winBack && o.recentAutoNudge.has(x.clientId)) return false;   // the automatic reminder is already working
       const cool = o.existing.some((e) => e.clientId === x.clientId && e.kind === x.kind && o.now - ms(e.createdAt) < pb.cooldownDays * DAY);

@@ -5,6 +5,7 @@
 // server only (firestore.rules), so nobody can make or close one except through these checks.
 import { PLAYBOOKS, playbookFor, checkWording, OUTCOMES, FINDER_KINDS, oppSettingsOf, findCandidates, filterCandidates, gapAskList, isSolo, soloAdjust, renterOppOf, renterSettings, RENTER_KINDS, toolOn, bizCandidates, BIZ_KINDS, type Purchase, type Biz, isHoldout, assignee, pickVersion, fill, outcomeEffects, cameBack, historyOf, heldForRoom, creditFor, resultState, TOOL_OF, isYes, pickedNumber, ms, dollars, type OppKind, type OutcomeId, type OppSettings, type Candidate, type Pace, type Mode } from '@/lib/opportunities';
 import type { RequestActor } from '@/lib/request-actor';
+import { RENTER_RULES } from '@/lib/outreach-guard';
 
 const T = (t: string) => `tenants/${t}`;
 const DAY = 864e5;
@@ -110,8 +111,9 @@ export async function opportunitySweep(db: any, t: string, tenant: any, now = Da
   const purchases = S.finders.shop_reorder ? await loadPurchases(db, t, tenant, x.clients, now).catch(() => []) : [];
   const biz = BIZ_KINDS.some((k) => S.finders[k]) ? await loadBiz(db, t, tenant, S, now).catch(() => ({})) : {};
   const bizKeys = new Set(bizCandidates(biz, S, now, zone).map((c) => c.key));   // still true today (closes the ones that aren't)
+  const heldOut: Partial<Record<'not_booked' | 'owes' | 'policy', number>> = {};   // the outreach rules' count, for "Left out"
   const cand = filterCandidates(findCandidates({ clients: x.clients, appointments: x.appointments, quotes: x.quotes, giftCards: x.giftCards, services: await loadServices(db, t).catch(() => []), memberships: S.finders.membership_fit ? await db.collection(`${T(t)}/memberships`).get().then(rows).catch(() => []) : [], purchases, biz, settings: S, now, tz: zone, renterStaffIds: renterIds }), {
-    existing: x.opps, clients, now,
+    existing: x.opps, clients, now, tenant, held: heldOut,
     openCaseClients: new Set(x.cases.filter((c: any) => c.clientId && !CLOSED_CASE.includes(String(c.status || ''))).map((c: any) => String(c.clientId))),
     recentAutoNudge: new Set(x.nudges.map((n: any) => String(n.clientId || ''))),
   }).slice(0, MAX_NEW);
@@ -131,6 +133,7 @@ export async function opportunitySweep(db: any, t: string, tenant: any, now = Da
     if (r.sent) { sent++; fresh.push({ status: 'auto' }); } else if (r.doc.status === 'open') fresh.push(r.doc);
   }
   if (pace) await db.doc(`${T(t)}/private/opportunities`).set({ pace: { ...pace, held } }, { merge: true });
+  await db.doc(`${T(t)}/private/opportunities`).set({ leftOut: { ...heldOut, at: nowIso(now) } }, { merge: true }).catch(() => null);
   try { await resultsPass(db, t, tenant, now); } catch (e) { console.error('[opportunities] results pass', e); }
   // Automatic texts: booked → closed as booked; no reply by the day the business chose → to a person; plain automatic → closes at its end date.
   let toPerson = 0, expired = 0, checked = 0;
@@ -170,7 +173,7 @@ export async function opportunitySweep(db: any, t: string, tenant: any, now = Da
   for (const [sid, list] of by) { const r = db.collection(`${T(t)}/notifications`).doc();
     writes.push([r, { id: r.id, userId: sid, type: 'task', link: 'today', read: false, createdAt: nowIso(now), message: `You have ${list.length} new task${list.length === 1 ? '' : 's'}: ${list[0].clientName}${list.length > 1 ? ' and others' : ''}.` }, 'set']); }
   for (let i = 0; i < writes.length; i += 400) { const b = db.batch(); for (const [r, v, op] of writes.slice(i, i + 400)) { if (op === 'set') b.set(r, v); else b.update(r, v); } await b.commit(); }
-  return { ok: true, created: fresh.filter((f) => f.status === 'open' && !f.escalatedAt).length, sent, toPerson, holdout: fresh.filter((f) => f.status === 'holdout').length, expired, checked };
+  return { ok: true, created: fresh.filter((f) => f.status === 'open' && !f.escalatedAt).length, sent, toPerson, holdout: fresh.filter((f) => f.status === 'holdout').length, expired, checked, leftOut: heldOut };
 }
 /** Solo (lib/opportunities isSolo): the day's settings, and when the list is ready (today at their hour, or now if later). */
 async function soloFor(db: any, t: string, S: OppSettings, staff: any[], now: number, opps?: any[]): Promise<{ solo: boolean; S: OppSettings }> {
@@ -301,7 +304,7 @@ export async function opportunityEvents(db: any, t: string, tenant: any, now = D
     const [as, os, ks, ns] = await Promise.all([safe(db.collection(`${T(t)}/appointments`).where('clientId', '==', cid).get()), safe(db.collection(`${T(t)}/opportunities`).where('clientId', '==', cid).get()),
       safe(db.collection(`${T(t)}/cases`).where('clientId', '==', cid).get()), safe(db.collection(`${T(t)}/reconnectNudges`).where('clientId', '==', cid).get())]);
     const cand = findCandidates({ clients: [client], appointments: rows(as), quotes: [], giftCards: [], settings: S, now, tz: zone, renterStaffIds: renterIds, fresh: true }).filter((c) => kinds.has(c.kind));
-    const keep = filterCandidates(cand, { existing: rows(os), clients: new Map([[cid, client]]), now,
+    const keep = filterCandidates(cand, { existing: rows(os), clients: new Map([[cid, client]]), now, tenant,
       openCaseClients: new Set(rows(ks).some((c: any) => !CLOSED_CASE.includes(String(c.status || ''))) ? [cid] : []),
       recentAutoNudge: new Set(rows(ns).some((n: any) => now - ms(n.sentAt) < 14 * DAY) ? [cid] : []) });
     for (const c of keep) {
@@ -364,7 +367,7 @@ export async function opportunityGaps(db: any, t: string, tenant: any, now = Dat
   const ctx: Ctx = { db, t, tenant, S, staff, clients, opps: x.opps, load: openLoad(x.opps), send };
   let asked = 0;
   for (const op of ops) {
-    const list = gapAskList({ opening: op, H, clients, busy, minsOf, now, tz: zone });
+    const list = gapAskList({ opening: op, H, clients, busy, minsOf, now, tz: zone, tenant });
     const when = gapWhen(ms(op.start), now, zone); const prov = staff.find((m: any) => m.id === op.staffId);
     for (const c of list) {
       const ref = db.collection(`${T(t)}/opportunities`).doc();
@@ -406,7 +409,7 @@ export async function renterOpportunitySweep(db: any, t: string, tenant: any, no
     const cmap = new Map<string, any>(clients.map((c: any) => [String(c.id), c]));
     const room = r.max - existing.filter((e: any) => e.status === 'open').length; if (room <= 0) continue;
     const cand = filterCandidates(findCandidates({ clients, appointments: appts, quotes: [], giftCards: [], settings: RS, now, tz: zone, renterOnly: st.id }).filter((c) => RENTER_KINDS.includes(c.kind) && cmap.has(String(c.clientId))), {
-      existing, clients: cmap, now, openCaseClients: new Set(), recentAutoNudge: new Set(nudges.map((n: any) => String(n.clientId || ''))) }).slice(0, room);
+      existing, clients: cmap, now, tenant: RENTER_RULES, openCaseClients: new Set(), recentAutoNudge: new Set(nudges.map((n: any) => String(n.clientId || ''))) }).slice(0, room);
     if (!cand.length) continue;
     const brand = await renterBrand(db, t, st); const at = await listAt(now, zone, r.hour);
     for (const c of cand) {
@@ -555,6 +558,7 @@ export async function textCheck(db: any, t: string, tenant: any, o: any, client:
   if (!phone) return { ok: false, error: 'There is no mobile number on file. Please call or email this client instead.' };
   if (client?.smsOptOut || client?.smsConsent === false) return { ok: false, error: 'This client has opted out of texts. Please call instead.' };
   if (client?.opportunityOptOut) return { ok: false, error: 'This client has asked not to be contacted in this way.' };
+  if (!opts.answering && (client?.status === 'banned' || client?.status === 'blocked')) return { ok: false, error: 'This client is marked as not booked anymore, so nothing optional goes to them. You can still answer if they write to you.' };
   if (pb.marketing && !opts.answering) {   // answering a client who wrote back is a conversation, not marketing
     if (client?.marketingOptOut || client?.smsMarketingOptIn !== true) return { ok: false, error: 'This client has not agreed to marketing texts, so please call instead.' };
     const { recentMarketingTexts, MARKETING_TEXTS_PER_30_DAYS } = await import('@/lib/campaigns');

@@ -21,6 +21,7 @@
 
 import React, { useEffect, useMemo, useRef, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import { doc, setDoc, getDoc, collection } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { nanoid } from 'nanoid';
@@ -458,6 +459,10 @@ function Editor() {
                     {reach.summary.skippedMonthlyCap > 0 && <p className="text-muted-foreground">{reach.summary.skippedMonthlyCap} left out — already had 4 marketing texts this month</p>}
                     {reach.summary.skippedNoContact > 0 && <p className="text-muted-foreground">{reach.summary.skippedNoContact} left out — no {d.type === 'sms' ? 'mobile number' : 'email'} on file</p>}
                     {reach.summary.skippedUnsubscribed > 0 && <p className="text-muted-foreground">{reach.summary.skippedUnsubscribed} left out — unsubscribed</p>}
+                    {reach.summary.skippedNotBooked > 0 && <p className="text-muted-foreground">{reach.summary.skippedNotBooked} left out because you don’t book them anymore</p>}
+                    {reach.summary.skippedOwes > 0 && <p className="text-muted-foreground">{reach.summary.skippedOwes} left out until they settle a balance</p>}
+                    {reach.summary.skippedPolicy > 0 && <p className="text-muted-foreground">{reach.summary.skippedPolicy} left out for more missed or canceled visits than you allow</p>}
+                    {(reach.summary.skippedOwes > 0 || reach.summary.skippedPolicy > 0) && <p className="text-xs text-muted-foreground">You can change who offers leave out in <Link href="/settings/policies#outreach" className="underline underline-offset-2">Booking policies</Link>.</p>}
                     {d.type === 'sms' && reach.estCostCents > 0 && <p className="font-bold text-foreground/80">Estimated text cost: about ${(reach.estCostCents / 100).toFixed(2)}</p>}
                     {reach.summary.willReceive === 0 && d.type === 'sms' && reach.summary.skippedNoConsent > 0 && <p className="text-xs font-bold text-amber-700">Tip: send it as an email instead — emails reach everyone with an address.</p>}
                     {reach.recipients && <div className="pt-2"><AudienceList recipients={reach.recipients} skipped={reach.skipped} channel={d.type} total={reach.summary.willReceive} /></div>}

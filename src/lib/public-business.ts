@@ -66,6 +66,7 @@ export const PUBLIC_OMIT: Record<string, readonly string[]> = {
 export const KNOWN_PRIVATE = [
   'userId', 'ownerName', 'roles', 'staffPrivacy', 'agents', 'addons', 'voiceAgent', 'reconnect', 'tmhr', 'restocking',
   'subscriptionStatus', 'accessLocked', 'accessLockedAt', 'suspended', 'gracePeriodEndsAt', 'teamSize', 'movingIn', 'shape',
+  'outreachRules',
 ] as const;
 
 export type PublicBusiness = { id: string } & Record<string, any>;

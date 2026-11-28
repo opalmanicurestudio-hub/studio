@@ -7,6 +7,7 @@
 // is when it counts as a sale — so a card is never counted twice. Imported balances from another app work the same way,
 // and keep their old codes so physical cards people already have still work.
 import { createHmac, randomInt } from 'crypto';
+import { notBooked } from '@/lib/outreach-guard';
 
 const T = (t: string) => `tenants/${t}`;
 const now = () => new Date().toISOString();
@@ -325,6 +326,7 @@ export async function giftReminderSweep(db: any, tenantId: string, tenant: any) 
     const email = g.recipientEmail || cl?.email || null; const phone = g.recipientPhone || cl?.phone || null;
     // Their message choices: nobody who unsubscribed; texts only to clients who agreed to texts from us.
     if (cl?.marketingOptOut === true) continue;
+    if (cl && notBooked(cl)) continue;   // a client the business no longer books: their card is settled when they're let go
     const okEmail = !!email; const okText = !email && !!phone && cl?.smsMarketingOptIn === true;
     if (!okEmail && !okText) continue;
     const $ = (c: number) => `$${(c / 100).toFixed(c % 100 ? 2 : 0)}`; const link = origin ? `${origin}${giftPath(tenantId, g.id)}` : '';

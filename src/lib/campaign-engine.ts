@@ -110,7 +110,7 @@ export function peopleOf(aud: any, channel: 'email' | 'sms', cap = 1000) {
 export async function previewCampaign(db: any, tenantId: string, c: any, fallbackOrigin?: string) {
   const channel: 'email' | 'sms' = c.type === 'sms' ? 'sms' : 'email';
   const who = await senderFor(db, tenantId, c, fallbackOrigin);
-  const aud = await resolveAudience(db, tenantId, c.targetAudience as Audience, channel, audienceParams(c, who.owner));
+  const aud = await resolveAudience(db, tenantId, c.targetAudience as Audience, channel, { ...audienceParams(c, who.owner), tenant: who.tenant });
   const offer = await loadOffer(db, tenantId, c);
   const sample = channel === 'sms' ? `${who.name}: ${composeText(c, { first: 'Alexandra' }, who.name, offer?.line || null, `${who.bookBase}`)}\nReply STOP to opt out.` : '';
   const segments = channel === 'sms' ? segmentsFor(sample) : 0;
@@ -118,7 +118,7 @@ export async function previewCampaign(db: any, tenantId: string, c: any, fallbac
   const sampleSubject = channel === 'email' ? fillTokens(c.subject || c.name || '', { first: 'Alexandra', business: who.name, offer: offer?.line || null, link: null }) : '';
   return {
     channel, aud, offer, who, segments, sampleText, sampleSubject,
-    summary: { matched: aud.matched, willReceive: aud.members.length, skippedNoConsent: aud.skippedNoConsent, skippedNoContact: aud.skippedNoContact, skippedUnsubscribed: aud.skippedUnsubscribed, skippedMonthlyCap: aud.skippedMonthlyCap },
+    summary: { matched: aud.matched, willReceive: aud.members.length, skippedNoConsent: aud.skippedNoConsent, skippedNoContact: aud.skippedNoContact, skippedUnsubscribed: aud.skippedUnsubscribed, skippedMonthlyCap: aud.skippedMonthlyCap, skippedNotBooked: aud.skippedNotBooked, skippedOwes: aud.skippedOwes, skippedPolicy: aud.skippedPolicy },
   };
 }
 

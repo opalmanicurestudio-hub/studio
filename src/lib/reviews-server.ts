@@ -3,6 +3,7 @@
 // a customer's own reviews on their order page, and the review email after pickup or delivery.
 // Reviews are written only here and by the routes that take them (api/retail/reviews, api/checkin/actions): no browser
 // can change what a review says, its stars, or whether it shows (firestore.rules).
+import { outreachHold } from '@/lib/outreach-guard';
 import { askHours, askVerdict, askWords, isHideReason, receivedAt, reviewableLines, reviewerName, reviewSettings, stateOf, visitState, waitingSince, autoShows, autoShowWarned, autoShowFrom, AUTO_SHOW_DAYS, AUTO_SHOW_WARN_DAYS, ASK_STALE_DAYS, type ReviewKind, type ReviewState } from '@/lib/reviews';
 import { hasTimeZone, tenantTimeZone } from '@/lib/tenant-time';
 import { isFollowUp } from '@/lib/order-family';
@@ -275,7 +276,7 @@ export async function orderReviews(db: any, tenantId: string, orderId: string, o
 
 /** What decides an order's ask that isn't on the order itself: an open problem report or return, someone who
  *  unsubscribed, and what they've already reviewed. */
-async function askContext(db: any, tenantId: string, orderId: string, order: any) {
+async function askContext(db: any, tenantId: string, orderId: string, order: any, tenant?: any) {
   const T = `tenants/${tenantId}`;
   const [claims, returns, client, reviews] = await Promise.all([
     db.collection(`${T}/retailClaims`).where('orderId', '==', orderId).limit(20).get().catch(() => ({ docs: [] })),
@@ -288,7 +289,8 @@ async function askContext(db: any, tenantId: string, orderId: string, order: any
   const c: any = client && client.exists ? client.data() || {} : {};
   // Unsubscribed (for good), or a client the business archived or deleted (not while they are; campaigns skip them too).
   const optedOut = c.marketingOptOut === true;
-  const archived = c.archived === true;
+  // Not booked anymore, a balance owed, or too many missed visits (lib/outreach-guard): not now, as for an archived client.
+  const archived = c.archived === true || (client && client.exists ? !!outreachHold(c, tenant, 'invite') : false);
   const reviewed = new Set<string>(reviews.docs.map((d: any) => String(d.data()?.productId || '')).filter(Boolean));
   return { openProblem, optedOut: optedOut || c.deleted === true, archived, reviewed };
 }
@@ -357,7 +359,7 @@ export async function sweepReviewAsks(db: any, tenantId: string, tenant: any, or
       }
       else if (other?.reviewAsk?.state === 'sent' || other?.reviewAsk?.state === 'sending') { await d.ref.update({ reviewAsk: { state: 'skipped', why: 'replacement_asked', at: iso(now) } }).catch(() => {}); return; }
     }
-    const ctx = await askContext(db, tenantId, d.id, order);
+    const ctx = await askContext(db, tenantId, d.id, order, tenant);
     const v = askVerdict(order, { ask: S.ask, now, timeZone: zone, followUp, originalArrived, ...ctx });
     if ('never' in v) {
       if (v.never === 'unsubscribed' || v.never === 'reviewed') await d.ref.update({ reviewAsk: { state: 'skipped', why: v.never, at: iso(now) } }).catch(() => {});

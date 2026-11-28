@@ -15,6 +15,9 @@ const REASON: Record<string, string> = {
   no_contact: 'no contact on file',
   unsubscribed: 'unsubscribed',
   monthly_cap: 'already had 4 marketing texts this month',
+  not_booked: 'not booked by you anymore',
+  owes: 'has a balance to settle first',
+  policy: 'more missed or canceled visits than you allow',
 };
 
 export function AudienceList({ recipients = [], skipped = [], channel, total, compact = false }: {

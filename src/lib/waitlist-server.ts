@@ -12,6 +12,7 @@ import { randomBytes } from 'crypto';
 import { partyOf, partySet, partyHoldMin, partyOfferText } from '@/lib/waitlist-party';
 import { offerModeFor, fitFor, moveUpOk, rank, planRound, owed, offerText, isWaiting, serviceOf, staffWanted, windowFits, HOLD_ONE_MIN, PRIORITY_DAYS, WAVE_FROM_H, STALE_AFTER, STALE_ANSWER_H, stillText, autoBookedText, type Entry, type Opening, type Mode } from '@/lib/waitlist-engine';
 import { publicLook } from '@/lib/public-look';
+import { notBooked } from '@/lib/outreach-guard';
 
 const T = (t: string) => `tenants/${t}`;
 const H = 3600e3, DAY = 864e5;
@@ -115,6 +116,7 @@ export async function matchesFor(db: any, t: string, op: any, now: number, d: De
     let ent: Entry = { ...en };
     if (ent.clientId && !clients.has(ent.clientId)) clients.set(ent.clientId, ((await db.doc(`${T(t)}/clients/${ent.clientId}`).get()).data() || {}));
     const cl = ent.clientId ? clients.get(ent.clientId) : null;
+    if (cl && notBooked(cl)) { not.push({ e: en, why: 'marked as not booked anymore' }); continue; }
     if (cl && (Number(cl.noShowCount) || 0) >= 2) ent.reliability = 'misses';
     ent.visits = Number(cl?.visitCount || cl?.totalVisits || 0);
     // Loyalty: a tier with "first pick of cancellations" goes ahead (lib/loyalty).
@@ -260,6 +262,7 @@ async function partyRound(db: any, t: string, ops: any[], tenant: any, tz: strin
     const n = partyOf(e); const sid = serviceOf(e); const s = svc(sid); if (!s) continue; const mins = Number(s.duration || s.durationMinutes || 0) || 60;
     const tried = new Set<string>(e.partyTried || []);
     const cl = e.clientId ? ((await db.doc(`${T(t)}/clients/${e.clientId}`).get()).data() || {}) : {};
+    if (notBooked(cl)) continue;   // a party organizer the business no longer books
     // Same rule as for one person: an organizer who has missed visits before only gets times more than a day away.
     const misses = (Number(cl.noShowCount) || 0) >= 1;
     const fits = (o: any) => { const w = walls.get(o.id); if (!free(o) || tried.has(o.id) || !windowFits(e.windows, w.weekday, w.hour)) return false;

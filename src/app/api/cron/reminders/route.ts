@@ -58,6 +58,7 @@ import { askOn, needsConfirm, confirmLine, confirmLink, nudgeDue, nudgeText } fr
 import { automationOn } from '@/lib/automation-switches';
 import { onTeam } from '@/lib/team-member';
 import { moduleEnabled } from '@/lib/modules';
+import { outreachHold, notBooked, RENTER_RULES } from '@/lib/outreach-guard';
 /** A booking that took place (or was booked and held): not cancelled or missed, not waiting on payment, and not a request
  *  that was declined, ran out or was never accepted. Thank-you and review messages go only to these. */
 const NOT_A_VISIT = new Set(['cancelled', 'canceled', 'no_show', 'no-show', 'noshow', 'pending_payment', 'pending', 'requested', 'declined', 'provider_declined', 'asking_provider', 'expired', 'released', 'rejected']);
@@ -469,6 +470,9 @@ export async function GET(req: NextRequest) {
           items: Array<{ ref: any; a: any; id: string; at: Date }>;
         };
         const followBuckets = new Map<string, FollowBucket>();
+        // The client's own record, read once each: who the thank-you leaves out (lib/outreach-guard).
+        const recCache = new Map<string, any>();
+        const clientRec = async (id: any) => { if (!id) return null; const k = String(id); if (!recCache.has(k)) { try { recCache.set(k, ((await db.doc(`tenants/${tid}/clients/${k}`).get()).data() as any) || null); } catch { recCache.set(k, null); } } return recCache.get(k); };
         for (const aDoc of apts.docs) {
           const a = aDoc.data() as any;
           try {
@@ -483,6 +487,7 @@ export async function GET(req: NextRequest) {
               // studio review link. Only if they turned it on.
               const rp = renterOf(a);
               if (!rp || rp.comms.thankYouEnabled === false) continue;
+              if (notBooked(await clientRec(a.clientId))) continue;   // a client the business no longer books: no booking link or review ask
               const { phone, email } = await contactFor(a);
               if (!phone && !email) continue;
               const signoff = String(rp.comms.signoff || '').trim();
@@ -529,6 +534,10 @@ export async function GET(req: NextRequest) {
             // Making it right: when the business has turned on "How was your visit?", the review link becomes the
             // visit's private page — happy clients are sent on to the review site from there, unhappy ones reach the team.
             const td: any = tDoc.data() || {};
+            // Who it leaves out: a client the business no longer books gets only their aftercare (or nothing); a balance
+            // owed or a record over the limit drops the booking link and the review ask, and keeps the thank-you.
+            const holds = await Promise.all(b.items.map(async (i) => outreachHold(await clientRec(i.a.clientId), td, 'invite')));
+            const letGo = holds.includes('not_booked'); const held = holds.some(Boolean);
             // Aftercare: the aftercare document for the service (lib/aftercare, its own page), else the older text.
             if (careDocs === null) { try { careDocs = (await db.collection(`tenants/${tid}/documents`).where('category', '==', 'aftercare').get()).docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })); } catch { careDocs = []; } }
             // The business's aftercare choices (Settings → Aftercare): off sends none; at checkout means it already went.
@@ -538,25 +547,28 @@ export async function GET(req: NextRequest) {
             const mirS = settingsOf(td); const care = careS.on && !careAlready && !careDoc && td.makingItRight ? aftercareFor(mirS, first.a.serviceId) : '';
             const surveyOn = !!td.makingItRight && td.makingItRight?.channels?.survey !== false;
             const howUrl = base && (surveyOn || care) ? `${base}${feedbackPath(tid, first.id)}` : '';
-            const reviewLink = (surveyOn && howUrl) || cfg.reviewUrl || '';
-            const thanksMsg = resolveMessage(tDoc.data(), 'post_visit_followup', { client_first: String(first.a.clientName || '').split(' ')[0] || 'there', team: whoLabel || 'we', book_link: bookLink, review_link: reviewLink, aftercare_link: careUrl || (care ? howUrl : ''), studio: (tDoc.data() as any)?.name || '' }, 'sms');
+            const reviewLink = (surveyOn && howUrl) || (held ? '' : cfg.reviewUrl) || '';
+            const thanksMsg = resolveMessage(tDoc.data(), 'post_visit_followup', { client_first: String(first.a.clientName || '').split(' ')[0] || 'there', team: whoLabel || 'we', book_link: held ? '' : bookLink, review_link: reviewLink, aftercare_link: careUrl || (care ? howUrl : ''), studio: (tDoc.data() as any)?.name || '' }, 'sms');
             if (!thanksMsg.send) continue;   // switched off on the Messages page
-            const bits = thanksMsg.custom ? withoutEmptyLinks(tidyBody(thanksMsg.body)) : [
+            const careLink = careUrl || (care ? howUrl : '');
+            if (letGo && !careLink) continue;
+            const bits = letGo ? `Hi ${firstNameOf(first.a.clientName)}, here are the aftercare instructions for your visit yesterday: ${careLink}`
+              : thanksMsg.custom ? withoutEmptyLinks(tidyBody(thanksMsg.body)) : [
               `Hi ${firstNameOf(first.a.clientName)}, thank you for your visit${whoLabel ? ` with ${whoLabel}` : ''} yesterday. It was a pleasure to see you.`,
               // Opens on the service they just had, so rebooking is two taps.
-              cfg.bookingUrl ? `You can book your next visit here: ${(() => { const sid = b.items.length === 1 ? String(b.items[0].a.serviceId || '') : ''; if (!sid) return cfg.bookingUrl;
+              cfg.bookingUrl && !held ? `You can book your next visit here: ${(() => { const sid = b.items.length === 1 ? String(b.items[0].a.serviceId || '') : ''; if (!sid) return cfg.bookingUrl;
                 try { const u = new URL(cfg.bookingUrl); u.searchParams.set('service', sid); return u.toString(); } catch { return cfg.bookingUrl; } })()}` : null,
-              surveyOn && howUrl ? `We'd love to hear how your visit went${care || careDoc ? ', and your aftercare instructions are there as well' : ''}: ${howUrl}` : cfg.reviewUrl ? `If you enjoyed your visit, we'd be so grateful for a review: ${cfg.reviewUrl}` : null,
+              surveyOn && howUrl ? `We'd love to hear how your visit went${care || careDoc ? ', and your aftercare instructions are there as well' : ''}: ${howUrl}` : cfg.reviewUrl && !held ? `If you enjoyed your visit, we'd be so grateful for a review: ${cfg.reviewUrl}` : null,
               !surveyOn && careUrl ? `Your aftercare instructions: ${careUrl}` : !surveyOn && care && howUrl ? `Your aftercare instructions: ${howUrl}` : null,
             ].filter(Boolean).join(' ');
             let delivered = false;
             if (b.phone && smsConfigured()) {
-              delivered = (await sendTenantSms(db, tid, b.phone, bits, { email: b.email, subject: 'Thank you for your visit' })).ok;
+              delivered = (await sendTenantSms(db, tid, b.phone, bits, { email: b.email, subject: letGo ? 'Your aftercare instructions' : 'Thank you for your visit' })).ok;
             }
             if (!delivered && b.email) {
               delivered = (await sendNotification(db, {
                 tenantId: tid, channel: 'email', to: b.email,
-                subject: 'Thank you for your visit', text: bits, kind: 'post_visit_followup',
+                subject: letGo ? 'Your aftercare instructions' : 'Thank you for your visit', text: bits, kind: 'post_visit_followup',
                 appointmentId: first.id, clientId: first.a.clientId || null, clientName: first.a.clientName || null,
               })).ok;
             }
@@ -685,7 +697,7 @@ export async function GET(req: NextRequest) {
           const clientsSnap = await db.collection(`tenants/${tid}/clients`).get();
           for (const d of clientsSnap.docs) stopCache.set(d.id, await stopUrl(d.id));
           reconnect.studio = await runReconnect(db, {
-            tenantId: tid, renterId: null, staffIds: null, settings: studioSettings,
+            tenantId: tid, renterId: null, staffIds: null, settings: studioSettings, tenant: tdata,
             bookingUrl: base ? `${base}/book/${tid}` : null, signer: studioName, stopUrl: stopFor,
             send: async (to, text, subject, kind) => {
               if (to.phone && to.smsOk && smsConfigured() && (await sendNotification(db, { tenantId: tid, channel: 'sms', to: to.phone, text, kind, clientId: to.clientId, clientName: to.name, recipientType: 'client' } as any)).ok) return 'sms';
@@ -702,7 +714,7 @@ export async function GET(req: NextRequest) {
           const mine = await db.collection(`tenants/${tid}/clients`).where('ownerRenterId', '==', rp.renterId).get();
           for (const d of mine.docs) if (!stopCache.has(d.id)) stopCache.set(d.id, await stopUrl(d.id));
           reconnect[rp.renterId] = await runReconnect(db, {
-            tenantId: tid, renterId: rp.renterId, staffIds: [staffId], settings: rSettings,
+            tenantId: tid, renterId: rp.renterId, staffIds: [staffId], settings: rSettings, tenant: RENTER_RULES,
             bookingUrl: rp.bookingUrl, signer: rp.name, stopUrl: stopFor,
             send: async (to, text, subject, kind) => {
               if (to.phone && to.smsOk && smsConfigured() && (await sendNotification(db, { tenantId: tid, channel: 'sms', to: to.phone, text, kind: `renter_${kind}`, clientId: to.clientId, clientName: to.name, recipientType: 'client' } as any)).ok) return 'sms';

@@ -6,6 +6,7 @@
 //   earn_{saleId} / redeem_{saleId} ids make a sale earn once and redeem once, however often checkout is retried.
 //   clients/{id}.loyalty = { balance, lastVisitAt, updatedAt } — a copy for lists and the desk; the ledger decides.
 import { loyaltyOf, pointsFor, pointsBack, balanceOf, expiresAt, tierFor, milestoneAt, quietBonus, rhythmBonus, boostBonus, type SaleForPoints, type Reward } from '@/lib/loyalty';
+import { outreachHold } from '@/lib/outreach-guard';
 
 const L = (t: string) => `tenants/${t}/loyaltyLedger`;
 const nowIso = (n = Date.now()) => new Date(n).toISOString();
@@ -151,6 +152,7 @@ export async function automationSweep(db: any, t: string, tenant: any, now = Dat
   for (const d of snap.docs) { if (used >= S.auto.monthlyTexts) break;
     const c: any = d.data() || {}; const lo = c.loyalty || {}; const phone = String(c.phone || '').trim();
     if (!phone || c.smsOptOut || c.marketingOptOut || c.smsMarketingOptIn !== true || c.loyaltyOptOut === true) continue;
+    if (outreachHold(c, tenant, 'invite')) continue;   // not booked anymore, a balance owed, or too many missed visits
     if (lo.lastToldAt && now - Date.parse(lo.lastToldAt) < 30 * 864e5) continue;
     const bal = Number(lo.balance) || 0; const r = rewardsFor(S, bal); const first = String(c.firstName || c.name || '').trim().split(/\s+/)[0] || 'there';
     const sinceVisit = lo.lastVisitAt ? (now - Date.parse(lo.lastVisitAt)) / 864e5 : Infinity;

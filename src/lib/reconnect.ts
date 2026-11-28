@@ -22,6 +22,8 @@
 // within 14 days, the book route marks the nudge converted — that is the
 // tally the owner and each renter see.
 
+import { outreachHold } from '@/lib/outreach-guard';
+
 export interface ReconnectSettings {
   enabled?: boolean;
   dueEnabled?: boolean;
@@ -107,6 +109,7 @@ export function nudgeText(settings: ReturnType<typeof cleanReconnect>, d: Exclud
  */
 export async function runReconnect(db: any, opts: {
   tenantId: string; renterId: string | null; staffIds: string[] | null; settings: any;
+  /** The business, for its outreach rules (lib/outreach-guard). */ tenant?: any;
   bookingUrl: string | null; signer: string; stopUrl: (clientId: string) => string;
   send: (to: { email: string | null; phone: string | null; smsOk: boolean; clientId: string; name: string }, text: string, subject: string, kind: string) => Promise<'sms' | 'email' | false>;
 }): Promise<{ checked: number; sent: number; due: number; miss: number; skippedCap: number }> {
@@ -121,7 +124,8 @@ export async function runReconnect(db: any, opts: {
     ? await col('clients').where('ownerRenterId', '==', opts.renterId).get()
     : await col('clients').get();
   const clients = clientSnap.docs.map((d: any) => ({ id: d.id, ...(d.data() as any) }))
-    .filter((c: any) => (opts.renterId ? true : !c.ownerRenterId) && !c.archived && c.status !== 'archived');
+    .filter((c: any) => (opts.renterId ? true : !c.ownerRenterId) && !c.archived && c.status !== 'archived')
+    .filter((c: any) => !outreachHold(c, opts.tenant, 'invite'));   // not booked anymore, a balance owed, or too many missed visits
   if (!clients.length) return out;
   const clientIds = new Set(clients.map((c: any) => c.id));
 

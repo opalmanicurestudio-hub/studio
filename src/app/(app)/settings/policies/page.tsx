@@ -22,6 +22,7 @@ import { GRACE_EVENTS, PERMIT_LABEL, graceRule } from '@/lib/grace';
 import { moduleEnabled } from '@/lib/modules';
 import { noShowWords, hasOldBoothFee, boothNoShowPolicyOf } from '@/lib/booth-no-show';
 import { privacyOf, BREACH_STEPS } from '@/lib/health-privacy';
+import { resolveGuardian } from '@/lib/deposit-policy';
 
 const NEXT = 'starts next update';
 
@@ -255,6 +256,12 @@ export default function BookingPoliciesPage() {
             <Row label="Client texts">
               <Choice field="bookingPolicies.textAssist" value={t.bookingPolicies?.textAssist !== false} label="Answer client texts automatically" options={[[true, 'Answer clear requests straight away'], [false, 'A person answers every text']]} />
               <span className="w-full text-xs text-muted-foreground">When a client texts to cancel, reschedule, confirm or say they’re running late, they get a reply in seconds with their link opened to that action. Nothing is canceled from a text alone: any fee is shown before they confirm. Questions, complaints and anything unclear wait in your Inbox for a person.</span>
+            </Row>
+            <Row label="Who offers and reminders leave out">
+              <span id="outreach" className="w-full scroll-mt-24 text-xs text-muted-foreground">Clients you don’t book anymore never get offers, win-back reminders, loyalty texts, review requests or waitlist times. You can also leave out:</span>
+              <Choice field="outreachRules.skipOwing" value={t.outreachRules?.skipOwing !== false} label="Balance owed" options={[[true, 'Anyone with a balance owed, until it’s paid'], [false, 'Include them']]} />
+              <Choice field="outreachRules.skipPoorHistory" value={t.outreachRules?.skipPoorHistory !== false} label="Missed visits" options={[[true, `Anyone with more missed or canceled visits than the ${resolveGuardian(t).riskThreshold} you allow`], [false, 'Include them']]} />
+              <span className="w-full text-xs text-muted-foreground">Confirmations, reminders and receipts always go. A campaign sent to clients you pick by name leaves out only those you don’t book anymore. Each campaign shows who was left out and why. The number of missed visits you allow is set in Booking settings.</span>
             </Row>
             <Row label="When a provider can’t come in">
               <span className="w-full text-xs text-muted-foreground">Their clients choose first: the same time with a colleague, one of the provider’s next times (kept for them), first in line, or cancel with no fee. Choose by:</span>

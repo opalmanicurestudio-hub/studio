@@ -21,6 +21,11 @@
 //     stops half-way can be resumed without texting anyone twice.
 //   • A booking within 14 days by a recipient marks them converted — the
 //     campaign's real result, instead of invented open rates.
+//   • The outreach rules (lib/outreach-guard) leave out clients the business
+//     no longer books, and, unless the owner turns it off, anyone with a
+//     balance owed or more missed visits than the business allows.
+
+import { outreachHold, type OutreachHold } from '@/lib/outreach-guard';
 
 const DAY = 86400000;
 export type Audience = 'all' | 'new' | 'loyal' | 'inactive_90' | 'specific' | 'birthday'
@@ -48,11 +53,15 @@ export interface AudienceParams {
   daysAfter?: number;
   /** A RENTER's campaign: only their clients and their own visit history. */
   owner?: { renterId: string; staffIds: string[] } | null;
+  /** The business's record, for its outreach rules (lib/outreach-guard). Read here when not passed. */
+  tenant?: any;
 }
 
 export interface AudienceMember { id: string; name: string; first: string; email: string | null; phone: string | null }
-export type SkipReason = 'no_consent' | 'no_contact' | 'unsubscribed' | 'monthly_cap';
+export type SkipReason = 'no_consent' | 'no_contact' | 'unsubscribed' | 'monthly_cap' | OutreachHold;
 export interface AudienceResult { members: AudienceMember[]; matched: number; skippedNoConsent: number; skippedNoContact: number; skippedUnsubscribed: number; skippedMonthlyCap: number;
+  /** Left out by the outreach rules: not booked anymore, a balance owed, a record over the limit. */
+  skippedNotBooked: number; skippedOwes: number; skippedPolicy: number;
   /** WHO was left out and why — so the owner sees names, not just a number. */
   skipped: { id: string; name: string; reason: SkipReason }[] }
 
@@ -161,13 +170,21 @@ export async function resolveAudience(db: any, tenantId: string, audience: Audie
     }
   };
 
-  const out: AudienceResult = { members: [], matched: 0, skippedNoConsent: 0, skippedNoContact: 0, skippedUnsubscribed: 0, skippedMonthlyCap: 0, skipped: [] };
+  const out: AudienceResult = { members: [], matched: 0, skippedNoConsent: 0, skippedNoContact: 0, skippedUnsubscribed: 0, skippedMonthlyCap: 0, skippedNotBooked: 0, skippedOwes: 0, skippedPolicy: 0, skipped: [] };
   const skip = (c: any, reason: SkipReason) => out.skipped.push({ id: c.id, name: String(c.name || 'Client').trim(), reason });
   const recent = channel === 'sms' ? await recentMarketingTexts(db, tenantId, now) : new Map<string, number>();
+  const tenant = params.tenant || (await db.doc(`tenants/${tenantId}`).get().then((x: any) => x.data() || {}).catch(() => ({})));
+  // A hand-picked list is the owner's own choice, and a renter's clients follow only the one rule renters can see:
+  // only "not booked anymore" holds either back.
+  const kind = audience === 'specific' || owner ? 'service' : 'invite';
   for (const c of clients) {
     if (!inAudience(c)) continue;
     out.matched++;
+    const hold = outreachHold(c, tenant, kind);
+    if (hold === 'not_booked') { out.skippedNotBooked++; skip(c, hold); continue; }
     if (c.marketingOptOut === true) { out.skippedUnsubscribed++; skip(c, 'unsubscribed'); continue; }
+    if (hold === 'owes') { out.skippedOwes++; skip(c, hold); continue; }
+    if (hold === 'policy') { out.skippedPolicy++; skip(c, hold); continue; }
     const email = c.email && String(c.email).includes('@') ? String(c.email).trim() : null;
     const phone = c.phone ? String(c.phone).trim() : null;
     if (channel === 'email' && !email) { out.skippedNoContact++; skip(c, 'no_contact'); continue; }

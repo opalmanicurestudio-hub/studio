@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { requireRole } from '@/lib/route-guard';
+import { notBooked } from '@/lib/outreach-guard';
 
 export const dynamic = 'force-dynamic';
 const j = (b: any, status = 200) => NextResponse.json(b, { status });
@@ -16,7 +17,7 @@ const j = (b: any, status = 200) => NextResponse.json(b, { status });
 async function audience(db: any, T: string) {
   const s = await db.collection(`${T}/clients`).get(); const sms: string[] = [], email: string[] = []; let none = 0;
   for (const d of s.docs) { const c: any = d.data() || {}; if (c.ownerRenterId || c.status === 'archived' || c.archived === true) continue;
-    if (c.marketingOptOut === true) { none++; continue; }
+    if (c.marketingOptOut === true || notBooked(c)) { none++; continue; }   // unsubscribed, or not booked anymore
     if (c.phone && c.smsMarketingOptIn === true) sms.push(d.id); else if (c.email) email.push(d.id); else none++; }
   return { sms, email, none };
 }
