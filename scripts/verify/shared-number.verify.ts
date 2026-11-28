@@ -67,7 +67,7 @@ process.env.TWILIO_ACCOUNT_SID = 'AC1'; process.env.TWILIO_AUTH_TOKEN = 'tok'; p
   await inbound('+15552013344', 'Can we do 3 instead?'); await inbound('+15552013344', 'Hello?');
   const told = sent.slice(before).filter((x) => x.to === '+15552013344');
   const msgsAfter = (await db.collection('tenants/t1/smsInbox').get()).size + (await db.collection('tenants/t2/smsInbox').get()).size;
-  check('a reply when two businesses texted them reaches neither (it can’t be told whose), and they’re told once, not every time, to contact the business', told.length === 1 && /more than one business, so replies here aren’t read\. Please contact the business directly\./.test(told[0].body) && msgsAfter === msgsBefore && !!(await get('smsSharedRoutes/15552013344'))?.toldAt, { told, msgsBefore, msgsAfter });
+  check('a reply when two businesses texted them reaches neither (it can’t be told whose), and they’re told once, not every time, to contact the business', told.length === 1 && /more than one business, so replies here aren't read\. Please contact the business directly\./.test(told[0].body) && msgsAfter === msgsBefore && !!(await get('smsSharedRoutes/15552013344'))?.toldAt, { told, msgsBefore, msgsAfter });
   const one = (await db.collection('tenants/t1/smsInbox').get()).size;
   await inbound('+15554445555', 'Running 5 late');
   check('…and a reply when only one business texted them goes to it', (await db.collection('tenants/t1/smsInbox').get()).size === one + 1, { one });

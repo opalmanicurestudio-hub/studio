@@ -22,6 +22,9 @@ const DEAD = ['cancelled', 'canceled', 'no_show', 'noshow', 'declined', 'expired
 const HERE = ['arrived', 'checked_in', 'in_progress', 'in_service', 'in-service', 'completed'];
 const HOLDS = ['tidy_hold', 'waitlist_hold'];
 const first = (n: any) => String(n || '').trim().split(/\s+/)[0] || 'there';
+const firstOr = (n: any) => String(n || '').trim().split(/\s+/)[0] || '';   // a provider with no name is left out of the text
+/** The day and time as a text says it, worked out when it's sent: "today at 1:00 PM", "tomorrow at 1:00 PM". */
+const dayAt = (n: number, tz: string, now: number) => (dayWord(n, tz, now) === 'today' ? `today at ${clock(n, tz)}` : when(n, tz, now));
 
 export type Deps = {
   send?: (db: any, t: string, to: string, body: string, fb?: any, meta?: any) => Promise<{ ok: boolean }>;
@@ -38,7 +41,7 @@ async function zoneOf(tenant: any) { const { tenantTimeZone } = await import('@/
 async function dateOf(n: number, tz: string) { const { wallParts } = await import('@/lib/tenant-time'); const p = wallParts(new Date(n), tz); return `${p.year}-${String(p.month).padStart(2, '0')}-${String(p.day).padStart(2, '0')}`; }
 async function dayStart(date: string, tz: string) { const { wallToUtc } = await import('@/lib/tenant-time'); return wallToUtc(date, 0, 0, tz).getTime(); }
 const addDay = (date: string, n: number) => { const d = new Date(`${date}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
-const clock = (n: number, tz: string) => new Date(n).toLocaleTimeString('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit' }).replace(':00', '').replace(' ', ' ');
+const clock = (n: number, tz: string) => new Date(n).toLocaleTimeString('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit' }).replace(' ', ' ');
 const dayWord = (n: number, tz: string, now: number) => { const d = new Date(n).toLocaleDateString('en-US', { timeZone: tz }); if (d === new Date(now).toLocaleDateString('en-US', { timeZone: tz })) return 'today';
   if (d === new Date(now + DAY).toLocaleDateString('en-US', { timeZone: tz })) return 'tomorrow'; return new Date(n).toLocaleDateString('en-US', { timeZone: tz, weekday: 'long', month: 'short', day: 'numeric' }); };
 const when = (n: number, tz: string, now: number) => { const w = dayWord(n, tz, now); return w === 'today' ? clock(n, tz) : `${w} at ${clock(n, tz)}`; };
@@ -160,7 +163,8 @@ export async function askTidy(db: any, t: string, actor: { staffId: string; name
   for (const [i, m] of moves.entries()) await db.doc(`${T(t)}/staffBlocks/tidy_${ref.id}_${i}`).set({ staffId: o.staffId, startTime: iso(ms(m.to) - m.padBefore * MIN), duration: m.dur + m.padBefore + m.padAfter, reason: 'tidy_hold', label: 'Held while a client is asked to move', until: iso(deadline), tidyAskId: ref.id, createdAt: iso(now) });
   const { spendBudget } = await import('@/lib/text-budget');
   for (const m of moves) await spendBudget(db, t, m.phone, 'tidy_ask', now).catch(() => {});
-  for (const m of moves) await D.send(db, t, m.phone, askText({ first: first(m.name), provider: first(staff.name), to: m.toLabel, from: m.fromLabel, service: m.service.toLowerCase(), link: `${base}/m/${encodeURIComponent(t)}/${m.token}`, sameDay: o.kind !== 'clear' && dayWord(ms(m.to), tz, now) === 'today' }), undefined, { kind: 'tidy_ask', recipientType: 'client', recipientId: m.clientId || undefined, recipientName: m.name || undefined });
+  for (const m of moves) { const same = o.kind !== 'clear' && dayWord(ms(m.to), tz, now) === 'today' && dayWord(ms(m.from), tz, now) === 'today';   // "come at 1:00 PM instead of 4:30 PM" today; the day named otherwise
+    await D.send(db, t, m.phone, askText({ first: first(m.name), provider: firstOr(staff.name), to: same ? clock(ms(m.to), tz) : dayAt(ms(m.to), tz, now), from: same ? clock(ms(m.from), tz) : dayAt(ms(m.from), tz, now), service: m.service.toLowerCase(), link: `${base}/m/${encodeURIComponent(t)}/${m.token}`, sameDay: same, by: dayWord(deadline, tz, now) === 'today' ? clock(deadline, tz) : when(deadline, tz, now) }), undefined, { kind: 'tidy_ask', recipientType: 'client', recipientId: m.clientId || undefined, recipientName: m.name || undefined }); }
   // A gap the waitlist was waiting on: it's being tidied now.
   for (const op of rows(await db.collection(`${T(t)}/openings`).where('status', '==', 'open').get()).filter((x: any) => x.staffId === o.staffId && moves.some((m) => ms(m.to) < ms(x.end) && ms(m.to) + m.dur * MIN > ms(x.start))))
     await db.doc(`${T(t)}/openings/${op.id}`).set({ decided: 'tidy', tidyAskId: ref.id }, { merge: true });
@@ -176,7 +180,7 @@ export async function tidyView(db: any, t: string, token: string, now = Date.now
   const x = await byToken(db, t, token); if (!x) return { ok: false, error: 'We’re sorry, this link is no longer valid.' };
   const tenant = (await db.doc(T(t)).get()).data() || {}; const tz = await zoneOf(tenant); const { ask, m } = x;
   const state = ask.status === 'done' ? (m.answer === 'yes' ? 'moved' : 'done') : ask.status !== 'asking' ? 'nochange' : m.answer || (ms(ask.deadline) <= now ? 'nochange' : 'open');
-  return { ok: true, state, business: String(tenant.name || ''), provider: first(ask.staffName), service: m.service, to: m.toLabel, from: m.fromLabel, day: dayWord(ms(m.to), tz, now), sameDay: ask.kind !== 'clear', minutes: m.dur };
+  return { ok: true, state, business: String(tenant.name || ''), provider: firstOr(ask.staffName), service: m.service, to: m.toLabel, from: m.fromLabel, day: dayWord(ms(m.to), tz, now), sameDay: ask.kind !== 'clear', minutes: m.dur };
 }
 /** Yes / keep my time. Everyone yes → every move at once; any no → nobody moves. */
 export async function tidyAnswer(db: any, t: string, token: string, yes: boolean, now = Date.now(), d: Deps = {}) {
@@ -199,7 +203,8 @@ async function tellProvider(db: any, t: string, staffId: string, message: string
 /** Nobody moves: holds lifted, the yeses thanked, the provider told — and a gap the waitlist was waiting on goes back to them to decide. */
 async function finish(db: any, t: string, ask: any, status: string, why: string, now: number, d: Deps) {
   const D = await deps(d); await db.doc(`${T(t)}/tidyAsks/${ask.id}`).set({ status, why, closedAt: iso(now) }, { merge: true }); await release(db, t, ask);
-  for (const m of ask.moves.filter((m: any) => m.answer === 'yes')) await D.send(db, t, m.phone, noChangeText({ first: first(m.name), from: m.fromLabel }), undefined, { kind: 'tidy_nochange', recipientType: 'client', recipientId: m.clientId || undefined }).catch(() => null);
+  const tz = await zoneOf((await db.doc(T(t)).get()).data() || {});
+  for (const m of ask.moves.filter((m: any) => m.answer === 'yes')) await D.send(db, t, m.phone, noChangeText({ first: first(m.name), from: dayAt(ms(m.from), tz, now), service: String(m.service || '').toLowerCase(), provider: firstOr(ask.staffName) }), undefined, { kind: 'tidy_nochange', recipientType: 'client', recipientId: m.clientId || undefined }).catch(() => null);
   for (const op of rows(await db.collection(`${T(t)}/openings`).where('status', '==', 'open').get()).filter((o: any) => o.tidyAskId === ask.id))
     await db.doc(`${T(t)}/openings/${op.id}`).set({ decided: null, tidyAskId: null, awaitUntil: iso(now + 15 * MIN) }, { merge: true });
   await tellProvider(db, t, ask.staffId, `We were not able to tidy ${ask.kind === 'clear' ? ask.dayLabel : 'your day'} because ${why}. No appointments were moved.${ask.kind === 'clear' ? '' : ' Would you like to leave the gap free, or offer it to the waitlist?'}`, now);
@@ -223,7 +228,8 @@ async function commit(db: any, t: string, ask: any, now: number, d: Deps) {
   });
   if (!ok) { await finish(db, t, ask, 'failed', 'the schedule changed while clients were responding', now, d); return { ok: false }; }
   await db.doc(`${T(t)}/tidyAsks/${ask.id}`).set({ status: 'done', closedAt: iso(now) }, { merge: true }); await release(db, t, ask);
-  for (const m of ask.moves) await D.send(db, t, m.phone, doneText({ first: first(m.name), to: ask.kind === 'clear' ? m.toLabel : `today at ${m.toLabel}` }), undefined, { kind: 'tidy_done', recipientType: 'client', recipientId: m.clientId || undefined }).catch(() => null);
+  const tz = await zoneOf((await db.doc(T(t)).get()).data() || {});
+  for (const m of ask.moves) await D.send(db, t, m.phone, doneText({ first: first(m.name), to: dayAt(ms(m.to), tz, now), service: String(m.service || '').toLowerCase(), provider: firstOr(ask.staffName) }), undefined, { kind: 'tidy_done', recipientType: 'client', recipientId: m.clientId || undefined }).catch(() => null);
   for (const op of rows(await db.collection(`${T(t)}/openings`).where('status', '==', 'open').get()).filter((o: any) => o.tidyAskId === ask.id))
     await db.doc(`${T(t)}/openings/${op.id}`).set({ status: 'closed', closedAt: iso(now), closedWhy: 'tidied — clients moved up' }, { merge: true });
   await tellProvider(db, t, ask.staffId, ask.kind === 'clear' ? `${ask.dayLabel} is now clear, as every client agreed to move. Would you like to block the day so that no new bookings are made?` : `Your day has been tidied, as every client agreed to move.${ask.finishLabel ? ` You now finish at ${ask.finishLabel}.` : ''}`, now);

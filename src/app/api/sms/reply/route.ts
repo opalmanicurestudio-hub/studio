@@ -12,6 +12,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { verifyStaff } from '@/lib/voice/staff-auth';
+import { plainText } from '@/lib/sms';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -56,7 +57,7 @@ export async function POST(req: NextRequest) {
     const smsRes = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`, {
       method: 'POST',
       headers: { Authorization: `Basic ${twilioAuth}`, 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ To: thread.clientPhone, From: fromNumber, Body: message }),
+      body: new URLSearchParams({ To: thread.clientPhone, From: fromNumber, Body: plainText(message) }),
     });
     if (!smsRes.ok) {
       return NextResponse.json({ ok: false, error: 'sms_send_failed' }, { status: 502 });

@@ -223,7 +223,7 @@ const PLAN = { on: true, by: 'postal', zones: [{ id: 'near', name: 'Near', posta
   r = await C({ action: 'deliveryFailed', orderId: id2, why: 'no_answer' });
   const rowsF: any[] = await FS.deliveriesToday(db, 't1', await get(T), Date.now() + 5000);
   check('couldn’t deliver: said why, on the counter', r.body.ok && (await get(`${T}/counterOrders/${id2}`)).ahead.delivery.state === 'failed' && rowsF.find((x: any) => x.orderId === id2)?.why === 'No one answered', rowsF);
-  check('…and the guest is texted at once, why, with their page to pick it up or get a refund', texts.length === 2 && texts[1].to === '+18325550177' && /^Northside: Our driver couldn’t get order A\d+ to you \(no one answered\)\. Pick it up, or get a refund: https:\/\/app\.test\/order\/t1\?o=/.test(texts[1].body), texts);
+  check('…and the guest is texted at once, why, with their page to pick it up or get a refund', texts.length === 2 && texts[1].to === '+18325550177' && /^Northside: Our driver couldn't get order A\d+ to you \(no one answered\)\. Pick it up, or get a refund: https:\/\/app\.test\/order\/t1\?o=/.test(texts[1].body), texts);
   r = await C({ action: 'deliveryOut', orderId: id2 });
   check('…sent out again (whoever’s signed in drives)', r.body.ok && !r.body.already && (await get(`${T}/counterOrders/${id2}`)).ahead.delivery.state === 'out' && (await get(`${T}/counterOrders/${id2}`)).ahead.delivery.driverName === 'Ana Ruiz' && texts.length === 2, r.body);
   r = await C({ action: 'deliveryDone', orderId: id2 });

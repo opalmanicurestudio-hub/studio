@@ -164,7 +164,7 @@ export function FormsLeft({ brand, visit, forms, token, tenantId, guardianAsk, b
       <VisitSaid text={said} />
       {next && defOf(next.formId) && <VisitButton onClick={() => setOpen(next.formId)} disabled={!!busy}>{`${hasSignature(defOf(next.formId)) ? 'Sign' : 'Start'}: ${next.title}`}</VisitButton>}
       {left > 0 && <p className="px-1 text-[13px] leading-snug" style={{ color: 'var(--muted)' }}>
-        {!header ? `${provider || 'Your provider'} sees it the moment you’re done.` : due && visit.release === 'auto' && visit.asks.some(todo) ? `If your forms aren’t done by ${when(due, brand, true)}, your appointment time is released.`
+        {!header ? `${provider || 'Your provider'} sees it the moment you’re done.` : due && visit.release === 'auto' && visit.asks.some(todo) ? `If your forms aren’t done by ${when(due, brand, true)}, we’ll have to release your appointment time.`
           : due && visit.release === 'ask' && visit.asks.some(todo) ? `If your forms aren’t done by ${when(due, brand, true)}, your appointment time may be released.`
           : due ? `If it isn’t done by ${when(due, brand, true)}, we’ll go through it with you when you arrive.` : 'Anything not done is gone through with you when you arrive.'}</p>}
 

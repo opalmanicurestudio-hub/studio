@@ -110,9 +110,14 @@ export function clearDay(visits: Visit[], slots: Map<string, Slot[]>): Move[] | 
 }
 
 // ── The words ────────────────────────────────────────────────────────────────────────
-export const askText = (o: { first: string; provider: string; to: string; from: string; service: string; link: string; sameDay: boolean }) =>
-  o.sameDay
-    ? `Hi ${o.first}, ${o.provider || 'we'} ${o.provider ? 'has' : 'have'} an earlier opening today. Would you like to come in at ${o.to} instead of ${o.from}? Your ${o.service || 'appointment'} and its price will stay the same. There's no pressure at all. If it suits you, please let us know here: ${o.link}`
-    : `Hi ${o.first}, would it suit you to move your ${o.service || 'appointment'} from ${o.from} to ${o.to}${o.provider ? ` with ${o.provider}` : ''}? Everything else will stay the same. There's no pressure at all. If it suits you, please let us know here: ${o.link}`;
-export const doneText = (o: { first: string; to: string }) => `Hi ${o.first}, your appointment is confirmed for ${o.to}. Thank you so much for being flexible. We're looking forward to seeing you.`;
-export const noChangeText = (o: { first: string; from: string }) => `Hi ${o.first}, thank you for agreeing to move. As it turns out, we won't need to change your appointment after all, so your ${o.from} appointment will stay exactly as it is. We're sorry for any confusion.`;
+// Every text names the service, the provider and the time, and says what happens if the client does nothing
+// (docs/message-voice.md: professional first, complete, and no reply time promised).
+const visitOf = (service: string, provider?: string) => `${service || 'appointment'}${provider ? ` with ${provider}` : ''}`;
+export const askText = (o: { first: string; provider: string; to: string; from: string; service: string; link: string; sameDay: boolean; by?: string }) => {
+  const reply = `If not, there's nothing you need to do, and your appointment stays as it is. If so, please let us know${o.by ? ` by ${o.by}` : ''} here: ${o.link}`;
+  return o.sameDay
+    ? `Hi ${o.first}, ${o.provider || 'we'} ${o.provider ? 'has' : 'have'} an earlier opening today. Would you like to come in at ${o.to} instead of ${o.from}? Your ${o.service || 'appointment'} and its price will stay the same. ${reply}`
+    : `Hi ${o.first}, would it suit you to move your ${visitOf(o.service, o.provider)} from ${o.from} to ${o.to}? Everything else will stay the same. ${reply}`;
+};
+export const doneText = (o: { first: string; to: string; service?: string; provider?: string }) => `Hi ${o.first}, thank you so much for being flexible. Your ${visitOf(o.service || '', o.provider)} is now confirmed for ${o.to}. We're looking forward to seeing you.`;
+export const noChangeText = (o: { first: string; from: string; service?: string; provider?: string }) => `Hi ${o.first}, thank you for agreeing to move. As it turns out, we won't need to change your appointment after all, so your ${visitOf(o.service || '', o.provider)} will stay at its original time, ${o.from}. We're sorry for any confusion.`;

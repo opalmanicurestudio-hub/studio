@@ -98,6 +98,11 @@ async function sendFallbackEmail(toEmail: string, subject: string, body: string,
   } catch { return false; }
 }
 
+/** Texts are billed per part, and one curly quote or non-breaking space (dates and times often carry one) makes every part
+ *  less than half as long. Swapping them for their plain look-alikes keeps a text to as few parts as possible. */
+export const plainText = (s: string) => String(s ?? '')
+  .replace(/[‘’ʼ]/g, "'").replace(/[“”]/g, '"').replace(/[   ]/g, ' ').replace(/…/g, '...').replace(/[–—]/g, '-');
+
 // Low-level send using the platform account. Prefer sendTenantSms().
 export async function sendSms(to: string, body: string, opts?: { from?: string; messagingServiceSid?: string }): Promise<SmsResult> {
   try {
@@ -107,7 +112,7 @@ export async function sendSms(to: string, body: string, opts?: { from?: string; 
     const sid = process.env.TWILIO_ACCOUNT_SID as string;
     const params = new URLSearchParams();
     params.set('To', e164);
-    params.set('Body', body.slice(0, 1600));
+    params.set('Body', plainText(body).slice(0, 1600));
     const msid = opts?.messagingServiceSid || process.env.TWILIO_MESSAGING_SERVICE_SID;
     const from = opts?.from || process.env.TWILIO_FROM;
     if (msid) params.set('MessagingServiceSid', msid);

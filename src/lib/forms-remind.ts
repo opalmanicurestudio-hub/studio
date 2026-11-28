@@ -78,8 +78,21 @@ const went = (r: any) => !!r && (r.ok === true || r.held === true);
 const prefOf = (tenant: any, cl: any) => { const p = tenant?.notificationDefaults?.allowClientOverride === false ? 'both' : String(cl?.notificationPreferences?.reminderChannel || 'both'); return ['sms', 'email', 'none'].includes(p) ? p : 'both'; };
 const escHtml = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
-/** The reminder itself: a text ("One thing to finish before your visit Sat at 3:30 PM, the consent form (2 min): link")
- *  and an email with the list ticked off and one button. */
+/** The reminder text: a greeting, the visit (service, provider, day and time), what's left, when it's due, what happens
+ *  if it isn't done, and the link (docs/message-voice.md). Straight apostrophes keep a text to as few parts as possible. */
+export function formsReminderText(o: { first: string; service: string; provider: string; visitAt: string; list: string; n: number; due: string; then: string; link: string }): string {
+  const it = o.n === 1 ? 'it' : 'them';
+  return `Hi ${o.first}, before your ${o.service || 'appointment'}${o.provider ? ` with ${o.provider}` : ''} on ${o.visitAt}, there ${o.n === 1 ? 'is one thing' : `are ${o.n} things`} to finish: ${o.list}. Please complete ${it} by ${o.due}. ${o.then} You can do ${it} here: ${o.link}`;
+}
+/** What happens if the forms aren't done by the due time: the same words as the email's small print. */
+export const formsThen = (hasForms: boolean, release: any) => hasForms && release === 'auto' ? "If your forms aren't done by then, we'll have to release your appointment time." : hasForms && release === 'ask' ? "If your forms aren't done by then, your appointment time may be released." : "If it isn't done by then, we'll go through it with you when you arrive.";
+/** The thank-you once everything is done. */
+export function formsDoneText(o: { first: string; service: string; provider: string; when: string }): string {
+  return `Hi ${o.first}, thank you for completing your forms. Everything is ready for your ${o.service || 'appointment'}${o.provider ? ` with ${o.provider}` : ''} on ${o.when}. We're looking forward to seeing you.`;
+}
+const minutesWords = (m: any) => { const n = Math.max(1, Math.round(Number(m) || 1)); return `about ${n} minute${n === 1 ? '' : 's'}`; };
+
+/** The reminder itself: the text above, and an email with the list ticked off and one button. */
 export async function sendFormsReminder(db: any, tenantId: string, appt: any, tenant: any, state: any, dueIso: string): Promise<boolean> {
   const cl: any = appt.clientId ? ((await db.doc(`tenants/${tenantId}/clients/${appt.clientId}`).get()).data() || {}) : {};
   const pref = prefOf(tenant, cl);
@@ -94,14 +107,17 @@ export async function sendFormsReminder(db: any, tenantId: string, appt: any, te
   const forms = (state.asks || []).filter((a: any) => a.ask === 'sign' || a.ask === 'sign_again');
   const files = (state.files || []).filter((f: any) => !f.done && !f.optional);
   const n = forms.length + files.length;
-  const what = [...forms.map((f: any) => `${f.title} (${f.minutes} min)`), ...files.map((f: any) => f.label)];
+  const what = [...forms.map((f: any) => `${f.title} (${minutesWords(f.minutes)})`), ...files.map((f: any) => f.label)];
   const list = what.length > 2 ? `${what.slice(0, 2).join(', ')} and ${what.length - 2} more` : what.join(' and ');
   const lead = n === 1 ? 'One thing to finish' : `${n} things to finish`;
-  const tokens = { client_first: name || 'there', service: String(appt.serviceName || 'appointment'), when: visitAt, link, studio, what: list };
+  const service = String(appt.serviceName || 'appointment').toLowerCase(); const provider = first(appt.staffName || '');
+  const due = dueWords(dueIso, zone); const then = formsThen(forms.length > 0, state.release);
+  // Tokens for an owner's own wording: the service as they named it, and "us" when the visit has no provider on it.
+  const tokens = { client_first: name || 'there', service: String(appt.serviceName || 'appointment'), staff: provider || 'us', when: visitAt, due, then, link, studio, what: list };
   const { sendNotification } = await import('./notify');
   let ok = false;
   if (phone) ok = went(await sendNotification(db, { tenantId, channel: 'sms', to: phone, kind: 'forms_reminder', tokens,
-    text: `${lead} before your visit ${visitAt}: ${list}. ${link}`,
+    text: formsReminderText({ first: name || 'there', service, provider, visitAt, list, n, due, then, link }),
     recipientType: 'client', recipientId: appt.clientId || null, recipientName: appt.clientName || null, appointmentId: appt.id || null } as any).catch(() => null)) || ok;
   if (email.includes('@')) {
     const { brandedEmailHtml, emailLookOf } = await import('./email-template');
@@ -109,7 +125,7 @@ export async function sendFormsReminder(db: any, tenantId: string, appt: any, te
     const ring = '<span style="display:inline-block;width:16px;height:16px;border-radius:50%;border:2px solid #b45309"></span>';
     const row = (done: boolean, label: string, note: string) => `<tr><td width="30" style="padding:8px 0;vertical-align:middle">${done ? tick : ring}</td><td style="padding:8px 0;font-size:14.5px;color:#16171a">${escHtml(label)}</td><td align="right" style="padding:8px 0;font-size:13px;color:#6d7075;white-space:nowrap">${escHtml(note)}</td></tr>`;
     const rows = [
-      ...(state.asks || []).map((a: any) => row(a.ask === 'done' || a.ask === 'confirm', a.title, a.ask === 'sign' || a.ask === 'sign_again' ? `${a.minutes} min` : a.ask === 'confirm' ? 'on file' : 'done')),
+      ...(state.asks || []).map((a: any) => row(a.ask === 'done' || a.ask === 'confirm', a.title, a.ask === 'sign' || a.ask === 'sign_again' ? minutesWords(a.minutes) : a.ask === 'confirm' ? 'on file' : 'done')),
       ...(state.files || []).map((f: any) => row(f.done, f.label, f.done ? (f.onFile ? 'on file' : 'done') : '')),
     ].join('');
     const day = new Intl.DateTimeFormat('en-US', { timeZone: zone, weekday: 'long' }).format(new Date(appt.startTime));
@@ -117,7 +133,8 @@ export async function sendFormsReminder(db: any, tenantId: string, appt: any, te
     ok = went(await sendNotification(db, { tenantId, channel: 'email', to: email, kind: 'forms_reminder', tokens,
       subject: `${lead} before ${day}`,
       html: brandedEmailHtml({ studioName: studio, brand: emailLookOf(tenant), eyebrow: 'Before your visit', title: `${lead} before`, titleBold: day, preheader: forms.length === 1 && !files.length ? `The ${forms[0].title.toLowerCase()} takes about ${forms[0].minutes} minute${forms[0].minutes === 1 ? '' : 's'}.` : 'It takes a few minutes.',
-        bodyHtml, cta: { label: 'Finish now', url: link }, smallPrint: `Due ${dueWords(dueIso, zone)}. ${forms.length && state.release === 'auto' ? 'If your forms aren’t done by then, your appointment time is released.' : forms.length && state.release === 'ask' ? 'If your forms aren’t done by then, your appointment time may be released.' : 'If it isn’t done by then, we’ll go through it with you when you arrive.'}` }),
+        bodyLines: [`Hi ${name || 'there'},`, `Before your ${service}${provider ? ` with ${provider}` : ''} on ${dueWords(appt.startTime, zone, true)}, please complete the following by ${due}.`],
+        bodyHtml, cta: { label: 'Finish now', url: link }, smallPrint: `Due ${due}. ${forms.length && state.release === 'auto' ? 'If your forms aren’t done by then, we’ll have to release your appointment time.' : forms.length && state.release === 'ask' ? 'If your forms aren’t done by then, your appointment time may be released.' : 'If it isn’t done by then, we’ll go through it with you when you arrive.'}` }),
       recipientType: 'client', recipientId: appt.clientId || null, recipientName: appt.clientName || null, appointmentId: appt.id || null } as any).catch(() => null)) || ok;
   }
   return ok;
@@ -192,15 +209,16 @@ export async function sendFormsThanks(db: any, tenantId: string, appt: any, tena
   const email = pref === 'sms' ? '' : String(appt.clientEmail || rec?.clientEmail || cl.email || '').trim(); const phone = pref === 'email' ? '' : String(appt.clientPhone || cl.phone || '').trim();
   const zone = tenantTimeZone(tenant); const name = first(appt.clientName || cl.name);
   const day = new Intl.DateTimeFormat('en-US', { timeZone: zone, weekday: 'long' }).format(new Date(appt.startTime));
-  const text = `Thanks${name ? `, ${name}` : ''}. You’re all set for ${day} at ${formatTime(new Date(appt.startTime), zone)}.`;
-  const tokens = { client_first: name || 'there', when: `${day} at ${formatTime(new Date(appt.startTime), zone)}`, studio: String(tenant?.name || '') };
+  const at = `${day} at ${formatTime(new Date(appt.startTime), zone)}`; const service = String(appt.serviceName || 'appointment').toLowerCase(); const provider = first(appt.staffName || '');
+  const text = formsDoneText({ first: name || 'there', service, provider, when: at });
+  const tokens = { client_first: name || 'there', service: String(appt.serviceName || 'appointment'), staff: provider || 'us', when: at, studio: String(tenant?.name || '') };
   const { sendNotification } = await import('./notify');
   const base = { tenantId, kind: 'forms_done', tokens, recipientType: 'client', recipientId: appt.clientId || null, recipientName: appt.clientName || null, appointmentId: appt.id || null };
   if (phone && went(await sendNotification(db, { ...base, channel: 'sms', to: phone, text } as any).catch(() => null))) return true;
   if (email.includes('@')) {
     const { brandedEmailHtml, emailLookOf } = await import('./email-template');
-    return went(await sendNotification(db, { ...base, channel: 'email', to: email, subject: `You’re all set for ${day}`,
-      html: brandedEmailHtml({ studioName: String(tenant?.name || 'Your studio'), brand: emailLookOf(tenant), eyebrow: 'Thank you', title: 'You’re all set for', titleBold: day, bodyLines: [text] }) } as any).catch(() => null));
+    return went(await sendNotification(db, { ...base, channel: 'email', to: email, subject: `Thank you for completing your forms`,
+      html: brandedEmailHtml({ studioName: String(tenant?.name || 'Your studio'), brand: emailLookOf(tenant), eyebrow: 'Thank you', title: 'Everything is ready for', titleBold: day, bodyLines: [text] }) } as any).catch(() => null));
   }
   return false;
 }
