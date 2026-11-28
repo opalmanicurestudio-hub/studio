@@ -1,5 +1,6 @@
 'use client';
 
+import { useWayHome } from '@/components/shared/WayHome';
 import { guestLogo } from '@/lib/brand';
 import { usePathname, useRouter } from 'next/navigation';
 import { Fragment, useState, useEffect } from 'react';
@@ -669,6 +670,7 @@ export function AppSidebar() {
 }
 
 export function MobileSidebarTrigger({ className }: { className?: string }) {
+  useWayHome();
   return (
     <SidebarTrigger
       className={cn(

@@ -26,6 +26,7 @@ import { useMemo, useContext } from 'react';
 import { InHub } from '@/components/shared/HubContext';
 import { cn } from '@/lib/utils';
 import { useInSettings } from '@/components/settings/settings-place';
+import { useWayHome } from '@/components/shared/WayHome';
 
 export function AppHeader({ title }: { title?: string }) {
   const inHub = useContext(InHub);
@@ -65,6 +66,7 @@ export function AppHeader({ title }: { title?: string }) {
     return name.substring(0, 2).toUpperCase();
   };
   const initials = getInitials(displayName);
+  useWayHome(!inHub);
   if (inHub) return null;
 
   return (

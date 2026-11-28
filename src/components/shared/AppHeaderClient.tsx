@@ -17,6 +17,7 @@ import { useUser, useAuth } from '@/firebase';
 import { useRouter } from 'next/navigation';
 import { signOut } from 'firebase/auth';
 import { useDeskTheme } from '@/components/pos/desk/kit';
+import { useWayHome } from '@/components/shared/WayHome';
 
 type AppHeaderProps = {
   title: string;
@@ -28,6 +29,7 @@ export function AppHeaderClient({ title }: AppHeaderProps) {
   const router = useRouter();
   const { pref, resolved, set } = useDeskTheme();
   const dark = resolved === 'dark';
+  useWayHome();
 
   const getInitials = (name?: string | null): string => {
     if (!name) return 'U';

@@ -21,6 +21,7 @@ import { SettingsShell } from '@/components/settings/SettingsShell';
 import { useInSettings } from '@/components/settings/settings-place';
 import { SetupBar } from '@/components/settings/SetupGuide';
 import { isSettingsPath } from '@/lib/settings-registry';
+import { WayHomeBar, WayHomeProvider } from '@/components/shared/WayHome';
 
 /**
  * IMPORTANT FINDING, not introduced by this change: TenantProvider was
@@ -45,14 +46,15 @@ import { isSettingsPath } from '@/lib/settings-registry';
  */
 
 /** The app's sidebar and the page. Settings has its own list on the left on a computer, in the sidebar's place
- *  (components/settings/SettingsShell); settings-place says which pages open inside it, and for whom. */
+ *  (components/settings/SettingsShell); settings-place says which pages open inside it, and for whom. A page with no
+ *  header of its own gets the menu button and Home on a phone or a tablet (components/shared/WayHome). */
 function Framed({ children }: { children: React.ReactNode }) {
   const onSettingsPath = isSettingsPath(usePathname() || '');
   const inSettings = useInSettings();
   return (<>
     <div className={inSettings ? 'contents lg:hidden' : 'contents'}><AppSidebar /></div>
     <SidebarInset className="bg-background">
-      <main id="main"><StaleCopyBanner /><ToolGate>{onSettingsPath ? <SettingsShell nav={inSettings}>{children}</SettingsShell> : children}</ToolGate><React.Suspense fallback={null}><SetupBar /></React.Suspense></main>
+      <main id="main"><StaleCopyBanner /><WayHomeBar /><ToolGate>{onSettingsPath ? <SettingsShell nav={inSettings}>{children}</SettingsShell> : children}</ToolGate><React.Suspense fallback={null}><SetupBar /></React.Suspense></main>
     </SidebarInset>
   </>);
 }
@@ -117,7 +119,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <LocationProvider>
          <PortalScope>
           <SidebarProvider>
-            <Framed>{children}</Framed>
+            <WayHomeProvider><Framed>{children}</Framed></WayHomeProvider>
             <HelpDesk />
             <VisitTicketHost />
             <StepReminder />

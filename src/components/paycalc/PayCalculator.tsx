@@ -10,6 +10,7 @@ import { Briefcase, Store, Scale, Clock, Lock, Sparkles, ArrowRight, ArrowLeft, 
 import { blank, compute, decodeState, encodeState, hoursOf, type CalcState, type Mode, type PayType, type Result } from '@/lib/pay-calc';
 import { LANGS, tr, OCC_TITLES, CONTRACTOR_Q, JOB_HINT, type Lang, type Key } from '@/lib/pay-calc-i18n';
 import { STATE_MIN_WAGE, minWageFor } from '@/lib/state-wages';
+import { BackToApp } from '@/components/shared/WayHome';
 import { OCCUPATIONS, WAGE_SOURCE } from '@/lib/wage-data';
 import { CONTRACTOR_QUESTIONS, US_STATES, TAX_YEAR, type Filing } from '@/lib/pay-extras';
 import { planLabel, type Plan } from '@/lib/pay-clarity';
@@ -322,6 +323,7 @@ export default function PayCalculator() {
       <style>{CSS}</style>
       <Sky opal={brand === 'opal'} />
       <div className="pc-wrap">
+        <BackToApp className="pc-noprint" style={{ alignSelf: 'flex-start', marginBottom: -8 }} />
         {header}
         {screen === 'start' && <Start t={t} begin={begin} />}
         {screen === 'step' && step && (
