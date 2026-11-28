@@ -10,6 +10,10 @@
 //                    cash deposits, lines matched), never counted twice. A match can be undone.
 // Then the payees you've sorted (learned rules), to change or forget. The accounts connected, and one asking to be signed
 // in again. The owner's: only the owner reads the bank.
+// In Books (`inBooks`, the Money page's design board "One Money page", option A): the lines to sort lead, under "From
+// your bank", with checking, connecting and signing in again beside them; Sorted for you, Matched and the payees open
+// from one button (and are only read then). On a phone each line shows Book (and It's the same); the rest are a tap
+// on More away.
 import * as React from 'react';
 import { collection, getDocs, limit, onSnapshot, query, where, type Firestore } from 'firebase/firestore';
 import { categoriesFor, findCategory, CUSTOM_CATEGORY } from '@/lib/categories';
@@ -68,7 +72,12 @@ function picksOf(lines: any[], bt: any, apart: string[] = []): Pick[] {
     .sort((a, b) => (Number(b.cents === cents) - Number(a.cents === cents)) || Math.abs(a.at - at) - Math.abs(b.at - at)).slice(0, 40);
 }
 
-export function BankScreen({ tenantId, firestore, actor }: { tenantId: string; firestore: Firestore; actor?: { type: 'user'; id?: string; name?: string; role?: string } }) {
+export function BankScreen({ tenantId, firestore, actor, inBooks = false }: { tenantId: string; firestore: Firestore; actor?: { type: 'user'; id?: string; name?: string; role?: string }; inBooks?: boolean }) {
+  const [more, setMore] = React.useState(!inBooks); const [rowMore, setRowMore] = React.useState<Record<string, boolean>>({});
+  // (In Books, the first few lines to sort, so the books themselves aren't pushed out of sight; the rest a tap away.)
+  const [allShown, setAllShown] = React.useState(!inBooks); const FIRST = 3;
+  // (A read that failed is said, never taken for nothing to sort.)
+  const [readFailed, setReadFailed] = React.useState(false);
   const [inbox, setInbox] = React.useState<any[] | null>(null);
   const [recent, setRecent] = React.useState<any[]>([]);
   const [accounts, setAccounts] = React.useState<any[] | null>(null);
@@ -89,7 +98,7 @@ export function BankScreen({ tenantId, firestore, actor }: { tenantId: string; f
     if (!firestore || !tenantId) return;
     return onSnapshot(query(collection(firestore, 'tenants', tenantId, 'bankTransactions'), where('status', '==', 'unmatched')),
       (snap) => setInbox(snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })).sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))),
-      () => setInbox([]));
+      () => { setInbox([]); setReadFailed(true); });
   }, [firestore, tenantId]);
 
   const api = React.useCallback(async (payload: any) => {
@@ -105,11 +114,14 @@ export function BankScreen({ tenantId, firestore, actor }: { tenantId: string; f
       setRecent(q.docs.map((d) => ({ id: d.id, ...(d.data() as any) })).filter((b) => b.status !== 'unmatched').sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))); } catch { /* the owner's to read */ }
   }, [firestore, tenantId]);
   const loadAccounts = React.useCallback(async () => { const d = await api({ action: 'status' }).catch(() => null); if (d?.ok) setAccounts(d.items || []); }, [api]);
+  React.useEffect(() => { loadAccounts(); }, [loadAccounts]);
+  // (In Books, the last 30 days sorted and matched are read only once they're opened.)
   React.useEffect(() => {
-    loadRecent(); loadAccounts();
+    if (!more) return;
+    loadRecent();
     const back = () => { if (document.visibilityState === 'visible') loadRecent(); };
     document.addEventListener('visibilitychange', back); return () => document.removeEventListener('visibilitychange', back);
-  }, [loadRecent, loadAccounts]);
+  }, [loadRecent, more]);
   const patch = (id: string, next: any | null) => setRecent((r) => { const rest = r.filter((x) => x.id !== id); return next ? [next, ...rest].sort((a, b) => String(b.date || '').localeCompare(String(a.date || ''))) : rest; });
 
   const run = async (key: string, fn: () => Promise<any>, done?: string | ((d: any) => string)) => {
@@ -204,14 +216,36 @@ export function BankScreen({ tenantId, firestore, actor }: { tenantId: string; f
   const matched = recent.filter((b) => MATCHED.includes(String(b.status)));
   const card = 'rounded-3xl bg-[#fff] px-5 pb-2 pt-4'; const cardStyle = { border: `1px solid ${LINE}`, color: INK };
   const n = inbox?.length || 0;
+  // (Lines still pending at the bank can't be booked yet: Book all and the count say what can.)
+  const ready = (inbox || []).filter((b) => !b.pending).length; const pendingN = n - ready;
   const none = accounts !== null && accounts.length === 0;
+  // (On a phone, a line's other choices wait behind More.)
+  const phoneMore = (id: string) => (rowMore[id] ? '' : 'hidden md:inline-flex');
+
+  // (In Books with no bank connected: one quiet line, not a card leading the page.)
+  if (inBooks && none && n === 0) return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-[#fff] px-4 py-2" style={{ border: `1px solid ${LINE}`, color: INK }}>
+        <p className="min-w-0 flex-1 text-[14px]" style={{ color: MUTED }}>Connect your bank and its lines come in here, sorted for you where they can be.</p>
+        <button type="button" onClick={() => setLabelPick(!labelPick)} disabled={!!busy} aria-expanded={labelPick} className={`${quiet} font-semibold`} style={{ color: INK }}>Connect your bank</button>
+      </div>
+      {labelPick && (
+        <div className={`${card} pb-4`} style={cardStyle}>
+          <p className="text-[15px] font-semibold">What kind of account is it?</p>
+          <p className="mt-0.5 text-[14px]" style={{ color: MUTED }}>Its lines go in those books. A business cost paid from a personal card can still be booked as the business’s, one line at a time.</p>
+          <div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={() => connect('Business')} className={btn(true)} style={btnStyle(true)}>Business</button><button type="button" onClick={() => connect('Personal')} className={btn()} style={btnStyle()}>Personal</button></div>
+        </div>
+      )}
+      {error && <p role="alert" className="rounded-2xl px-4 py-3 text-[14px] font-medium" style={{ background: AMBER_TINT, color: AMBER }}>{error}</p>}
+    </div>
+  );
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap gap-2">
+    <div className={inBooks ? 'space-y-3' : 'space-y-5'}>
+      {!inBooks && <div className="flex flex-wrap gap-2">
         {!none && <button type="button" onClick={sync} disabled={!!busy} className={btn(true)} style={btnStyle(true)}>{busy === 'sync' ? 'Checking' : 'Check now'}</button>}
         <button type="button" onClick={() => setLabelPick(!labelPick)} disabled={!!busy} aria-expanded={labelPick} className={btn(none)} style={btnStyle(none)}>{none ? 'Connect your bank' : 'Connect an account'}</button>
-      </div>
+      </div>}
       {labelPick && (
         <div className={`${card} pb-4`} style={cardStyle}>
           <p className="text-[15px] font-semibold">What kind of account is it?</p>
@@ -230,11 +264,16 @@ export function BankScreen({ tenantId, firestore, actor }: { tenantId: string; f
 
       <section aria-labelledby="sort-h" className={card} style={cardStyle}>
         <div className="mb-1 flex flex-wrap items-start justify-between gap-3">
-          <div><h2 id="sort-h" className="text-[17px] font-semibold">To sort{n ? `, ${n}` : ''}</h2>
-            <p className="pb-2 text-[14px]" style={{ color: MUTED }}>{n ? 'Each has a category picked. Check it, then book it.' : none ? 'No bank connected yet. Connect your business account and its lines show here, sorted for you where they can be.' : inbox === null ? 'Looking at your bank' : 'Nothing to sort. Every line is booked or matched.'}</p></div>
-          {n > 1 && <button type="button" onClick={bookAll} disabled={!!busy} className={btn()} style={btnStyle()}>{busy === 'all' ? 'Booking' : 'Book all as picked'}</button>}
+          <div className="min-w-0"><h2 id="sort-h" className="text-[17px] font-semibold">{inBooks ? `From your bank${ready ? `, ${ready} to sort` : ''}` : `To sort${n ? `, ${n}` : ''}`}</h2>
+            <p className="pb-2 text-[14px]" style={{ color: MUTED }}>{readFailed ? 'Your bank’s lines couldn’t be read just now. Try again in a moment.' : ready ? `Each has a category picked. Check it, then book it.${pendingN ? ` ${pendingN} more still pending at your bank.` : ''}` : n ? `${pendingN} still pending at your bank. They can be sorted once they clear.` : none ? 'No bank connected yet. Connect your business account and its lines show here, sorted for you where they can be.' : inbox === null ? 'Looking at your bank' : 'Nothing to sort. Every line is booked or matched.'}</p></div>
+          {ready > 1 && <button type="button" onClick={bookAll} disabled={!!busy} className={btn()} style={btnStyle()}>{busy === 'all' ? 'Booking' : inBooks ? `Book all ${ready} as picked` : 'Book all as picked'}</button>}
         </div>
-        {(inbox || []).map((bt) => {
+        {inBooks && !none && <div className="-ml-3 flex flex-wrap items-center pb-1">
+          <button type="button" onClick={sync} disabled={!!busy} className={`${quiet} font-medium`} style={{ color: INK }}>{busy === 'sync' ? 'Checking' : 'Check now'}</button>
+          <button type="button" onClick={() => setMore((m) => !m)} aria-expanded={more} aria-controls="bank-more" className={`${quiet} font-medium`} style={{ color: INK }}>{more ? 'Hide sorted and matched' : 'Sorted and matched'}</button>
+          <button type="button" onClick={() => setLabelPick(!labelPick)} disabled={!!busy} aria-expanded={labelPick} className={`${quiet} font-medium`} style={{ color: INK }}>Add an account</button>
+        </div>}
+        {(inBooks ? [...(inbox || [])].sort((a, b) => Number(!!a.pending) - Number(!!b.pending)) : inbox || []).slice(0, allShown ? undefined : FIRST).map((bt) => {
           const chosen = cat[bt.id] ?? bt.suggestedCategory ?? catsFor(bt)[0];
           const hint = bt.hint || findCategory(chosen)?.hint || '';
           const warn = !!bt.hint;
@@ -284,10 +323,11 @@ export function BankScreen({ tenantId, firestore, actor }: { tenantId: string; f
                 <span className="flex-1" />
                 {!wait && <button type="button" onClick={() => book(bt)} disabled={!!busy} className={btn(true)} style={btnStyle(true)}>{busy === bt.id ? 'Saving' : 'Book'}</button>}
                 {!wait && bt.suggestedMatchTxnId && <button type="button" onClick={() => match(bt, [bt.suggestedMatchTxnId])} disabled={!!busy} className={btn()} style={btnStyle()}>It’s the same</button>}
-                {!wait && <button type="button" onClick={() => openMatch(bt)} disabled={!!busy} aria-expanded={matchFor === bt.id} className={btn()} style={btnStyle()}>{isIn ? 'Match to a sale' : 'Match to a cost'}</button>}
-                {!wait && bt.context === 'Personal' && <button type="button" onClick={() => book(bt, true)} disabled={!!busy} className={btn()} style={btnStyle()}>Book as the business’s</button>}
-                {!wait && <button type="button" onClick={() => setReceiptFor(receiptFor === bt.id ? '' : bt.id)} aria-expanded={receiptFor === bt.id} className={btn()} style={btnStyle()}>{receipt[bt.id] ? 'Receipt added' : 'Add a receipt'}</button>}
-                <button type="button" onClick={() => skip(bt)} disabled={!!busy} className={quiet} style={{ color: MUTED }}>Skip</button>
+                {!wait && <button id={`more-${bt.id}`} type="button" onClick={() => openMatch(bt)} disabled={!!busy} aria-expanded={matchFor === bt.id} className={`${btn()} ${phoneMore(bt.id)}`} style={btnStyle()}>{isIn ? 'Match to a sale' : 'Match to a cost'}</button>}
+                {!wait && bt.context === 'Personal' && <button type="button" onClick={() => book(bt, true)} disabled={!!busy} className={`${btn()} ${phoneMore(bt.id)}`} style={btnStyle()}>Book as the business’s</button>}
+                {!wait && <button type="button" onClick={() => setReceiptFor(receiptFor === bt.id ? '' : bt.id)} aria-expanded={receiptFor === bt.id} className={`${btn()} ${phoneMore(bt.id)}`} style={btnStyle()}>{receipt[bt.id] ? 'Receipt added' : 'Add a receipt'}</button>}
+                <button type="button" onClick={() => skip(bt)} disabled={!!busy} className={`${quiet} ${wait ? '' : phoneMore(bt.id)}`} style={{ color: MUTED }}>Skip</button>
+                {!wait && !rowMore[bt.id] && <button type="button" onClick={() => { setRowMore((m) => ({ ...m, [bt.id]: true })); requestAnimationFrame(() => document.getElementById(`more-${bt.id}`)?.focus()); }} aria-label={`More for ${bt.merchant || bt.name}`} className={`${btn()} md:hidden`} style={btnStyle()}>More</button>}
               </div>
               {receiptFor === bt.id && (
                 <div className="mt-2 rounded-2xl p-3" style={{ background: SOFT }}>
@@ -322,8 +362,11 @@ export function BankScreen({ tenantId, firestore, actor }: { tenantId: string; f
             </div>
           );
         })}
+        {!allShown && n > FIRST && <div className="py-2" style={{ borderTop: `1px solid ${LINE}` }}>
+          <button type="button" onClick={() => setAllShown(true)} className={btn()} style={btnStyle()}>Show the other {n - FIRST}</button></div>}
       </section>
 
+      {more && <div id="bank-more" className={inBooks ? 'space-y-3' : 'space-y-5'}>
       <section aria-labelledby="auto-h" className={card} style={cardStyle}>
         <h2 id="auto-h" className="text-[17px] font-semibold">Sorted for you</h2>
         <p className="mb-1 text-[14px]" style={{ color: MUTED }}>The last 30 days. Change one and lines from that payee follow.</p>
@@ -391,6 +434,7 @@ export function BankScreen({ tenantId, firestore, actor }: { tenantId: string; f
           );
         })}
       </section>
+      </div>}
     </div>
   );
 }

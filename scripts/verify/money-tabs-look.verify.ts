@@ -111,7 +111,7 @@ const src = (f: string) => fs.readFileSync(f, 'utf8');
 
   console.log('the page');
   check('a link inside the page moves the tab (Books’ All reports), and Payday’s bills and Activity’s Reports switch tabs',
-    /if \(urlTab && VALID_TABS\.includes\(urlTab\) && urlTab !== activeTab\) handleTabChange\(urlTab\); \}, \[urlTab\]\)/.test(page)
+    /if \(urlTab && VALID_TABS\.includes\(urlTab\) && \(urlTab !== activeTab \|\| urlTab === 'bank'\)\) handleTabChange\(urlTab\); \}, \[urlTab\]\)/.test(page)
     && /<PaydayTab onNavigate=\{seesAll \? handleTabChange : undefined\} \/>/.test(page) && /<ActivityTab onNavigate=\{handleTabChange\} \/>/.test(page) && /onNavigate\('bills'\)/.test(page));
   {
     const rd = src('src/components/money/RefundDialog.tsx');

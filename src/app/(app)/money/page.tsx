@@ -82,6 +82,7 @@ import { cn, safeNumber } from '@/lib/utils';
 import { useFirebase, useUser, addDocumentNonBlocking, updateDocumentNonBlocking, useCollection, useMemoFirebase } from '@/firebase';
 import { resolveActiveStaffId } from '@/lib/staff-identity';
 import { AddTransactionDialog } from '@/components/ledger/AddTransactionDialog';
+import { MoneyTabs, panelId, tabId } from '@/components/money/MoneyTabs';
 import { staffAuthHeader } from '@/lib/staff-fetch';
 import { BadDebtAgingCard } from '@/components/ledger/BadDebtAgingCard';
 import { useToast } from '@/hooks/use-toast';
@@ -170,7 +171,7 @@ const useAuditActor = () => {
 
 const LedgerTab = () => {
   const { firestore } = useFirebase();
-  const { selectedTenant } = useTenant();
+  const { selectedTenant, role: ledgerRole } = useTenant() as any;
   const tenantId = selectedTenant?.id;
   const { toast } = useToast();
 
@@ -485,6 +486,7 @@ const LedgerTab = () => {
       <div className="mx-auto w-full max-w-[1180px] px-4 py-5 md:px-6">
         <OwedToClientsCard />
         <BooksScreen lines={filteredTransactions} byId={ledgerById} loading={isLoading} biz={selectedTenant} staff={staff || []} tenantId={tenantId || ''}
+          bank={tenantId && firestore && ledgerRole === 'owner' ? <BankScreen tenantId={tenantId} firestore={firestore} actor={auditActor} inBooks /> : null}
           filters={booksFilters} reports={reportsMenu} onNew={() => { setSnapOpen(false); setIsAddTxnOpen(true); }} onSnap={() => { setSnapOpen(true); setIsAddTxnOpen(true); }}
           onChangeCategory={changeCategory} onReceipt={attachReceipt} onPreviewReceipt={(t) => setPreviewTransaction(t)} onRefund={(t) => setTransactionToRefund(t)}
           onUndo={undoLine} isUndone={isUndone} onCorrect={correct} onDisputePack={disputePack}
@@ -536,22 +538,6 @@ const ReportsTab = () => {
     </div>
   );
 };
-
-/** The Bank tab: lines from the connected bank to sort, sorted for you, and matched (components/money/BankScreen). */
-const BankTab = () => {
-  const { firestore } = useFirebase();
-  const { selectedTenant } = useTenant();
-  const auditActor = useAuditActor();
-  const tenantId = selectedTenant?.id;
-  return (
-    <div className="mx-auto w-full max-w-[1180px] px-4 py-5 md:px-6" style={{ color: '#16171a' }}>
-      <h2 className="text-[24px] font-semibold leading-tight">Bank</h2>
-      <p className="mb-4 text-[14px]" style={{ color: '#6d7075' }}>Each line from your connected bank: sorted for you when it’s plain what it is, matched when it’s money already in your books, and the rest waiting for you with a category picked.</p>
-      <div>{tenantId && firestore && <BankScreen tenantId={tenantId} firestore={firestore} actor={auditActor} />}</div>
-    </div>
-  );
-};
-
 
 const PaydayTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => {
   const { billDefinitions, billInstances, staff, isLoading: ctxLoading, services } = useInventory();
@@ -1377,10 +1363,10 @@ const ActivityTab = ({ onNavigate }: { onNavigate?: (tab: HubTab) => void }) => 
 
 // ─── MoneyHubPage ─────────────────────────────────────────────────────────────
 
+// (The bank's lines are sorted at the top of Books: an address that asks for the Bank tab opens Books there.)
 const HUB_TABS: { key: HubTab; label: string }[] = [
   { key: 'overview', label: 'Overview' },
   { key: 'ledger',   label: 'Books' },
-  { key: 'bank',     label: 'Bank' },
   { key: 'payday',   label: 'Payday' },
   { key: 'bills',    label: 'Bills' },
   { key: 'writeoffs', label: 'Write-offs' },
@@ -1396,15 +1382,16 @@ function MoneyHubContent() {
   // /ledger, /bills, and /payday routes can redirect to the right tab.
   const searchParams = useSearchParams();
   const urlTab = searchParams.get('tab') as HubTab | null;
+  const tabOf = (t: HubTab | null): HubTab | null => (t === 'bank' ? 'ledger' : t);
   const [activeTab, setActiveTab] = useState<HubTab>(
-    urlTab && VALID_TABS.includes(urlTab) ? urlTab : 'overview'
+    urlTab && VALID_TABS.includes(urlTab) ? tabOf(urlTab)! : 'overview'
   );
 
   // v65 — perf: mount each tab only on first visit. Once visited it stays
   // mounted (hidden), so filters/state persist without paying the cost of
   // rendering five screens on page load.
   const [visitedTabs, setVisitedTabs] = useState<Set<HubTab>>(
-    () => new Set<HubTab>([urlTab && VALID_TABS.includes(urlTab) ? urlTab : 'overview'])
+    () => new Set<HubTab>([urlTab && VALID_TABS.includes(urlTab) ? tabOf(urlTab)! : 'overview'])
   );
 
   // v68 — "new activity" dot: a one-doc listener on the audit log lights a
@@ -1438,9 +1425,13 @@ function MoneyHubContent() {
   }, [latestAuditAt, seenAuditAt, activeTab]);
   const hasNewActivity = !!latestAuditAt && !!seenAuditAt && latestAuditAt !== seenAuditAt && activeTab !== 'activity';
 
-  const handleTabChange = (tab: HubTab) => {
+  const handleTabChange = (asked: HubTab) => {
+    // (The bank: Books, scrolled to its lines to sort.)
+    const toBank = asked === 'bank'; const tab = tabOf(asked)!;
     if (tab === 'payday' && !pays) return;
     if (tab === 'taxes' && !isOwner) return;
+    // (Kept trying for a few seconds, as a page opened from a link has Books to draw first.)
+    if (toBank && typeof window !== 'undefined') { let tries = 0; const go = () => { const el = document.getElementById('from-your-bank'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); else if (tries++ < 25) window.setTimeout(go, 200); }; window.setTimeout(go, 150); }
     setActiveTab(tab);
     setVisitedTabs(prev => (prev.has(tab) ? prev : new Set(prev).add(tab)));
     // Keep the URL shareable without triggering a Next.js navigation
@@ -1450,15 +1441,17 @@ function MoneyHubContent() {
   };
 
   // (A link inside the page that changes the address, such as Books' All reports, or the back button: the tab follows it.)
-  useEffect(() => { if (urlTab && VALID_TABS.includes(urlTab) && urlTab !== activeTab) handleTabChange(urlTab); }, [urlTab]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (urlTab && VALID_TABS.includes(urlTab) && (urlTab !== activeTab || urlTab === 'bank')) handleTabChange(urlTab); }, [urlTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // (How many of the bank's lines wait to be sorted, on the Bank tab and the overview: counted, never read, again when
   // the tab changes or the page is looked at again. The owner's to read, so for anyone else it isn't shown.)
   const [bankWaiting, setBankWaiting] = useState<number | null>(null);
   useEffect(() => {
     if (!hubFirestore || !hubTenantId || !seesAll) return; let on = true;
-    const count = () => getCountFromServer(query(collection(hubFirestore, `tenants/${hubTenantId}/bankTransactions`), where('status', '==', 'unmatched')))
-      .then((x: any) => { if (on) setBankWaiting(x.data().count); }).catch(() => {});
+    // (Lines still pending at the bank can't be sorted yet, so they aren't counted.)
+    const col = collection(hubFirestore, `tenants/${hubTenantId}/bankTransactions`);
+    const count = () => Promise.all([getCountFromServer(query(col, where('status', '==', 'unmatched'))), getCountFromServer(query(col, where('status', '==', 'unmatched'), where('pending', '==', true))).catch(() => null)])
+      .then(([all, wait]: any[]) => { if (on) setBankWaiting(Math.max(0, all.data().count - (wait ? wait.data().count : 0))); }).catch(() => {});
     count(); const vis = () => { if (document.visibilityState === 'visible') count(); };
     document.addEventListener('visibilitychange', vis);
     return () => { on = false; document.removeEventListener('visibilitychange', vis); };
@@ -1477,22 +1470,11 @@ function MoneyHubContent() {
     <div className="flex min-h-screen w-full flex-col overflow-x-hidden" style={{ background: '#f5f5f7' }}>
       <AppHeader title="Money" />
 
-      <nav aria-label="Money" className="sticky top-0 z-30 border-b px-4 py-2.5 backdrop-blur" style={{ background: 'rgba(245,245,247,0.94)', borderColor: '#ececee' }}>
-        <div className="mx-auto flex max-w-[1180px] gap-1.5 overflow-x-auto md:px-2">
-          {tabs.map(({ key, label }) => (
-            <button key={key} type="button" aria-current={activeTab === key ? 'page' : undefined} onClick={() => handleTabChange(key)}
-              className="relative flex min-h-[44px] shrink-0 items-center gap-1.5 rounded-full px-4 text-[14px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#16171a] focus-visible:ring-offset-2"
-              style={activeTab === key ? { background: '#16171a', color: '#fff', fontWeight: 600 } : { background: '#fff', color: '#16171a', border: '1px solid #ececee' }}>
-              {label}
-              {key === 'bank' && !!bankWaiting && <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full px-1.5 text-[12px] font-semibold" style={{ background: '#fff7ed', color: '#b45309' }}>{bankWaiting}</span>}
-              {key === 'activity' && hasNewActivity && <span className="h-2 w-2 rounded-full" style={{ background: '#b45309' }} aria-label="New activity" />}
-            </button>
-          ))}
-        </div>
-      </nav>
+      <MoneyTabs active={activeTab} onChange={(k) => handleTabChange(k as HubTab)} mounted={[...visitedTabs]}
+        tabs={tabs.map((t) => ({ ...t, ...(t.key === 'ledger' ? { count: bankWaiting } : {}), ...(t.key === 'activity' && hasNewActivity ? { dot: true, dotLabel: 'New activity' } : {}) }))} />
 
       <main className="flex-1 w-full">
-        {seesAll && visitedTabs.has('overview') && <div className={cn(activeTab !== 'overview' && 'hidden')}>
+        {seesAll && visitedTabs.has('overview') && <div role="tabpanel" id={panelId('overview')} aria-labelledby={tabId('overview')} tabIndex={-1} className={cn(activeTab !== 'overview' && 'hidden')}>
           <MoneyOverview bankCount={bankWaiting} onNavigate={(t) => handleTabChange(t as HubTab)} more={tenantId ? <>
             {isOwner && <OwnerTaxDueCard tenantId={tenantId} onOpen={() => handleTabChange('taxes')} />}
             <MonthCloseCard tenantId={tenantId} />
@@ -1502,14 +1484,13 @@ function MoneyHubContent() {
             <TipShareCard tenantId={tenantId} mode={String((hubTenant as any)?.tipSharing?.mode || 'direct')} period={(hubTenant as any)?.tipSharing?.period === 'week' ? 'week' : 'day'} />
           </> : null} />
         </div>}
-        {seesAll && visitedTabs.has('ledger')   && <div className={cn(activeTab !== 'ledger'   && 'hidden')}><LedgerTab /></div>}
-        {seesAll && visitedTabs.has('bank')     && <div className={cn(activeTab !== 'bank'     && 'hidden')}><BankTab /></div>}
-        {pays && visitedTabs.has('payday')   && <div className={cn(activeTab !== 'payday'   && 'hidden')}><PaydayTab onNavigate={seesAll ? handleTabChange : undefined} /></div>}
-        {seesAll && visitedTabs.has('bills')    && <div className={cn(activeTab !== 'bills'    && 'hidden')}><BillsTab /></div>}
-        {isOwner && visitedTabs.has('taxes') && tenantId && <div className={cn(activeTab !== 'taxes' && 'hidden')}><OwnerTaxes tenantId={tenantId} onWriteOffs={() => handleTabChange('writeoffs')} /></div>}
-        {seesAll && visitedTabs.has('writeoffs') && tenantId && <div className={cn(activeTab !== 'writeoffs' && 'hidden')}><WriteOffsScreen tenantId={tenantId} canLog={can('money.manage')} business={String((hubTenant as any)?.name || '')} actor={writeOffsActor} /></div>}
-        {seesAll && visitedTabs.has('reports')  && <div className={cn(activeTab !== 'reports'  && 'hidden')}><ReportsTab /></div>}
-        {seesAll && visitedTabs.has('activity') && <div className={cn(activeTab !== 'activity' && 'hidden')}><ActivityTab onNavigate={handleTabChange} /></div>}
+        {seesAll && visitedTabs.has('ledger')   && <div role="tabpanel" id={panelId('ledger')} aria-labelledby={tabId('ledger')} tabIndex={-1} className={cn(activeTab !== 'ledger'   && 'hidden')}><LedgerTab /></div>}
+        {pays && visitedTabs.has('payday')   && <div role="tabpanel" id={panelId('payday')} aria-labelledby={tabId('payday')} tabIndex={-1} className={cn(activeTab !== 'payday'   && 'hidden')}><PaydayTab onNavigate={seesAll ? handleTabChange : undefined} /></div>}
+        {seesAll && visitedTabs.has('bills')    && <div role="tabpanel" id={panelId('bills')} aria-labelledby={tabId('bills')} tabIndex={-1} className={cn(activeTab !== 'bills'    && 'hidden')}><BillsTab /></div>}
+        {isOwner && visitedTabs.has('taxes') && tenantId && <div role="tabpanel" id={panelId('taxes')} aria-labelledby={tabId('taxes')} tabIndex={-1} className={cn(activeTab !== 'taxes' && 'hidden')}><OwnerTaxes tenantId={tenantId} onWriteOffs={() => handleTabChange('writeoffs')} /></div>}
+        {seesAll && visitedTabs.has('writeoffs') && tenantId && <div role="tabpanel" id={panelId('writeoffs')} aria-labelledby={tabId('writeoffs')} tabIndex={-1} className={cn(activeTab !== 'writeoffs' && 'hidden')}><WriteOffsScreen tenantId={tenantId} canLog={can('money.manage')} business={String((hubTenant as any)?.name || '')} actor={writeOffsActor} /></div>}
+        {seesAll && visitedTabs.has('reports')  && <div role="tabpanel" id={panelId('reports')} aria-labelledby={tabId('reports')} tabIndex={-1} className={cn(activeTab !== 'reports'  && 'hidden')}><ReportsTab /></div>}
+        {seesAll && visitedTabs.has('activity') && <div role="tabpanel" id={panelId('activity')} aria-labelledby={tabId('activity')} tabIndex={-1} className={cn(activeTab !== 'activity' && 'hidden')}><ActivityTab onNavigate={handleTabChange} /></div>}
       </main>
     </div>
   );

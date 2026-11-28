@@ -134,6 +134,8 @@ export function BooksScreen(p: {
   filters: BooksFilters; reports: React.ReactNode; onNew: () => void;
   /** Snap a receipt: Add a line with the photo first, filled in from it. */
   onSnap?: () => void;
+  /** The bank's lines to sort (components/money/BankScreen, inBooks), above the books' own. */
+  bank?: React.ReactNode;
   onChangeCategory: (t: any, category: string) => Promise<boolean>; onReceipt: (t: any, url: string) => Promise<boolean>;
   onPreviewReceipt: (t: any) => void; onRefund: (t: any) => void; onUndo: (t: any) => Promise<boolean | string>;
   onCorrect: (t: any, lines: any[], summary: string) => Promise<boolean>; onDisputePack?: (t: any) => void;
@@ -144,6 +146,9 @@ export function BooksScreen(p: {
 }) {
   const { lines, byId, filters: f } = p;
   const [openId, setOpenId] = React.useState(''); const [shown, setShown] = React.useState(PAGE);
+  // (On a phone the filters fold under one button, saying how many are on.)
+  const [filtersOpen, setFiltersOpen] = React.useState(false);
+  const filtersOn = (f.preset !== '30days' ? 1 : 0) + (f.way !== 'all' ? 1 : 0) + (f.books !== 'all' ? 1 : 0) + (f.category !== 'all' ? 1 : 0);
   // (Back to the first lines when the filters change, never when a new line comes in.)
   React.useEffect(() => setShown(PAGE), [f.preset, f.search, f.way, f.books, f.category, f.from?.getTime(), f.to?.getTime()]); // eslint-disable-line react-hooks/exhaustive-deps
   const undone = React.useMemo(() => undoneIn(byId), [byId]);
@@ -164,12 +169,21 @@ export function BooksScreen(p: {
     <div style={{ color: INK }}>
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0"><h1 className="text-[24px] font-semibold leading-tight">Books</h1>
-          <p className="text-[14px]" style={{ color: MUTED }}>Every sale, cost and move of money, kept for you</p></div>
-        <div className="flex flex-wrap gap-2">{p.reports}{p.onSnap && <button type="button" onClick={p.onSnap} className={btn} style={{ background: '#fff', color: INK, border: `1px solid ${INK}` }}>Snap a receipt</button>}<button type="button" onClick={p.onNew} className={btn} style={solid}>New entry</button></div>
+          <p className="text-[14px]" style={{ color: MUTED }}>Every sale, cost and move of money, with what comes in from your bank</p></div>
+        <div className="flex w-full flex-wrap gap-2 sm:w-auto">
+          <span className="order-3 w-full sm:order-none sm:w-auto">{p.reports}</span>
+          {p.onSnap && <button type="button" onClick={p.onSnap} className={`${btn} flex-1 sm:flex-none`} style={{ background: '#fff', color: INK, border: `1px solid ${INK}` }}>Snap a receipt</button>}
+          <button type="button" onClick={p.onNew} className={`${btn} flex-1 sm:flex-none`} style={solid}>New entry</button>
+        </div>
       </div>
 
+      {p.bank && <div id="from-your-bank" className="mb-4 scroll-mt-20">{p.bank}</div>}
+
       <div className="mb-4 flex flex-wrap items-center gap-2 rounded-3xl bg-[#fff] p-3" style={{ border: `1px solid ${LINE}` }}>
-        <input value={f.search} onChange={(e) => f.setSearch(e.target.value)} placeholder="Find a name or a note" aria-label="Find" className={`${field} min-w-[180px] flex-1`} style={{ border: `1px solid ${LINE}` }} />
+        <input value={f.search} onChange={(e) => f.setSearch(e.target.value)} placeholder="Find a name or a note" aria-label="Find" className={`${field} min-w-[160px] flex-1`} style={{ border: `1px solid ${LINE}` }} />
+        <button type="button" onClick={() => setFiltersOpen((o) => !o)} aria-expanded={filtersOpen} aria-controls="books-filters" className={`${btn} md:hidden`} style={filtersOn ? solid : { background: '#fff', color: INK, border: `1px solid ${LINE}` }}>
+          Filters{filtersOn ? `, ${filtersOn}` : ''}</button>
+        <div id="books-filters" className={`${filtersOpen ? 'flex' : 'hidden'} w-full flex-col gap-2 md:flex md:w-auto md:flex-row md:flex-wrap md:items-center`}>
         <label className="inline-flex items-center gap-2 text-[14px]" style={{ color: MUTED }}>Dates
           <select value={f.preset} onChange={(e) => f.setPreset(e.target.value)} className={field} style={{ border: `1px solid ${LINE}`, color: INK }}>
             {[['today', 'Today'], ['7days', 'Last 7 days'], ['30days', 'Last 30 days'], ['thisMonth', 'This month'], ['lastMonth', 'Last month'], ['custom', 'Pick dates']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
@@ -187,6 +201,7 @@ export function BooksScreen(p: {
         <label className="inline-flex items-center gap-2 text-[14px]" style={{ color: MUTED }}>Category
           <select value={f.category} onChange={(e) => f.setCategory(e.target.value)} className={`${field} max-w-[200px]`} style={{ border: `1px solid ${LINE}`, color: INK }}>
             <option value="all">All categories</option>{f.categories.map((c) => <option key={c} value={c}>{c}</option>)}</select></label>
+        </div>
       </div>
 
       <div className={open ? 'md:grid md:grid-cols-[minmax(0,1fr)_360px] md:items-start md:gap-5' : ''}>
@@ -277,7 +292,7 @@ function LineDetail(p: React.ComponentProps<typeof BooksScreen> & { t: any; undo
       {row('Entered by', t.enteredBy && t.enteredBy !== staff?.name ? String(t.enteredBy) : '')}
       {row('From', links.length ? <span className="flex flex-col gap-1">{links}</span> : null)}
 
-      {(t.reconciled || t.bankTransactionId) && <p className="mt-2 text-[14px]" style={{ color: MUTED }}>{t.sortedBy === 'bank' || t.autoCategorized ? 'Booked from your bank and sorted for you. Change it on the Bank page and lines from that payee follow.' : `Matched to your bank${t.reconciledAt ? ` on ${shortDay(t.reconciledAt)}` : ''}, so it’s counted once.`}</p>}
+      {(t.reconciled || t.bankTransactionId) && <p className="mt-2 text-[14px]" style={{ color: MUTED }}>{t.sortedBy === 'bank' || t.autoCategorized ? 'Booked from your bank and sorted for you. Change it under From your bank, Sorted and matched, at the top of Books, and lines from that payee follow.' : `Matched to your bank${t.reconciledAt ? ` on ${shortDay(t.reconciledAt)}` : ''}, so it’s counted once.`}</p>}
       {t.refundedAt && <p className="mt-2 text-[14px]" style={{ color: MUTED }}>Refunded on {shortDay(t.refundedAt)}.</p>}
       {undone && <p className="mt-2 text-[14px]" style={{ color: MUTED }}>Undone: a line taking it back is in your books.</p>}
       {note && <p role="status" className="mt-2 text-[14px] font-medium" style={{ color: GREEN }}>{note}</p>}

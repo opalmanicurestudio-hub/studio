@@ -35,11 +35,13 @@ export async function monthView(db: any, tenantId: string, tenant: any, m: strin
   const lines = snap.docs.map((d: any) => ({ id: d.id, ...(d.data() || {}) })).filter((t: any) => { const d = lineDay(t, tz); return d >= start && d <= end; });
   const s = booksSummary(lines, { businessOnly: true });
   const checks: CloseCheck[] = [];
-  // Bank lines from the month still waiting in the inbox.
-  const bank = ((await db.collection(`${T}/bankTransactions`).where('status', '==', 'unmatched').limit(3000).get().catch(() => ({ docs: [] as any[] }))).docs as any[])
+  // Bank lines from the month still waiting in the inbox (one still pending at the bank can't be sorted yet: said, not
+  // counted against the month), sorted at the top of Books.
+  const waiting = ((await db.collection(`${T}/bankTransactions`).where('status', '==', 'unmatched').limit(3000).get().catch(() => ({ docs: [] as any[] }))).docs as any[])
     .map((d: any) => d.data() || {}).filter((b: any) => { const d = String(b.date || '').slice(0, 10); return d >= start && d <= end; });
-  checks.push(bank.length ? { id: 'bank', ok: false, title: `${bank.length} bank line${bank.length === 1 ? '' : 's'} still to sort`, detail: 'Each has a category picked, waiting for you', href: '/money?tab=bank' }
-    : { id: 'bank', ok: true, title: 'Every bank line is sorted', detail: 'Matched or booked' });
+  const bank = waiting.filter((b: any) => !b.pending); const stillPending = waiting.length - bank.length;
+  checks.push(bank.length ? { id: 'bank', ok: false, title: `${bank.length} bank line${bank.length === 1 ? '' : 's'} still to sort`, detail: 'Each has a category picked, waiting at the top of Books', href: '/money?tab=bank' }
+    : { id: 'bank', ok: true, title: 'Every bank line is sorted', detail: stillPending ? `Matched or booked. ${stillPending} still pending at the bank.` : 'Matched or booked' });
   // Checks and desk sales with money taken but never closed (lib/night-close-server): not in the books until they are.
   const taken = (pc: any) => String(pc.status) === 'paid_waiting' ? Math.round(num(pc.paidCents))
     : Math.round((Array.isArray(pc.tenders) ? pc.tenders : []).filter((x: any) => x && !x.refundedAt).reduce((n: number, x: any) => n + num(x.amount) + num(x.tip), 0) * 100);

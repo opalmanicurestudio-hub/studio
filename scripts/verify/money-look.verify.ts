@@ -26,13 +26,14 @@ check('the period runs to the end of the month or year, and today moves on while
 check('the latest lines in the books, and the way to all of them', /Latest in your books/.test(ov) && /See everything/.test(ov));
 
 console.log('the page');
-check('the tabs: Overview, Books, Bank, Payday, Bills, Write-offs, Taxes (the owner’s), Reports, Activity', /\{ key: 'ledger',\s+label: 'Books' \}/.test(page) && /\{ key: 'bank',\s+label: 'Bank' \}/.test(page) && /\{ key: 'writeoffs', label: 'Write-offs' \}/.test(page) && /\{ key: 'taxes',\s+label: 'Taxes' \}/.test(page) && /VALID_TABS: HubTab\[\] = \['overview', 'ledger', 'bank', 'payday', 'bills', 'writeoffs', 'taxes', 'reports', 'activity'\]/.test(page));
-check('the Bank tab has the bank’s lines, with how many wait counted once for the tab and the overview (never every line read)', /const BankTab = \(\) =>/.test(page) && /<BankScreen tenantId=\{tenantId\}/.test(page) && /key === 'bank' && !!bankWaiting/.test(page)
-  && /getCountFromServer\(query\(collection\(hubFirestore, `tenants\/\$\{hubTenantId\}\/bankTransactions`\)/.test(page) && /bankCount=\{bankWaiting\}/.test(page) && !/getCountFromServer/.test(ov));
+check('the tabs: Overview, Books (with the bank in it), Payday, Bills, Write-offs, Taxes (the owner’s), Reports, Activity; an address asking for Bank opens Books', /\{ key: 'ledger',\s+label: 'Books' \}/.test(page) && !/\{ key: 'bank',\s+label: 'Bank' \}/.test(page) && /\{ key: 'writeoffs', label: 'Write-offs' \}/.test(page) && /\{ key: 'taxes',\s+label: 'Taxes' \}/.test(page) && /VALID_TABS: HubTab\[\] = \['overview', 'ledger', 'bank', 'payday', 'bills', 'writeoffs', 'taxes', 'reports', 'activity'\]/.test(page)
+  && /const tabOf = \(t: HubTab \| null\): HubTab \| null => \(t === 'bank' \? 'ledger' : t\);/.test(page));
+check('Books has the bank’s lines, with how many wait counted once for the Books tab and the overview (never every line read)', !/const BankTab = \(\) =>/.test(page) && /bank=\{tenantId && firestore && ledgerRole === 'owner' \? <BankScreen tenantId=\{tenantId\} firestore=\{firestore\} actor=\{auditActor\} inBooks \/> : null\}/.test(page) && /t\.key === 'ledger' \? \{ count: bankWaiting \}/.test(page)
+  && /const col = collection\(hubFirestore, `tenants\/\$\{hubTenantId\}\/bankTransactions`\);/.test(page) && /getCountFromServer\(query\(col, where\('status', '==', 'unmatched'\)\)\)/.test(page) && /bankCount=\{bankWaiting\}/.test(page) && !/getCountFromServer/.test(ov));
 check('the overview carries the page’s own cards after it', /<MoneyOverview bankCount=\{bankWaiting\} onNavigate=/.test(page) && /<MonthCloseCard tenantId=\{tenantId\} \/>/.test(page) && /<AppPayoutsCard tenantId=\{tenantId\} \/>/.test(page) && /<MilesCard tenantId=\{tenantId\} \/>/.test(page));
 check('the old overview is gone', !/const OverviewTab = /.test(page) && !/Money Overview/.test(page) && /<AppHeader title="Money" \/>/.test(page));
-const shell = page.slice(page.indexOf('<nav aria-label="Money"'), page.indexOf('</main>', page.indexOf('<nav aria-label="Money"')));
-check('the new screens keep the house style (no shouting labels, no dots between words, 44px targets)', !/\buppercase\b|font-black|\{\/\*| · |[Cc]all us|[Cc]ontact us|\b(salon|stylist|booth|chair|studio)\b/.test(ov + shell + page.slice(page.indexOf('const BankTab')))
+const shell = fs.readFileSync('src/components/money/MoneyTabs.tsx', 'utf8') + page.slice(page.indexOf('<MoneyTabs'), page.indexOf('</main>', page.indexOf('<MoneyTabs')));
+check('the new screens keep the house style (no shouting labels, no dots between words, 44px targets)', !/\buppercase\b|font-black|\{\/\*| · |[Cc]all us|[Cc]ontact us|\b(salon|stylist|booth|chair|studio)\b/.test(ov + shell + page.slice(page.indexOf('const PaydayTab')))
   && /min-h-\[44px\]/.test(shell));
 
 console.log(failures ? `\n${failures} failed` : '\nall passed');

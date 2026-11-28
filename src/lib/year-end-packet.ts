@@ -78,7 +78,7 @@ export function yearItems(g: { year: number; s: any; bankWaiting: number | null;
     : { key: 'unsorted', state: 'ok', title: 'Every line has a category', sub: `In the books for ${y}.` });
   // (More waiting than could be read: never said to be done.)
   if (g.bankWaiting != null && g.bankCapped) out.push({ key: 'bank', state: 'todo', title: g.bankWaiting ? `At least ${plural(g.bankWaiting, 'bank line')} to sort` : 'Bank lines to check',
-    sub: 'More lines are waiting from your bank than can be counted here. Open Bank to see them all.', href: '/money?tab=bank' });
+    sub: 'More lines are waiting from your bank than can be counted here. Open Books to see them all.', href: '/money?tab=bank' });
   else if (g.bankWaiting != null) out.push(g.bankWaiting ? { key: 'bank', state: 'todo', title: `${plural(g.bankWaiting, 'bank line')} to sort`, sub: 'From your bank, waiting to be matched or added to the books.', href: '/money?tab=bank' }
     : { key: 'bank', state: 'ok', title: 'Nothing waiting from the bank', sub: 'Every bank line is matched or added.' });
   if (g.wo?.found) {
