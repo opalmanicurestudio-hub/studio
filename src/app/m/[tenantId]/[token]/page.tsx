@@ -1,7 +1,7 @@
 'use client';
 // src/app/m/[tenantId]/[token]/page.tsx — "COULD YOU COME EARLIER?" (design canvas TD1). A provider is tidying their
 // day and asked this client to move up (or, for a light day, to another day). One tap yes, or keep their time. Their
-// time stays theirs until everyone asked has said yes — then it's confirmed by text. Never names anyone else.
+// time moves as soon as they say yes, and it's confirmed by text. Never names anyone else.
 // /api/tidy/answer, lib/tidy-server.
 import * as React from 'react';
 import { useParams } from 'next/navigation';

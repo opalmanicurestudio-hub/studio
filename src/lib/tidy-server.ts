@@ -132,43 +132,61 @@ export async function clearPlans(db: any, t: string, staffId: string, now = Date
 }
 
 // ── Asking ───────────────────────────────────────────────────────────────────────────
-const askSummary = (_tz: string, _now: number) => (a: any) => ({ id: a.id, kind: a.kind, date: a.date, status: a.status, why: a.why || null, deadline: a.deadline, finishLabel: a.finishLabel || null,
-  moves: (a.moves || []).map((m: any) => ({ name: m.name, fromLabel: m.fromLabel, toLabel: m.toLabel, answer: m.answer })), when: a.createdAt, dayFreed: a.kind === 'clear' ? a.dayLabel : null, blocked: !!a.dayBlocked, staffName: first(a.staffName), staffId: a.staffId });
+const askSummary = (_tz: string, _now: number) => (a: any) => ({ id: a.id, tz: _tz, kind: a.kind, date: a.date, status: a.status, why: a.why || null, deadline: a.deadline, finishLabel: a.finishLabel || null,
+  moves: (a.moves || []).map((m: any, i: number) => ({ name: m.name, fromLabel: m.fromLabel, toLabel: m.toLabel, answer: m.answer, moved: !!m.movedAt, asking: a.status === 'asking' && (a.oneAtATime ? a.cur === i : !m.answer) })), oneAtATime: !!a.oneAtATime, movedCount: (a.moves || []).filter((m: any) => m.movedAt || (a.status === 'done' && !a.oneAtATime)).length, when: a.createdAt, dayFreed: a.kind === 'clear' ? a.dayLabel : null, blocked: !!a.dayBlocked, staffName: first(a.staffName), staffId: a.staffId });
 
 /** The provider taps "Ask": the plan is worked out again here (never trusted from the browser), then only its people are texted. */
 export async function askTidy(db: any, t: string, actor: { staffId: string; name: string }, o: { staffId: string; date?: string | null; key: string; kind?: 'day' | 'clear' }, now = Date.now(), d: Deps = {}) {
-  const D = await deps(d); const tenant = (await db.doc(T(t)).get()).data() || {}; const tz = await zoneOf(tenant); const S = settingsOf(tenant, o.staffId);
+  const D = await deps(d); const tenant = (await db.doc(T(t)).get()).data() || {}; const tz = await zoneOf(tenant);
   let plan: any = null, date = o.date || '';
   if (o.kind === 'clear') { const c = await clearPlans(db, t, o.staffId, now, d); plan = c.days.find((x: any) => x.key === o.key); date = plan?.date || ''; }
   else { const p = await tidyPlans(db, t, o.staffId, o.date || null, now, d); plan = p.plans.find((x: any) => x.key === o.key); date = p.date; }
   if (!plan) return { ok: false, error: 'This plan is no longer possible because the day has changed. Here are the options that work now.' };
   const live = rows(await db.collection(`${T(t)}/tidyAsks`).where('staffId', '==', o.staffId).get()).find((a: any) => a.status === 'asking' && a.date === date);
   if (live) return { ok: false, error: 'You are already asking clients about this day. Please wait for their answers, or cancel that request first.' };
-  const { linkOrigin } = await import('@/lib/app-origin'); const base = linkOrigin(tenant, ''); if (!base) return { ok: false, error: 'Please set your app’s web address first (Settings → Business), so the text can include a link.' };
+  const { linkOrigin } = await import('@/lib/app-origin'); if (!linkOrigin(tenant, '')) return { ok: false, error: 'Please set your app’s web address first (Settings → Business), so the text can include a link.' };
   const staff = (await db.doc(`${T(t)}/staff/${o.staffId}`).get()).data() || {};
-  const earliest = Math.min(...plan.moves.map((m: Move) => m.to));
-  // Long enough to answer; short enough that whoever moves still has time to get here.
-  const deadline = o.kind === 'clear' ? Math.max(now + 2 * H, Math.min(now + 24 * H, earliest - 12 * H)) : Math.max(now + 10 * MIN, Math.min(now + 30 * MIN, earliest - 45 * MIN));
   const ref = db.collection(`${T(t)}/tidyAsks`).doc(); const moves: any[] = [];
+  // In the plan's order: the first fills the gap, and each one after fills the time the one before left. Every move fits
+  // on its own once the ones before it are made, so each yes can be final.
   for (const [i, m] of plan.moves.entries()) {
     const a: any = (await db.doc(`${T(t)}/appointments/${m.id}`).get()).data() || {}; const cl: any = a.clientId ? ((await db.doc(`${T(t)}/clients/${a.clientId}`).get()).data() || {}) : {};
-    moves.push({ apptId: m.id, from: iso(m.from), to: iso(m.to), name: a.clientName || '', phone: String(a.clientPhone || cl.phone || cl.phoneNumber || ''), clientId: a.clientId || null, service: String(a.serviceName || ''),
-      fromLabel: o.kind === 'clear' ? when(m.from, tz, now) : clock(m.from, tz), toLabel: o.kind === 'clear' ? when(m.to, tz, now) : clock(m.to, tz), token: `${ref.id}.${i}.${randomBytes(9).toString('base64url')}`, answer: null,
+    moves.push({ apptId: m.id, from: iso(m.from), to: iso(m.to), name: a.clientName || '', phone: String(a.clientPhone || cl.phone || cl.phoneNumber || ''), clientId: a.clientId || null, service: String(a.serviceName || ''), serviceId: a.serviceId || null,
+      fromLabel: o.kind === 'clear' ? when(m.from, tz, now) : clock(m.from, tz), toLabel: o.kind === 'clear' ? when(m.to, tz, now) : clock(m.to, tz), token: `${ref.id}.${i}.${randomBytes(9).toString('base64url')}`, answer: null, askedAt: null, movedAt: null,
       dur: Math.round((ms(a.endTime) - ms(a.startTime)) / MIN) || 60, padBefore: Number(a.padBefore) || 0, padAfter: Number(a.padAfter) || 0, noText: !!(cl.smsOptOut || cl.smsConsent === false) });
   }
   { const { budgetLeft } = await import('@/lib/text-budget'); for (const m of moves) if (m.phone && (await budgetLeft(db, t, m.phone, 'tidy_ask', now)) <= 0) return { ok: false, error: `${first(m.name)} has already received texts from us today. Please call them, or choose another plan.` }; }
   if (moves.some((m) => !m.phone || m.noText)) return { ok: false, error: `${first(moves.find((m) => !m.phone || m.noText)!.name)} cannot be texted (there is no mobile number on file, or they have opted out of texts). Please call them, or choose another plan.` };
-  await ref.set({ id: ref.id, kind: o.kind === 'clear' ? 'clear' : 'day', staffId: o.staffId, staffName: staff.name || '', date, dayLabel: plan.dayLabel || null, moves, status: 'asking', deadline: iso(deadline), createdAt: iso(now), askedBy: actor.name, finishLabel: plan.finishLabel || null });
-  // Hold every target time until the deadline, so nobody else books it while they answer.
-  for (const [i, m] of moves.entries()) await db.doc(`${T(t)}/staffBlocks/tidy_${ref.id}_${i}`).set({ staffId: o.staffId, startTime: iso(ms(m.to) - m.padBefore * MIN), duration: m.dur + m.padBefore + m.padAfter, reason: 'tidy_hold', label: 'Held while a client is asked to move', until: iso(deadline), tidyAskId: ref.id, createdAt: iso(now) });
-  const { spendBudget } = await import('@/lib/text-budget');
-  for (const m of moves) await spendBudget(db, t, m.phone, 'tidy_ask', now).catch(() => {});
-  for (const m of moves) { const same = o.kind !== 'clear' && dayWord(ms(m.to), tz, now) === 'today' && dayWord(ms(m.from), tz, now) === 'today';   // "come at 1:00 PM instead of 4:30 PM" today; the day named otherwise
-    await D.send(db, t, m.phone, askText({ first: first(m.name), provider: firstOr(staff.name), to: same ? clock(ms(m.to), tz) : dayAt(ms(m.to), tz, now), from: same ? clock(ms(m.from), tz) : dayAt(ms(m.from), tz, now), service: m.service.toLowerCase(), link: `${base}/m/${encodeURIComponent(t)}/${m.token}`, sameDay: same, by: dayWord(deadline, tz, now) === 'today' ? clock(deadline, tz) : when(deadline, tz, now) }), undefined, { kind: 'tidy_ask', recipientType: 'client', recipientId: m.clientId || undefined, recipientName: m.name || undefined }); }
+  const ask: any = { id: ref.id, kind: o.kind === 'clear' ? 'clear' : 'day', staffId: o.staffId, staffName: staff.name || '', date, dayLabel: plan.dayLabel || null, moves, status: 'asking', cur: 0, deadline: null, createdAt: iso(now), askedBy: actor.name, finishLabel: plan.finishLabel || null, oneAtATime: true };
+  await ref.set(ask);
   // A gap the waitlist was waiting on: it's being tidied now.
   for (const op of rows(await db.collection(`${T(t)}/openings`).where('status', '==', 'open').get()).filter((x: any) => x.staffId === o.staffId && moves.some((m) => ms(m.to) < ms(x.end) && ms(m.to) + m.dur * MIN > ms(x.start))))
     await db.doc(`${T(t)}/openings/${op.id}`).set({ decided: 'tidy', tidyAskId: ref.id }, { merge: true });
-  return { ok: true, askId: ref.id, deadline: iso(deadline) };
+  const first0 = await askStep(db, t, ask, 0, now, D, tenant);
+  if (!first0.ok) { await stop(db, t, ref.id, 'failed', `${first(moves[0].name)} couldn’t be texted`, now, d); return { ok: false, error: first0.error === 'closed' ? 'This request was closed before it could be sent. Please try again.' : first0.error }; }
+  return { ok: true, askId: ref.id, deadline: first0.deadline };
+}
+/** Long enough to answer; short enough that whoever moves still has time to get here. */
+const deadlineFor = (kind: string, to: number, now: number) => (kind === 'clear' ? Math.max(now + 2 * H, Math.min(now + 24 * H, to - 12 * H)) : Math.max(now + 10 * MIN, Math.min(now + 30 * MIN, to - 45 * MIN)));
+/** Ask one person: hold her new time until she answers, then text her. */
+async function askStep(db: any, t: string, ask: any, i: number, now: number, D: any, tenant?: any): Promise<{ ok: boolean; deadline?: string; error?: string }> {
+  tenant = tenant || (await db.doc(T(t)).get()).data() || {}; const tz = await zoneOf(tenant); const m = ask.moves[i];
+  const { budgetLeft, spendBudget } = await import('@/lib/text-budget');
+  if ((await budgetLeft(db, t, m.phone, 'tidy_ask', now)) <= 0) return { ok: false, error: `${first(m.name)} has already received texts from us today.` };
+  const { linkOrigin } = await import('@/lib/app-origin'); const base = linkOrigin(tenant, '');
+  const deadline = deadlineFor(ask.kind, ms(m.to), now); const ref = db.doc(`${T(t)}/tidyAsks/${ask.id}`);
+  // Only while the ask is still open (a cancel or the overnight check may have closed it a moment ago).
+  const claimed = await db.runTransaction(async (tx: any) => { const a: any = (await tx.get(ref)).data() || {}; if (a.status !== 'asking' || (i > 0 && !a.moves?.[i - 1]?.movedAt) || a.moves?.[i]?.askedAt) return null;
+    const moves = a.moves.map((x: any, j: number) => (j === i ? { ...x, askedAt: iso(now) } : x));
+    tx.update(ref, { cur: i, deadline: iso(deadline), moves });
+    tx.set(db.doc(`${T(t)}/staffBlocks/tidy_${ask.id}_${i}`), { staffId: ask.staffId, startTime: iso(ms(m.to) - m.padBefore * MIN), duration: m.dur + m.padBefore + m.padAfter, reason: 'tidy_hold', label: 'Held while a client is asked to move', until: iso(deadline), tidyAskId: ask.id, createdAt: iso(now) });
+    return moves; });
+  if (!claimed) return { ok: false, error: 'closed' };
+  ask.moves = claimed; ask.cur = i; ask.deadline = iso(deadline);
+  await spendBudget(db, t, m.phone, 'tidy_ask', now).catch(() => {});
+  const same = ask.kind !== 'clear' && dayWord(ms(m.to), tz, now) === 'today' && dayWord(ms(m.from), tz, now) === 'today';   // "come at 1:00 PM instead of 4:30 PM" today; the day named otherwise
+  await D.send(db, t, m.phone, askText({ first: first(m.name), provider: firstOr(ask.staffName), to: same ? clock(ms(m.to), tz) : dayAt(ms(m.to), tz, now), from: same ? clock(ms(m.from), tz) : dayAt(ms(m.from), tz, now), service: String(m.service || '').toLowerCase(), link: `${base}/m/${encodeURIComponent(t)}/${m.token}`, sameDay: same, by: dayWord(deadline, tz, now) === 'today' ? clock(deadline, tz) : when(deadline, tz, now) }), undefined, { kind: 'tidy_ask', recipientType: 'client', recipientId: m.clientId || undefined, recipientName: m.name || undefined });
+  return { ok: true, deadline: iso(deadline) };
 }
 
 async function byToken(db: any, t: string, token: string) {
@@ -178,21 +196,64 @@ async function byToken(db: any, t: string, token: string) {
 }
 export async function tidyView(db: any, t: string, token: string, now = Date.now()) {
   const x = await byToken(db, t, token); if (!x) return { ok: false, error: 'We’re sorry, this link is no longer valid.' };
-  const tenant = (await db.doc(T(t)).get()).data() || {}; const tz = await zoneOf(tenant); const { ask, m } = x;
-  const state = ask.status === 'done' ? (m.answer === 'yes' ? 'moved' : 'done') : ask.status !== 'asking' ? 'nochange' : m.answer || (ms(ask.deadline) <= now ? 'nochange' : 'open');
-  return { ok: true, state, business: String(tenant.name || ''), provider: firstOr(ask.staffName), service: m.service, to: m.toLabel, from: m.fromLabel, day: dayWord(ms(m.to), tz, now), sameDay: ask.kind !== 'clear', minutes: m.dur };
+  const tenant = (await db.doc(T(t)).get()).data() || {}; const tz = await zoneOf(tenant); const { ask, m, i } = x;
+  const asked = ask.oneAtATime ? ask.cur === i && !!m.askedAt : true;
+  const state = m.movedAt || (ask.status === 'done' && !ask.oneAtATime && m.answer === 'yes') ? 'moved' : ask.status !== 'asking' || !asked ? (m.answer === 'no' ? 'kept' : 'nochange') : m.answer || (ms(ask.deadline) <= now ? 'nochange' : 'open');
+  const same = ask.kind !== 'clear' && dayWord(ms(m.to), tz, now) === 'today';
+  return { ok: true, state, business: String(tenant.name || ''), provider: firstOr(ask.staffName), service: m.service, to: same ? m.toLabel : dayAt(ms(m.to), tz, now), from: same ? m.fromLabel : dayAt(ms(m.from), tz, now), day: dayWord(ms(m.to), tz, now), sameDay: same, minutes: m.dur };
 }
-/** Yes / keep my time. Everyone yes → every move at once; any no → nobody moves. */
+/** Yes / keep my time. One person at a time: a yes is final straight away, then the next person is asked; a no (or no
+ *  answer) stops it there, and nobody who already moved is ever told "never mind". */
 export async function tidyAnswer(db: any, t: string, token: string, yes: boolean, now = Date.now(), d: Deps = {}) {
   const x = await byToken(db, t, token); if (!x) return { ok: false, error: 'We’re sorry, this link is no longer valid.' };
   const ref = db.doc(`${T(t)}/tidyAsks/${x.ask.id}`);
-  const r = await db.runTransaction(async (tx: any) => { const s = await tx.get(ref); const ask: any = { id: s.id, ...(s.data() || {}) };
-    if (ask.status !== 'asking') return { ok: true, closed: ask.status }; if (ms(ask.deadline) <= now) return { ok: true, closed: 'late' };
-    const moves = ask.moves.map((m: any, i: number) => (i === x.i ? { ...m, answer: yes ? 'yes' : 'no', answeredAt: iso(now) } : m)); tx.update(ref, { moves }); return { ok: true, ask: { ...ask, moves } }; });
-  if ((r as any).closed) return { ok: true, state: (r as any).closed === 'done' ? 'done' : 'nochange' };
+  // A tap that isn't the live question (a repeat, another tab, too late): answer with what actually happened to her.
+  const own = (ask: any) => { const m = ask?.moves?.[x.i] || {}; return m.movedAt ? 'moved' : m.answer === 'no' ? 'kept' : 'nochange'; };
+  if (x.ask.oneAtATime) {
+    const r: any = await db.runTransaction(async (tx: any) => {
+      const ask: any = { id: x.ask.id, ...((await tx.get(ref)).data() || {}) };
+      if (ask.status !== 'asking' || ms(ask.deadline) <= now || ask.cur !== x.i || ask.moves[x.i]?.answer) return { closed: true, ask };
+      const m = ask.moves[x.i];
+      if (!yes) { const moves = ask.moves.map((mm: any, i: number) => (i === x.i ? { ...mm, answer: 'no', answeredAt: iso(now) } : mm)); tx.update(ref, { moves }); return { ask: { ...ask, moves }, no: true }; }
+      // Yes: check the move still fits, and make it, in this same step.
+      const ap = await tx.get(db.doc(`${T(t)}/appointments/${m.apptId}`)); const a: any = ap.exists ? ap.data() : null;
+      const near = await tx.get(db.collection(`${T(t)}/appointments`).where('startTime', '>=', iso(ms(m.to) - DAY)).where('startTime', '<=', iso(ms(m.to) + DAY)));
+      const s0 = ms(m.to) - m.padBefore * MIN, e0 = ms(m.to) + (m.dur + m.padAfter) * MIN;
+      const clash = near.docs.some((doc: any) => { if (doc.id === m.apptId) return false; const o: any = doc.data() || {}; if (o.staffId !== ask.staffId || DEAD.includes(String(o.status || ''))) return false;
+        const oS = ms(o.startTime) - (Number(o.padBefore) || 0) * MIN, oE = (ms(o.endTime) || ms(o.startTime) + 3600e3) + (Number(o.padAfter) || 0) * MIN; return s0 < oE && e0 > oS; });
+      const moves = ask.moves.map((mm: any, i: number) => (i === x.i ? { ...mm, answer: 'yes', answeredAt: iso(now), ...(a && !clash && !DEAD.includes(String(a.status || '')) && ms(a.startTime) === ms(m.from) ? { movedAt: iso(now) } : {}) } : mm));
+      if (!moves[x.i].movedAt) { tx.update(ref, { moves }); return { ask: { ...ask, moves }, failed: true }; }
+      const dur = ms(a.endTime) - ms(a.startTime) || m.dur * MIN;
+      const move = { startTime: m.to, endTime: iso(ms(m.to) + dur), previousStartTime: a.startTime, rescheduledAt: iso(now), rescheduledBy: 'tidy_my_day', reminderSentAt: null, tidyAskId: ask.id };
+      tx.set(db.doc(`${T(t)}/appointments/${m.apptId}`), move, { merge: true });
+      if (a.checkInToken) { tx.set(db.doc(`${T(t)}/appointmentCheckIns/${a.checkInToken}`), move, { merge: true }); tx.set(db.doc(`appointmentCheckIns/${a.checkInToken}`), move, { merge: true }); }
+      const last = x.i === ask.moves.length - 1;
+      // The last yes finishes it here; otherwise keep it open a few minutes while the next person is asked (askStep sets her deadline).
+      tx.update(ref, last ? { moves, status: 'done', closedAt: iso(now) } : { moves, deadline: iso(now + 3 * MIN) });
+      return { ask: { ...ask, moves, ...(last ? { status: 'done' } : {}) }, moved: true, last };
+    });
+    if (r.closed) return { ok: true, state: own(r.ask) };
+    if (r.no) { await stop(db, t, r.ask.id, 'declined', `${first(x.m.name)} would prefer to keep their current time`, now, d); return { ok: true, state: 'kept' }; }
+    if (r.failed) { await stop(db, t, r.ask.id, 'failed', 'the schedule changed while they were answering', now, d); return { ok: true, state: 'nochange' }; }
+    const ask = r.ask; const D = await deps(d); const tenant = (await db.doc(T(t)).get()).data() || {}; const tz = await zoneOf(tenant);
+    await db.doc(`${T(t)}/staffBlocks/tidy_${ask.id}_${x.i}`).delete().catch(() => {});
+    await D.send(db, t, x.m.phone, doneText({ first: first(x.m.name), to: dayAt(ms(x.m.to), tz, now), service: String(x.m.service || '').toLowerCase(), provider: firstOr(ask.staffName) }), undefined, { kind: 'tidy_done', recipientType: 'client', recipientId: x.m.clientId || undefined }).catch(() => null);
+    const S = settingsOf(tenant, ask.staffId); const next = x.i + 1;
+    if (r.last) { await done(db, t, ask, now, d, true); return { ok: true, state: 'moved' }; }
+    const nm = ask.moves[next];
+    if (ms(nm.to) - now < S.minNoticeMin * MIN) { await stop(db, t, ask.id, 'stopped', `there wasn’t enough time left to ask ${first(nm.name)}`, now, d); return { ok: true, state: 'moved' }; }
+    const st = await askStep(db, t, ask, next, now, D, tenant);
+    if (!st.ok && st.error !== 'closed') await stop(db, t, ask.id, 'stopped', `${first(nm.name)} couldn’t be texted again today`, now, d);
+    return { ok: true, state: 'moved' };
+  }
+  // Asked before this changed (everyone texted at once): the old way, everyone moves together.
+  const r = await db.runTransaction(async (tx: any) => { const ask: any = { id: x.ask.id, ...((await tx.get(ref)).data() || {}) };
+    if (ask.status !== 'asking' || ms(ask.deadline) <= now) return { closed: true, ask };
+    const moves = ask.moves.map((m: any, i: number) => (i === x.i ? { ...m, answer: yes ? 'yes' : 'no', answeredAt: iso(now) } : m)); tx.update(ref, { moves }); return { ask: { ...ask, moves } }; });
+  if ((r as any).closed) return { ok: true, state: (r as any).ask?.status === 'done' && yes ? 'moved' : own((r as any).ask) };
   const ask = (r as any).ask;
-  if (!yes) { await finish(db, t, ask, 'declined', `${first(x.m.name)} would prefer to keep their current time`, now, d); return { ok: true, state: 'kept' }; }
-  if (ask.moves.every((m: any) => m.answer === 'yes')) { const c = await commit(db, t, ask, now, d); return { ok: true, state: c.ok ? 'moved' : 'nochange' }; }
+  if (!yes) { await stop(db, t, ask.id, 'declined', `${first(x.m.name)} would prefer to keep their current time`, now, d); return { ok: true, state: 'kept' }; }
+  if (ask.moves.every((m: any) => m.answer === 'yes')) { const c = await moveThese(db, t, ask, ask.moves.map((_: any, i: number) => i), now, d); if (!c) { await stop(db, t, ask.id, 'failed', 'the schedule changed while clients were responding', now, d); return { ok: true, state: 'nochange' }; } await done(db, t, ask, now, d); return { ok: true, state: 'moved' }; }
   return { ok: true, state: 'yes' };
 }
 
@@ -200,51 +261,90 @@ async function release(db: any, t: string, ask: any) { for (let i = 0; i < (ask.
 async function tellProvider(db: any, t: string, staffId: string, message: string, now: number) {
   const r = db.collection(`${T(t)}/notifications`).doc(); await r.set({ id: r.id, userId: staffId, type: 'tidy', link: '/tidy', read: false, createdAt: iso(now), message });
 }
-/** Nobody moves: holds lifted, the yeses thanked, the provider told — and a gap the waitlist was waiting on goes back to them to decide. */
-async function finish(db: any, t: string, ask: any, status: string, why: string, now: number, d: Deps) {
-  const D = await deps(d); await db.doc(`${T(t)}/tidyAsks/${ask.id}`).set({ status, why, closedAt: iso(now) }, { merge: true }); await release(db, t, ask);
-  const tz = await zoneOf((await db.doc(T(t)).get()).data() || {});
-  for (const m of ask.moves.filter((m: any) => m.answer === 'yes')) await D.send(db, t, m.phone, noChangeText({ first: first(m.name), from: dayAt(ms(m.from), tz, now), service: String(m.service || '').toLowerCase(), provider: firstOr(ask.staffName) }), undefined, { kind: 'tidy_nochange', recipientType: 'client', recipientId: m.clientId || undefined }).catch(() => null);
-  for (const op of rows(await db.collection(`${T(t)}/openings`).where('status', '==', 'open').get()).filter((o: any) => o.tidyAskId === ask.id))
-    await db.doc(`${T(t)}/openings/${op.id}`).set({ decided: null, tidyAskId: null, awaitUntil: iso(now + 15 * MIN) }, { merge: true });
-  await tellProvider(db, t, ask.staffId, `We were not able to tidy ${ask.kind === 'clear' ? ask.dayLabel : 'your day'} because ${why}. No appointments were moved.${ask.kind === 'clear' ? '' : ' Would you like to leave the gap free, or offer it to the waitlist?'}`, now);
-}
-async function commit(db: any, t: string, ask: any, now: number, d: Deps) {
-  const D = await deps(d);
-  const ids = new Set(ask.moves.map((m: any) => m.apptId));
+/** Move these appointments to their new times, checked again first. Each one moved is thanked and confirmed. */
+async function moveThese(db: any, t: string, ask: any, idx: number[], now: number, d: Deps): Promise<boolean> {
+  const D = await deps(d); const list = idx.map((i) => ask.moves[i]);
+  const ids = new Set(list.map((m: any) => m.apptId));
   const ok = await db.runTransaction(async (tx: any) => {
-    const cur: any[] = []; for (const m of ask.moves) { const s = await tx.get(db.doc(`${T(t)}/appointments/${m.apptId}`)); cur.push(s.exists ? s.data() : null); }
-    if (cur.some((a, i) => !a || DEAD.includes(String(a.status || '')) || ms(a.startTime) !== ms(ask.moves[i].from))) return false;    // something changed meanwhile
-    const lo = Math.min(...ask.moves.map((m: any) => ms(m.to))) - DAY, hi = Math.max(...ask.moves.map((m: any) => ms(m.to))) + DAY;
+    if (((await tx.get(db.doc(`${T(t)}/tidyAsks/${ask.id}`))).data() || {}).status !== 'asking') return false;   // closed meanwhile
+    const cur: any[] = []; for (const m of list) { const s = await tx.get(db.doc(`${T(t)}/appointments/${m.apptId}`)); cur.push(s.exists ? s.data() : null); }
+    if (cur.some((a, i) => !a || DEAD.includes(String(a.status || '')) || ms(a.startTime) !== ms(list[i].from))) return false;    // something changed meanwhile
+    const lo = Math.min(...list.map((m: any) => ms(m.to))) - DAY, hi = Math.max(...list.map((m: any) => ms(m.to))) + DAY;
     const near = await tx.get(db.collection(`${T(t)}/appointments`).where('startTime', '>=', iso(lo)).where('startTime', '<=', iso(hi)));
-    for (const m of ask.moves) { const s = ms(m.to) - m.padBefore * MIN, e = ms(m.to) + (m.dur + m.padAfter) * MIN;
+    for (const m of list) { const s = ms(m.to) - m.padBefore * MIN, e = ms(m.to) + (m.dur + m.padAfter) * MIN;
       for (const doc of near.docs) { if (ids.has(doc.id)) continue; const o: any = doc.data() || {}; if (o.staffId !== ask.staffId || DEAD.includes(String(o.status || ''))) continue;
         const oS = ms(o.startTime) - (Number(o.padBefore) || 0) * MIN, oE = (ms(o.endTime) || ms(o.startTime) + 3600e3) + (Number(o.padAfter) || 0) * MIN; if (s < oE && e > oS) return false; } }
-    ask.moves.forEach((m: any, i: number) => { const a = cur[i]; const dur = ms(a.endTime) - ms(a.startTime) || m.dur * MIN;
+    list.forEach((m: any, i: number) => { const a = cur[i]; const dur = ms(a.endTime) - ms(a.startTime) || m.dur * MIN;
       const move = { startTime: m.to, endTime: iso(ms(m.to) + dur), previousStartTime: a.startTime, rescheduledAt: iso(now), rescheduledBy: 'tidy_my_day', reminderSentAt: null, tidyAskId: ask.id };
       tx.set(db.doc(`${T(t)}/appointments/${m.apptId}`), move, { merge: true });
       if (a.checkInToken) { tx.set(db.doc(`${T(t)}/appointmentCheckIns/${a.checkInToken}`), move, { merge: true }); tx.set(db.doc(`appointmentCheckIns/${a.checkInToken}`), move, { merge: true }); } });
+    tx.set(db.doc(`${T(t)}/tidyAsks/${ask.id}`), { moves: ask.moves.map((m: any, j: number) => (idx.includes(j) ? { ...m, movedAt: iso(now) } : m)) }, { merge: true });
     return true;
   });
-  if (!ok) { await finish(db, t, ask, 'failed', 'the schedule changed while clients were responding', now, d); return { ok: false }; }
-  await db.doc(`${T(t)}/tidyAsks/${ask.id}`).set({ status: 'done', closedAt: iso(now) }, { merge: true }); await release(db, t, ask);
+  if (!ok) return false;
+  for (const i of idx) await db.doc(`${T(t)}/staffBlocks/tidy_${ask.id}_${i}`).delete().catch(() => {});
   const tz = await zoneOf((await db.doc(T(t)).get()).data() || {});
-  for (const m of ask.moves) await D.send(db, t, m.phone, doneText({ first: first(m.name), to: dayAt(ms(m.to), tz, now), service: String(m.service || '').toLowerCase(), provider: firstOr(ask.staffName) }), undefined, { kind: 'tidy_done', recipientType: 'client', recipientId: m.clientId || undefined }).catch(() => null);
+  for (const m of list) await D.send(db, t, m.phone, doneText({ first: first(m.name), to: dayAt(ms(m.to), tz, now), service: String(m.service || '').toLowerCase(), provider: firstOr(ask.staffName) }), undefined, { kind: 'tidy_done', recipientType: 'client', recipientId: m.clientId || undefined }).catch(() => null);
+  return true;
+}
+/** Everyone asked said yes: the gap is closed and the provider hears once. */
+async function done(db: any, t: string, ask: any, now: number, _d: Deps, closed = false) {
+  const ref = db.doc(`${T(t)}/tidyAsks/${ask.id}`);
+  const ok = closed || await db.runTransaction(async (tx: any) => { const a: any = (await tx.get(ref)).data() || {}; if (a.status !== 'asking') return false; tx.update(ref, { status: 'done', closedAt: iso(now) }); return true; });
+  if (!ok) return; await release(db, t, ask);
   for (const op of rows(await db.collection(`${T(t)}/openings`).where('status', '==', 'open').get()).filter((o: any) => o.tidyAskId === ask.id))
     await db.doc(`${T(t)}/openings/${op.id}`).set({ status: 'closed', closedAt: iso(now), closedWhy: 'tidied — clients moved up' }, { merge: true });
   await tellProvider(db, t, ask.staffId, ask.kind === 'clear' ? `${ask.dayLabel} is now clear, as every client agreed to move. Would you like to block the day so that no new bookings are made?` : `Your day has been tidied, as every client agreed to move.${ask.finishLabel ? ` You now finish at ${ask.finishLabel}.` : ''}`, now);
-  return { ok: true };
+}
+/** It stops here. Whoever already moved keeps the new time (each move stood on its own), so no client is told
+ *  "never mind". With nobody moved, the gap goes back to the provider to decide; with some moved, the time the last
+ *  of them left becomes an opening for the waitlist, unless it's the end of the day (then she simply finishes earlier). */
+async function stop(db: any, t: string, askId: string, status: string, why: string | ((a: any) => string), now: number, d: Deps, o: { onlyIfLate?: boolean } = {}) {
+  const D = await deps(d); const ref = db.doc(`${T(t)}/tidyAsks/${askId}`);
+  const ask: any = await db.runTransaction(async (tx: any) => { const a: any = { id: askId, ...((await tx.get(ref)).data() || {}) };
+    if (a.status !== 'asking' || (o.onlyIfLate && ms(a.deadline) > now)) return null;
+    const w = typeof why === 'function' ? why(a) : why; tx.update(ref, { status, why: w, closedAt: iso(now) }); return { ...a, status, why: w }; });
+  if (!ask) return false;
+  why = ask.why as string; await release(db, t, ask);
+  const moved = (ask.moves || []).filter((m: any) => m.movedAt);
+  const tenant = (await db.doc(T(t)).get()).data() || {}; const tz = await zoneOf(tenant);
+  if (!ask.oneAtATime) for (const m of ask.moves.filter((m: any) => m.answer === 'yes' && !m.movedAt)) await D.send(db, t, m.phone, noChangeText({ first: first(m.name), from: dayAt(ms(m.from), tz, now), service: String(m.service || '').toLowerCase(), provider: firstOr(ask.staffName) }), undefined, { kind: 'tidy_nochange', recipientType: 'client', recipientId: m.clientId || undefined }).catch(() => null);
+  const mine = rows(await db.collection(`${T(t)}/openings`).where('status', '==', 'open').get()).filter((o: any) => o.tidyAskId === ask.id);
+  if (!moved.length) {
+    for (const op of mine) await db.doc(`${T(t)}/openings/${op.id}`).set({ decided: null, tidyAskId: null, awaitUntil: iso(now + 15 * MIN) }, { merge: true });
+    await tellProvider(db, t, ask.staffId, `We were not able to tidy ${ask.kind === 'clear' ? ask.dayLabel : 'your day'} because ${why}. No appointments were moved.${ask.kind === 'clear' ? '' : ' Would you like to leave the gap free, or offer it to the waitlist?'}`, now);
+    return true;
+  }
+  for (const op of mine) await db.doc(`${T(t)}/openings/${op.id}`).set({ status: 'closed', closedAt: iso(now), closedWhy: 'tidied — clients moved up' }, { merge: true });
+  const names = moved.map((m: any) => first(m.name)); const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+  if (ask.kind === 'clear') { await tellProvider(db, t, ask.staffId, `${ask.dayLabel} could not be fully cleared because ${why}. ${list} moved to another day, as they agreed.`, now); return true; }
+  // What's really free now: the part of her old time her new time doesn't cover (she may have moved up less than her length).
+  const li = ask.moves.indexOf(moved[moved.length - 1]); const last = ask.moves[li];
+  const e = ms(last.from) + last.dur * MIN, s = Math.max(ms(last.from), ms(last.to) + last.dur * MIN);
+  const dayEnd = await dayStart(addDay(await dateOf(ms(last.from), tz), 1), tz);
+  const after = (await staffAppts(db, t, ask.staffId)).some((a: any) => ms(a.startTime) >= e - 10 * MIN && ms(a.startTime) < dayEnd);
+  let left = '';
+  if (after && e - s >= 15 * MIN && s > now) {
+    const { makeOpening } = await import('@/lib/waitlist-server');
+    await makeOpening(db, t, { id: `op_tidy_${ask.id}_${li}`, staffId: ask.staffId, staffName: ask.staffName || '', start: iso(s), end: iso(e), serviceId: last.serviceId || null, serviceName: last.service || '', source: 'moveup', sourceAppointmentId: last.apptId, chainDepth: 1 }, now);
+    left = ` ${clock(s, tz)} to ${clock(e, tz)} is now free, and it has been offered to your waitlist.`;
+  }
+  await tellProvider(db, t, ask.staffId, `Your day is partly tidied: ${list} moved up, as they agreed. We stopped there because ${why}.${left}`, now);
+  return true;
 }
 
-/** From the cron: asks past their deadline end with nobody moved. */
+/** From the cron: whoever is being asked didn't answer in time. */
 export async function expireTidy(db: any, t: string, now = Date.now(), d: Deps = {}) {
-  let n = 0; for (const a of rows(await db.collection(`${T(t)}/tidyAsks`).where('status', '==', 'asking').get())) if (ms(a.deadline) <= now) { await finish(db, t, a, 'expired', 'not every client responded in time', now, d); n++; }
+  let n = 0; for (const a of rows(await db.collection(`${T(t)}/tidyAsks`).where('status', '==', 'asking').get())) if (ms(a.deadline) <= now) {
+    // Read again as it closes: a yes a moment ago may have moved on to the next person, with a new deadline.
+    if (await stop(db, t, a.id, 'expired', (f: any) => { const who = f.oneAtATime ? f.moves?.[f.cur || 0] : null; const nx = who?.movedAt ? f.moves?.[(f.cur || 0) + 1] : null;
+      return nx ? `there wasn’t time to ask ${first(nx.name)}` : who ? `${first(who.name)} did not answer in time` : 'not every client responded in time'; }, now, d, { onlyIfLate: true })) n++; }
   return n;
 }
 export async function cancelTidy(db: any, t: string, askId: string, staffId: string | null, now = Date.now(), d: Deps = {}) {
   const s = await db.doc(`${T(t)}/tidyAsks/${askId}`).get(); const a: any = s.exists ? { id: s.id, ...s.data() } : null;
   if (!a || (staffId && a.staffId !== staffId)) return { ok: false, error: 'This request is no longer available.' }; if (a.status !== 'asking') return { ok: true };
-  await finish(db, t, a, 'cancelled', 'you cancelled the request', now, d); return { ok: true };
+  await stop(db, t, a.id, 'cancelled', 'you cancelled the request', now, d); return { ok: true };
 }
 /** After a light day is cleared: block it so nobody books it. */
 export async function blockDay(db: any, t: string, askId: string, staffId: string | null, now = Date.now()) {

@@ -88,15 +88,59 @@ const iso = (n: number) => new Date(n).toISOString();
   check('a gap with no one-person fix (Cy’s 30 minutes would leave a hole): Bea and Cy both move up (two asks)', !!two && p2.plans[0].moves.length === 2, p2.plans.map((x: any) => x.key));
   const s0 = sent.length; const ask2: any = await X.askTidy(db2, 't1', { staffId: 'maya', name: 'Maya' }, { staffId: 'maya', date: '2026-10-14', key: two.key }, NOW, deps);
   const mv2 = (await db2.doc(`${T}/tidyAsks/${ask2.askId}`).get()).data().moves;
-  check('both are asked at once', ask2.ok && sent.length - s0 === 2);
+  check('one at a time: only the first (Bea, who fills the gap) is asked', ask2.ok && sent.length - s0 === 1 && sent[s0].to === mv2[0].phone, sent.slice(s0).map((x) => x.to));
+  const holds2 = () => db2.collection(`${T}/staffBlocks`).get().then((q: any) => q.docs.map((x: any) => x.data()).filter((b: any) => b.reason === 'tidy_hold'));
+  check('…and only her new time is held', (await holds2()).length === 1 && (await holds2())[0].startTime === mv2[0].to);
   const y1: any = await X.tidyAnswer(db2, 't1', mv2[0].token, true, NOW + MIN, deps);
-  check('the first says yes → nothing moves yet (“we’ll confirm”)', y1.state === 'yes' && (await db2.doc(`${T}/appointments/${mv2[0].apptId}`).get()).data().startTime === mv2[0].from);
-  const n1: any = await X.tidyAnswer(db2, 't1', mv2[1].token, false, NOW + 2 * MIN, deps);
-  check('the second keeps their time → NOBODY moves; the first hears “no change needed”; holds lifted', n1.state === 'kept' && (await db2.doc(`${T}/appointments/${mv2[0].apptId}`).get()).data().startTime === mv2[0].from
-    && sent.some((x) => x.to === mv2[0].phone && /won't need to change your appointment/.test(x.body)) && !(await db2.collection(`${T}/staffBlocks`).get()).docs.length && (await db2.doc(`${T}/tidyAsks/${ask2.askId}`).get()).data().status === 'declined');
-  check('…and that text names the service, the provider and the time it stays at', sent.some((x) => x.to === mv2[0].phone && /your gel fill with Maya will stay at its original time, today at \d{1,2}:\d{2}/.test(x.body)), sent.filter((x) => x.to === mv2[0].phone).map((x) => x.body));
+  check('she says yes → she moves straight away and is confirmed; her yes is final', y1.state === 'moved' && (await db2.doc(`${T}/appointments/${mv2[0].apptId}`).get()).data().startTime === mv2[0].to
+    && sent.some((x) => x.to === mv2[0].phone && /is now confirmed for today at 1:00/.test(x.body)));
+  check('…then the next (Cy) is asked for the time Bea left, with her own answer-by time and hold', sent.filter((x) => x.to === mv2[1].phone && /earlier opening today/.test(x.body)).length === 1 && (await holds2()).length === 1 && (await holds2())[0].startTime === mv2[1].to
+    && (await db2.doc(`${T}/tidyAsks/${ask2.askId}`).get()).data().cur === 1);
+  const sN = sent.length; const n1: any = await X.tidyAnswer(db2, 't1', mv2[1].token, false, NOW + 2 * MIN, deps);
+  const ask2d: any = (await db2.doc(`${T}/tidyAsks/${ask2.askId}`).get()).data();
+  check('Cy keeps her time → it stops there: Bea stays moved, and nobody is texted “never mind”', n1.state === 'kept' && (await db2.doc(`${T}/appointments/${mv2[0].apptId}`).get()).data().startTime === mv2[0].to
+    && (await db2.doc(`${T}/appointments/${mv2[1].apptId}`).get()).data().startTime === mv2[1].from && sent.length === sN && !sent.some((x) => /won't need to change your appointment/.test(x.body)) && ask2d.status === 'declined' && !(await holds2()).length, { n1, after: sent.slice(sN) });
+  const left: any = (await db2.collection(`${T}/openings`).get()).docs.map((x: any) => x.data()).find((o: any) => o.sourceAppointmentId === mv2[0].apptId);
+  check('…the time Bea left (2:00 to 3:00, before Cy) becomes an opening for the waitlist', !!left && left.status === 'open' && left.start === mv2[0].from && left.source === 'moveup', left);
+  check('…and Maya hears once: partly tidied, who moved, why it stopped, and that the time is with the waitlist', (await db2.collection(`${T}/notifications`).get()).docs.map((x: any) => x.data().message).some((m: string) => /partly tidied: bea moved up/.test(m) && /cy would prefer to keep/i.test(m) && /offered to your waitlist/.test(m)));
+  const late2: any = await X.tidyAnswer(db2, 't1', mv2[1].token, true, NOW + 3 * MIN, deps);
+  check('a later tap by Cy changes nothing, and her page still says she kept her time', late2.state === 'kept' && (await db2.doc(`${T}/appointments/${mv2[1].apptId}`).get()).data().startTime === mv2[1].from);
   const p3: any = await X.tidyPlans(db2, 't1', 'maya', '2026-10-14', NOW + 3 * MIN, deps);
   check('whoever said no isn’t asked again today', !p3.plans.some((x: any) => x.moves.some((m: any) => m.id === mv2[1].apptId)) && p3.day.find((x: any) => x.id === mv2[1].apptId)?.fixed === 'said no today');
+  // the second one doesn't answer: the first stays moved
+  { const dbE = makeDb(); await dbE.doc(T).set({ name: 'Opal', timezone: 'America/New_York', publicOrigin: 'https://opal.example' }); await dbE.doc(`${T}/staff/maya`).set({ id: 'maya', name: 'Maya Reyes' });
+    const aE = (id: string, a: string, b: string) => dbE.doc(`${T}/appointments/${id}`).set({ id, clientName: `${id} E`, clientPhone: `+1555111${id.charCodeAt(0)}`, staffId: 'maya', staffName: 'Maya Reyes', serviceId: 'gel', serviceName: 'Gel fill', startTime: iso(NY(`2026-10-14T${a}:00`)), endTime: iso(NY(`2026-10-14T${b}:00`)), status: 'confirmed' });
+    await aE('amy', '12:00', '13:00'); await aE('bea', '14:00', '15:00'); await aE('cy', '15:00', '15:30');
+    const pE: any = await X.tidyPlans(dbE, 't1', 'maya', '2026-10-14', NOW, deps); const twoE = pE.plans.find((x: any) => x.moves.length === 2);
+    const askE: any = await X.askTidy(dbE, 't1', { staffId: 'maya', name: 'Maya' }, { staffId: 'maya', date: '2026-10-14', key: twoE.key }, NOW, deps);
+    const mvE = (await dbE.doc(`${T}/tidyAsks/${askE.askId}`).get()).data().moves;
+    await X.tidyAnswer(dbE, 't1', mvE[0].token, true, NOW + MIN, deps);
+    const sE = sent.length; const nE = await X.expireTidy(dbE, 't1', NOW + 40 * MIN, deps);
+    const dE: any = (await dbE.doc(`${T}/tidyAsks/${askE.askId}`).get()).data();
+    check('the second person doesn’t answer in time → it stops: the first keeps her new time, nobody is texted, the ask closes', nE === 1 && dE.status === 'expired' && /did not answer in time/.test(dE.why) && sent.length === sE
+      && (await dbE.doc(`${T}/appointments/${mvE[0].apptId}`).get()).data().startTime === mvE[0].to && (await dbE.doc(`${T}/appointments/${mvE[1].apptId}`).get()).data().startTime === mvE[1].from, dE);
+    // An ask sent before this change (everyone texted at once) still finishes the old way
+    const lg = dbE.collection(`${T}/tidyAsks`).doc('legacy1');
+    await aE('dee', '16:00', '17:00'); await aE('eve', '17:30', '18:00');
+    await lg.set({ id: 'legacy1', kind: 'day', staffId: 'maya', staffName: 'Maya Reyes', date: '2026-10-14', status: 'asking', deadline: iso(NOW + 60 * MIN), createdAt: iso(NOW), finishLabel: null,
+      moves: [{ apptId: 'dee', from: iso(NY('2026-10-14T16:00:00')), to: iso(NY('2026-10-14T15:30:00')), name: 'Dee', phone: '+15550001', service: 'Gel fill', token: 'legacy1.0.a', answer: null, dur: 60, padBefore: 0, padAfter: 0 },
+              { apptId: 'eve', from: iso(NY('2026-10-14T17:30:00')), to: iso(NY('2026-10-14T16:30:00')), name: 'Eve', phone: '+15550002', service: 'Gel fill', token: 'legacy1.1.b', answer: null, dur: 30, padBefore: 0, padAfter: 0 }] });
+    const l1: any = await X.tidyAnswer(dbE, 't1', 'legacy1.1.b', true, NOW + 41 * MIN, deps); const l2: any = await X.tidyAnswer(dbE, 't1', 'legacy1.0.a', true, NOW + 42 * MIN, deps);
+    check('an ask sent before this change still works the old way: both yes → both move together', l1.state === 'yes' && l2.state === 'moved' && (await dbE.doc(`${T}/appointments/dee`).get()).data().startTime === iso(NY('2026-10-14T15:30:00')) && (await dbE.doc(`${T}/appointments/eve`).get()).data().startTime === iso(NY('2026-10-14T16:30:00')), { l1, l2 }); }
+  // she moves up by less than her own length: only the part she really left is free
+  { const dbH = makeDb(); await dbH.doc(T).set({ name: 'Opal', timezone: 'America/New_York', publicOrigin: 'https://opal.example' }); await dbH.doc(`${T}/staff/maya`).set({ id: 'maya', name: 'Maya Reyes' });
+    const aH = (id: string, a: string, b: string) => dbH.doc(`${T}/appointments/${id}`).set({ id, clientName: `${id} H`, clientPhone: `+1555222${id.charCodeAt(0)}`, staffId: 'maya', staffName: 'Maya Reyes', serviceId: 'gel', serviceName: 'Gel fill', startTime: iso(NY(`2026-10-14T${a}:00`)), endTime: iso(NY(`2026-10-14T${b}:00`)), status: 'confirmed' });
+    await aH('amy', '13:00', '14:00'); await aH('bea', '14:30', '15:30'); await aH('cy', '15:30', '16:30');
+    const pH: any = await X.tidyPlans(dbH, 't1', 'maya', '2026-10-14', NOW, deps); const twoH = pH.plans.find((x: any) => x.moves.length === 2);
+    const askH: any = await X.askTidy(dbH, 't1', { staffId: 'maya', name: 'Maya' }, { staffId: 'maya', date: '2026-10-14', key: twoH?.key }, NOW, deps);
+    const mvH = (await dbH.doc(`${T}/tidyAsks/${askH.askId}`).get()).data().moves;
+    const yH: any = await X.tidyAnswer(dbH, 't1', mvH[0].token, true, NOW + MIN, deps);
+    const again: any = await X.tidyAnswer(dbH, 't1', mvH[0].token, true, NOW + MIN + 5000, deps);
+    check('a second tap of her yes (a retry, another tab) still shows “confirmed”, never “no change”', yH.state === 'moved' && again.state === 'moved', { yH, again });
+    await X.tidyAnswer(dbH, 't1', mvH[1].token, false, NOW + 2 * MIN, deps);
+    const opH: any = (await dbH.doc(`${T}/openings/op_tidy_${askH.askId}_0`).get()).data();
+    const noteH = (await dbH.collection(`${T}/notifications`).get()).docs.map((x: any) => x.data().message).find((m: string) => /partly tidied/.test(m)) || '';
+    check('Bea moved up 30 minutes, not her full hour: only 3:00 to 3:30 is free, and that’s what goes to the waitlist and what Maya is told', !!opH && opH.start === iso(NY('2026-10-14T15:00:00')) && opH.end === iso(NY('2026-10-14T15:30:00')) && /3:00\s?PM to 3:30\s?PM is now free/.test(noteH), { opH, noteH }); }
   // no answer in time
   const db3 = makeDb(); await db3.doc(T).set({ name: 'Opal', timezone: 'America/New_York', publicOrigin: 'https://opal.example' }); await db3.doc(`${T}/staff/maya`).set({ id: 'maya', name: 'Maya Reyes' });
   for (const [id, a, b] of [['amy', '12:00', '13:00'], ['bea', '14:00', '15:00']]) await db3.doc(`${T}/appointments/${id}`).set({ id, clientName: id, clientPhone: '+15550007777', staffId: 'maya', staffName: 'Maya Reyes', serviceId: 'gel', startTime: iso(NY(`2026-10-14T${a}:00`)), endTime: iso(NY(`2026-10-14T${b}:00`)), status: 'confirmed' });
@@ -153,7 +197,7 @@ const iso = (n: number) => new Date(n).toISOString();
     await X.tidyAnswer(dbT, 't1', mT[0].token, true, NOW + MIN, dT);
     check('…and the confirmation says tomorrow, not today', sT.some((x) => /is now confirmed for tomorrow at 1:00/.test(x.body)), sT.map((x) => x.body));
     const src = require('fs').readFileSync('src/lib/tidy-server.ts', 'utf8');
-    check('a provider with no name on file is left out of every text, never “with there”', !/provider: first\(/.test(src) && /provider: firstOr\(staff\.name\)/.test(src)
+    check('a provider with no name on file is left out of every text, never “with there”', !/provider: first\(/.test(src) && /provider: firstOr\(ask\.staffName\)/.test(src)
       && E.doneText({ first: 'Cara', to: 'today at 1:00 PM', service: 'gel fill', provider: '' }) === "Hi Cara, thank you so much for being flexible. Your gel fill is now confirmed for today at 1:00 PM. We're looking forward to seeing you."
       && /^Hi Cara, we have an earlier opening today\./.test(E.askText({ first: 'Cara', provider: '', to: '1:00 PM', from: '4:30 PM', service: 'gel fill', link: 'x', sameDay: true }))); }
 

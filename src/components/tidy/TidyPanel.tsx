@@ -42,26 +42,26 @@ export function TidyPanel({ tenantId, staffId, date, compact = false, onChanged 
   const card = 'rounded-[18px] border bg-card p-4 space-y-3';
   return (
     <section className="space-y-3" style={{ color: INK }} aria-label="Tidy my day">
-      {compact && <div className="px-1"><p className="text-[18px] font-semibold">Tidy my day</p><p className="text-[12.5px]" style={{ color: MUTED }}>Close a gap by moving your own clients up — no new gaps</p></div>}
+      {compact && <div className="px-1"><p className="text-[18px] font-semibold">Tidy my day</p><p className="text-[12.5px]" style={{ color: MUTED }}>Close a gap by moving your own clients up, without leaving a new one.</p></div>}
       {msg && <p className="px-1 text-[13.5px] font-semibold" style={{ color: msg.ok ? GREEN : RED }}>{msg.t}</p>}
 
       {(d.gaps || []).map((g: any) => <div key={g.id} className={card} style={{ borderColor: '#f5c9c4', background: '#fffafa' }}>
-        <div><p className="text-[16px] font-bold">{g.when} is free</p><p className="text-[12.5px]" style={{ color: MUTED }}>A cancellation · {g.minutes} min · goes to the waitlist at {g.until} unless you choose</p></div>
+        <div><p className="text-[16px] font-bold">{g.when} is free</p><p className="text-[12.5px]" style={{ color: MUTED }}>A cancellation left {g.minutes} minutes free. It goes to the waitlist at {g.until} unless you choose.</p></div>
         <div className="flex flex-wrap gap-2">
           <button type="button" disabled={!!busy} onClick={() => act({ action: 'decide', openingId: g.id, choice: 'waitlist' }, 'Offered to the waitlist.')} className="h-10 rounded-full border bg-card px-4 text-[13.5px] font-semibold" style={{ borderColor: LINE }}>Offer it to the waitlist</button>
           <button type="button" disabled={!!busy} onClick={() => act({ action: 'decide', openingId: g.id, choice: 'leave' }, 'Left free.')} className="h-10 px-2 text-[13px] underline" style={{ color: MUTED }}>Leave it free</button></div>
-        {g.plans ? <p className="text-[12.5px]" style={{ color: GREEN }}>Or tidy your day below — finish at {g.finish}.</p> : <p className="text-[12.5px]" style={{ color: MUTED }}>Nobody can move up to close it without leaving another gap.</p>}
+        {g.plans ? <p className="text-[12.5px]" style={{ color: GREEN }}>Or tidy your day below and finish at {g.finish}.</p> : <p className="text-[12.5px]" style={{ color: MUTED }}>Nobody can move up to close it without leaving another gap.</p>}
       </div>)}
 
       {live.map((a: any) => <div key={a.id} className={card} style={{ borderColor: '#f1d6b0', background: '#fffaf3' }}>
-        <div className="flex items-start justify-between gap-2"><div><p className="text-[15px] font-bold">Asked {names(a.moves)} · waiting</p><p className="text-[12.5px]" style={{ color: MUTED }}>Answer by {new Date(a.deadline).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}. Their new times are held — nobody else can book them.</p></div>
-          <button type="button" disabled={!!busy} onClick={() => act({ action: 'cancel', askId: a.id }, 'Cancelled — nobody was moved.')} className="text-[12.5px] underline" style={{ color: MUTED }}>Cancel</button></div>
-        {a.moves.map((m: any, i: number) => <p key={i} className="flex items-center justify-between gap-2 text-[13.5px]"><span><b>{m.name}</b> {m.fromLabel} → {m.toLabel}</span>{m.answer === 'yes' ? chip('said yes', GREEN, '#e7f3ec') : m.answer === 'no' ? chip('keeping their time', RED, '#fdecec') : chip('asked', AMBER, '#fdf3e6')}</p>)}
-        <p className="text-[12px]" style={{ color: MUTED }}>Nobody moves until everyone says yes.</p>
+        <div className="flex items-start justify-between gap-2"><div><p className="text-[15px] font-bold">{a.oneAtATime ? `Asking ${a.moves.find((m: any) => m.asking)?.name || names(a.moves)}, waiting for an answer` : `Asked ${names(a.moves)}, waiting`}</p><p className="text-[12.5px]" style={{ color: MUTED }}>Answer by {new Date(a.deadline).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', ...(a.tz ? { timeZone: a.tz } : {}) })}. {a.oneAtATime ? 'Their new time is held, so nobody else can book it.' : 'Their new times are held, so nobody else can book them.'}</p></div>
+          <button type="button" disabled={!!busy} onClick={() => act({ action: 'cancel', askId: a.id }, a.moves.some((m: any) => m.moved) ? 'Stopped. Anyone who already moved keeps the new time.' : 'Cancelled. Nobody was moved.')} className="text-[12.5px] underline" style={{ color: MUTED }}>Cancel</button></div>
+        {a.moves.map((m: any, i: number) => <p key={i} className="flex items-center justify-between gap-2 text-[13.5px]"><span><b>{m.name}</b> {m.fromLabel} → {m.toLabel}</span>{m.moved ? chip('moved', GREEN, '#e7f3ec') : m.answer === 'yes' ? chip('said yes', GREEN, '#e7f3ec') : m.answer === 'no' ? chip('keeping their time', MUTED, '#f0f0f2') : m.asking ? chip('asked', AMBER, '#fdf3e6') : chip('next', MUTED, '#f0f0f2')}</p>)}
+        <p className="text-[12px]" style={{ color: MUTED }}>{a.oneAtATime ? 'One at a time. Each yes is final, and the next person is asked only after it.' : 'Nobody moves until everyone says yes.'}</p>
       </div>)}
 
       {days.map((x: any) => <div key={x.date} className={card} style={{ borderColor: LINE }}>
-        <div><p className="text-[16px] font-bold">Close the gap at {x.gap.label}</p><p className="text-[12.5px]" style={{ color: MUTED }}>{x.gap.minutes} min free · {new Date(`${x.date}T12:00:00Z`).toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'long', month: 'short', day: 'numeric' })}</p></div>
+        <div><p className="text-[16px] font-bold">Close the gap at {x.gap.label}</p><p className="text-[12.5px]" style={{ color: MUTED }}>{x.gap.minutes} minutes free on {new Date(`${x.date}T12:00:00Z`).toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'long', month: 'short', day: 'numeric' })}</p></div>
         {x.plans.length ? <>
           {x.plans.slice(0, more ? 3 : 1).map((p: any, i: number) => <div key={p.key} className="space-y-2.5 rounded-2xl border p-3" style={{ borderColor: i === 0 ? '#bfe0cc' : LINE }}>
             {p.moves.map((m: any) => <p key={m.id} className="text-[14.5px]">Ask <b>{m.name}</b> to come at <b>{m.toLabel}</b> instead of {m.fromLabel}{m.keen ? <span className="ml-1">{chip('asked to come in sooner', BLUE, '#e6ecf7')}</span> : null}</p>)}
@@ -70,21 +70,22 @@ export function TidyPanel({ tenantId, staffId, date, compact = false, onChanged 
               <button type="button" disabled={!!busy} onClick={() => act({ action: 'ask', staffId: staffId || undefined, date: x.date, key: p.key }, `Asked ${names(p.moves)}. You’ll hear as they answer.`)} className="h-10 rounded-full px-5 text-[14px] font-semibold disabled:opacity-40" style={{ background: INK, color: 'hsl(var(--background))' }}>Ask {names(p.moves)}</button></div>
           </div>)}
           {x.plans.length > 1 && <button type="button" onClick={() => setMore(!more)} className="text-[12.5px] font-semibold" style={{ color: MUTED }}>{more ? 'Fewer' : `Other ways (${x.plans.length - 1})`}</button>}
-        </> : <><Strip day={x.day} plan={null} tz={x.tz} /><p className="text-[13.5px]" style={{ color: MUTED }}>Nobody later can move up to close it without leaving another gap{x.day.some((v: any) => v.fixed) ? ` (${x.day.filter((v: any) => v.fixed).map((v: any) => `${v.name}: ${v.fixed}`).join(' · ')})` : ''}.</p></>}
-        <p className="text-[12px]" style={{ color: MUTED }}>Only earlier, never later. Nobody is moved until everyone you ask says yes.</p>
+        </> : <><Strip day={x.day} plan={null} tz={x.tz} /><p className="text-[13.5px]" style={{ color: MUTED }}>Nobody later can move up to close it without leaving another gap{x.day.some((v: any) => v.fixed) ? ` (${x.day.filter((v: any) => v.fixed).map((v: any) => `${v.name}: ${v.fixed}`).join(', ')})` : ''}.</p></>}
+        <p className="text-[12px]" style={{ color: MUTED }}>Only earlier, never later. With more than one person, they’re asked one at a time, and each yes is final.</p>
       </div>)}
 
       {(d.clear || []).map((c: any) => <div key={c.key} className={card} style={{ borderColor: LINE }}>
-        <div><p className="text-[16px] font-bold">Clear {c.dayLabel}?</p><p className="text-[12.5px]" style={{ color: MUTED }}>{c.moves.length === 1 ? 'It has one visit' : `It has ${c.moves.length} visits`} — and {c.moves.length === 1 ? 'it fits' : 'they fit'} into gaps on your other days.</p></div>
+        <div><p className="text-[16px] font-bold">Clear {c.dayLabel}?</p><p className="text-[12.5px]" style={{ color: MUTED }}>{c.moves.length === 1 ? 'It has one visit' : `It has ${c.moves.length} visits`}, and {c.moves.length === 1 ? 'it fits' : 'they fit'} into gaps on your other days.</p></div>
         {c.moves.map((m: any) => <p key={m.id} className="text-[14px]">Ask <b>{m.name}</b> to move from {m.fromLabel} to <b>{m.toLabel}</b>{m.exact ? <span className="ml-1">{chip('fills a gap exactly', GREEN, '#e7f3ec')}</span> : null}</p>)}
         <button type="button" disabled={!!busy} onClick={() => act({ action: 'ask', staffId: staffId || undefined, key: c.key, kind: 'clear' }, `Asked ${names(c.moves)}.`)} className="h-10 rounded-full px-5 text-[14px] font-semibold disabled:opacity-40" style={{ background: INK, color: 'hsl(var(--background))' }}>Ask {names(c.moves)}</button>
       </div>)}
 
       {recent.map((a: any) => <div key={a.id} className={card} style={{ borderColor: a.status === 'done' ? '#bfe0cc' : LINE, background: a.status === 'done' ? '#f6fbf8' : '#fff' }}>
-        {a.status === 'done' ? <><p className="text-[15px] font-bold" style={{ color: GREEN }}>✓ {a.kind === 'clear' ? `${a.dayFreed} is clear` : 'Tidied'}</p>
-          <p className="text-[13px]">{a.moves.map((m: any) => `${m.name} → ${m.toLabel}`).join(' · ')}{a.finishLabel ? ` · you finish at ${a.finishLabel}` : ''}</p>
-          {a.kind === 'clear' && !a.blocked && <button type="button" disabled={!!busy} onClick={() => act({ action: 'block_day', askId: a.id }, `${a.dayFreed} is blocked — nobody can book it.`)} className="h-10 rounded-full border bg-card px-4 text-[13.5px] font-semibold" style={{ borderColor: LINE }}>Block {a.dayFreed} off</button>}</>
-          : <><p className="text-[15px] font-bold">Nobody was moved</p><p className="text-[13px]" style={{ color: MUTED }}>{a.why || 'Not everyone said yes.'}</p></>}
+        {a.status === 'done' ? <><p className="text-[15px] font-bold" style={{ color: GREEN }}>{a.kind === 'clear' ? `${a.dayFreed} is clear` : 'Tidied'}</p>
+          <p className="text-[13px]">{a.moves.map((m: any) => `${m.name} to ${m.toLabel}`).join(', ')}.{a.finishLabel ? ` You finish at ${a.finishLabel}.` : ''}</p>
+          {a.kind === 'clear' && !a.blocked && <button type="button" disabled={!!busy} onClick={() => act({ action: 'block_day', askId: a.id }, `${a.dayFreed} is blocked, so nobody can book it.`)} className="h-10 rounded-full border bg-card px-4 text-[13.5px] font-semibold" style={{ borderColor: LINE }}>Block {a.dayFreed} off</button>}</>
+          : a.movedCount ? <><p className="text-[15px] font-bold">Partly tidied</p><p className="text-[13px]">{a.moves.filter((m: any) => m.moved).map((m: any) => `${m.name} to ${m.toLabel}`).join(', ')}.</p><p className="text-[13px]" style={{ color: MUTED }}>It stopped there because {a.why || 'not everyone said yes'}.</p></>
+          : <><p className="text-[15px] font-bold">Nobody was moved</p><p className="text-[13px]" style={{ color: MUTED }}>{a.why ? `${a.why.charAt(0).toUpperCase()}${a.why.slice(1)}.` : 'Not everyone said yes.'}</p></>}
       </div>)}
 
       {!compact && nothing && <div className={card} style={{ borderColor: LINE }}><p className="text-[14px]" style={{ color: MUTED }}>{d.dayAll?.why === 'no gap to close' || !d.dayAll ? 'No gaps to close on this day.' : d.dayAll.why}</p></div>}

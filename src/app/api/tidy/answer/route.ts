@@ -1,5 +1,5 @@
 // src/app/api/tidy/answer/route.ts — the link in a "could you come earlier?" text (/m/{tenant}/{token}). Public: the
-// token is the proof. view → what's asked; yes / keep → their answer. Nobody moves until everyone asked says yes.
+// token is the proof. view → what's asked; yes / keep → their answer. Each yes is final straight away; the next person is asked only after it.
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminDb } from '@/lib/firebase-admin';
 import { tidyView, tidyAnswer } from '@/lib/tidy-server';
